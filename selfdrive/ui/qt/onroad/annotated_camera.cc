@@ -71,11 +71,11 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
   experimental_btn->updateState(s);
 
   // Update DAD widget state
-  float confidence = cs.getLongitudinalPlanSource();
+  // float confidence = cs.LongControlState();
   float steering_torque = car_state.getSteeringTorqueEps();
   float brake_pressure = car_state.getBrake();
   float acceleration = car_state.getAEgo();
-  dad_widget->updateState(confidence, steering_torque, brake_pressure, acceleration);
+  dad_widget->updateState(steering_torque, brake_pressure, acceleration); // add back in confidence
 
   // REMOVE - DM stops updating
   // // update DM icon

@@ -9,7 +9,7 @@ class DriverAlertDial : public QWidget {
 
 public:
   explicit DriverAlertDial(QWidget *parent = 0);
-  void updateState(float confidence, float steering_torque, float brake_preassure, float acceleration);
+  void updateState(float steering_torque, float brake_preassure, float acceleration); // add back in float confidence,
 
 protected:
   void paintEvent(QPaintEvent *event) override;

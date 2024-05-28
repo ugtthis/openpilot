@@ -8,8 +8,9 @@ DriverAlertDial::DriverAlertDial(QWidget *parent) : QWidget(parent), confidence(
 }
 
 // Updates the internal state of widget
-void DriverAlertDial::updateState(float conf, float steer_torque, float brake, float accel) {
-  confidence = conf;
+// add back in float conf,
+void DriverAlertDial::updateState(float steer_torque, float brake, float accel) {
+  // confidence = conf;
   steering_torque = steer_torque;
   brake_pressure = brake;
   acceleration = accel;
@@ -28,7 +29,7 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
   QColor alert_color = getAlertColor(confidence);
   painter.setBrush(alert_color);
   QPointF ball_pos = calculateAlertBallPosition();
-  painter.drawEllipse(ball_pos, 10, 10); // edit the ball size
+  painter.drawEllipse(ball_pos, 20, 20); // edit the ball size
 }
 
 // Determines what color alert ball is
