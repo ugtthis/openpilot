@@ -1,10 +1,13 @@
 #include "selfdrive/ui/qt/widgets/driver_alert_dial.h"
 #include <algorithm>
+// #include <QPainter>
+// #include <QColor>
+// #include <QBrush>
 
 // This initializes the widgets properties
 DriverAlertDial::DriverAlertDial(QWidget *parent) : QWidget(parent), confidence(0.0), steering_torque(0.0), brake_pressure(0.0), acceleration(0.0) {
   //Set the widget size
-  setFixedSize(200, 200);
+  setFixedSize(350, 350);
 }
 
 // Updates the internal state of widget
@@ -22,8 +25,19 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
   painter.setRenderHint(QPainter::Antialiasing);
 
   // Draw the background circles
-  painter.setBrush(QColor(200, 200, 200));
-  painter.drawEllipse(10, 10, 180, 180);
+  // painter.setBrush(QColor(200, 200, 200));
+  // painter.drawEllipse(10, 10, 180, 180);
+
+  painter.setBrush(QBrush(Qt::red));
+  painter.drawEllipse(QPointF(width()/2, height()/2), 175, 175);
+
+  painter.setBrush(QBrush(Qt::yellow));
+  painter.drawEllipse(QPointF(width()/2, height()/2), 120, 120);
+
+  painter.setBrush(QBrush(Qt::cyan));
+  painter.drawEllipse(QPointF(width()/2, height()/2), 55, 55);
+
+
 
   // Draw the alert ball
   QColor alert_color = getAlertColor(confidence);
