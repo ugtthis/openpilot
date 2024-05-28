@@ -2,13 +2,13 @@
 #include <algorithm>
 
 // This initializes the widgets properties
-DADWidget::DADWidget(QWidget *parent) : QWidget(parent), confidence(0.0), steering_torque(0.0), brake_pressure(0.0), acceleration(0.0) {
+DriverAlertDial::DriverAlertDial(QWidget *parent) : QWidget(parent), confidence(0.0), steering_torque(0.0), brake_pressure(0.0), acceleration(0.0) {
   //Set the widget size
   setFixedSize(200, 200);
 }
 
 // Updates the internal state of widget
-void DADWidget::updateState(float conf, float steer_torque, float brake, float accel) {
+void DriverAlertDial::updateState(float conf, float steer_torque, float brake, float accel) {
   confidence = conf;
   steering_torque = steer_torque;
   brake_pressure = brake;
@@ -16,7 +16,7 @@ void DADWidget::updateState(float conf, float steer_torque, float brake, float a
   update(); //this requests a repaint
 }
 
-void DADWidget::paintEvent(QPaintEvent *event) {
+void DriverAlertDial::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
 
@@ -25,25 +25,25 @@ void DADWidget::paintEvent(QPaintEvent *event) {
   painter.drawEllipse(10, 10, 180, 180);
 
   // Draw the alert ball
-  Qcolor alert_color = getAlertColor(confidence);
+  QColor alert_color = getAlertColor(confidence);
   painter.setBrush(alert_color);
   QPointF ball_pos = calculateAlertBallPosition();
   painter.drawEllipse(ball_pos, 10, 10); // edit the ball size
 }
 
 // Determines what color alert ball is
-QColor DADWidget::getAlertColor(float confidence) {
+QColor DriverAlertDial::getAlertColor(float conf) {
   if (confidence < 0.33) {
     return QColor(0, 255, 255); // Cyan
   } else if (confidence < 0.66) {
-    return Qcolor(255, 255, 0); // Yellow
+    return QColor(255, 255, 0); // Yellow
   } else {
     return QColor(255, 0, 0); // Red
   }
 }
 
 // MODIFY
-QPointF DADWidget::calculateAlertBallPosition() {
+QPointF DriverAlertDial::calculateAlertBallPosition() {
   float x = width() / 2;
   float y = height() / 2;
 

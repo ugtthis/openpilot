@@ -1,5 +1,6 @@
 
 #include "selfdrive/ui/qt/onroad/annotated_camera.h"
+#include "selfdrive/ui/qt/widgets/driver_alert_dial.h"
 
 #include <QPainter>
 #include <algorithm>
@@ -23,6 +24,9 @@ AnnotatedCameraWidget::AnnotatedCameraWidget(VisionStreamType type, QWidget* par
   map_settings_btn = new MapSettingsButton(this);
   main_layout->addWidget(map_settings_btn, 0, Qt::AlignBottom | Qt::AlignRight);
 
+  // Initialize DADwidget
+  dad_widget = new DriverAlertDial(this);
+  main_layout->addWidget(dad_widget, 0, Qt::AlignBottom | Qt::AlignLeft);
   //REMOVE - takes away the ring and face
   // dm_img = loadPixmap("../assets/img_driver_face.png", {img_size + 5, img_size + 5});
   //---
@@ -65,6 +69,13 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
 
   // update engageability/experimental mode button
   experimental_btn->updateState(s);
+
+  // Update DAD widget state
+  float confidence = cs.getLongitudinalPlanSource();
+  float steering_torque = car_state.getSteeringTorqueEps();
+  float brake_pressure = car_state.getBrake();
+  float acceleration = car_state.getAEgo();
+  dad_widget->updateState(confidence, steering_torque, brake_pressure, acceleration);
 
   // REMOVE - DM stops updating
   // // update DM icon

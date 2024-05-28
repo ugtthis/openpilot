@@ -5,6 +5,7 @@
 
 #include "selfdrive/ui/qt/onroad/buttons.h"
 #include "selfdrive/ui/qt/widgets/cameraview.h"
+#include "selfdrive/ui/qt/widgets/driver_alert_dial.h"
 
 class AnnotatedCameraWidget : public CameraWidget {
   Q_OBJECT
@@ -20,6 +21,7 @@ private:
 
   QVBoxLayout *main_layout;
   ExperimentalButton *experimental_btn;
+  DriverAlertDial *dad_widget;
   // REMOVE
   // QPixmap dm_img;
   float speed;

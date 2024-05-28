@@ -4,11 +4,11 @@
 #include <QPainter>
 #include <QTimer>
 
-class DADWidget : public QWidget {
+class DriverAlertDial : public QWidget {
   Q_OBJECT
 
 public:
-  explicit DADWidget(QWidget *parent = 0);
+  explicit DriverAlertDial(QWidget *parent = 0);
   void updateState(float confidence, float steering_torque, float brake_preassure, float acceleration);
 
 protected:
@@ -17,7 +17,7 @@ protected:
 private:
   float confidence;
   float steering_torque;
-  float brake_preassure;
+  float brake_pressure;
   float acceleration;
   QColor getAlertColor(float confidence);
   QPointF calculateAlertBallPosition();
