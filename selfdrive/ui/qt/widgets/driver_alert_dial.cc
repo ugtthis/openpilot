@@ -1,64 +1,95 @@
 #include "selfdrive/ui/qt/widgets/driver_alert_dial.h"
 #include <algorithm>
-// #include <QPainter>
-// #include <QColor>
-// #include <QBrush>
 
-// This initializes the widgets properties
-DriverAlertDial::DriverAlertDial(QWidget *parent) : QWidget(parent), confidence(0.0), steering_torque(0.0), brake_pressure(0.0), acceleration(0.0) {
+// Constructor: This initializes the widgets properties
+DriverAlertDial::DriverAlertDial(QWidget *parent) : QWidget(parent), confidence(cereal::ModelDataV2::ConfidenceClass::GREEN), steering_torque(0.0), brake_pressure(0.0), acceleration(0.0) {
   //Set the widget size
-  setFixedSize(350, 350);
+  setFixedSize(360, 360);
 }
 
 // Updates the internal state of widget
-// add back in float conf,
-void DriverAlertDial::updateState(float steer_torque, float brake, float accel) {
-  // confidence = conf;
+void DriverAlertDial::updateState(cereal::ModelDataV2::ConfidenceClass conf, float steer_torque, float brake, float accel) {
+  confidence = conf;
   steering_torque = steer_torque;
   brake_pressure = brake;
   acceleration = accel;
   update(); //this requests a repaint
 }
 
+// Helper function to draw a circle with a border
+void DriverAlertDial::drawCircle(QPainter &painter, const QPointF &center, int radius, const QColor &fill_color, const QColor &border_color, int border_thickness) {
+  painter.setBrush(QBrush(fill_color));
+  if (border_thickness > 0) {
+    painter.setPen(QPen(border_color, border_thickness));
+  } else {
+    painter.setPen(Qt::NoPen);
+  }
+  painter.drawEllipse(center, radius, radius);
+}
+
+// Paints the widget
 void DriverAlertDial::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
 
-  // Draw the background circles
-  // painter.setBrush(QColor(200, 200, 200));
-  // painter.drawEllipse(10, 10, 180, 180);
 
-  painter.setBrush(QBrush(Qt::red));
-  painter.drawEllipse(QPointF(width()/2, height()/2), 175, 175);
+  // Define colors based on alert level
+  QColor outer_color, middle_color, inner_color;
+  QColor border_color = QColor(50, 50, 50); // Dark gray border color
+  int border_thickness = 10;
 
-  painter.setBrush(QBrush(Qt::yellow));
-  painter.drawEllipse(QPointF(width()/2, height()/2), 120, 120);
+  // Determine the colors based on confidence level
+  switch (confidence) {
+    case cereal::ModelDataV2::ConfidenceClass::GREEN: // Low Alert
+      outer_color = QColor(0, 255, 255); // Cyan
+      middle_color = QColor(0, 128, 128); // Dark Cyan
+      inner_color = QColor(0, 64, 64); //Even Darker Cyan
+      break;
+    case cereal::ModelDataV2::ConfidenceClass::YELLOW: // Medium Alert
+      outer_color = QColor(255, 255, 0); // Yellow
+      middle_color = QColor(128, 128, 0); // Dark Yellow
+      inner_color = QColor(64, 64, 0); //Even Darker Yellow
+      break;
+    case cereal::ModelDataV2::ConfidenceClass::RED: // High Alert
+      outer_color = QColor(255, 0, 0); // Red
+      middle_color = QColor(128, 0, 0); // Dark Red
+      inner_color = QColor(64, 64, 0); //Even Darker Red
+      break;
+    default:
+      outer_color = QColor(0, 255, 255); // Cyan
+      middle_color = QColor(0, 128, 128); // Dark Cyan
+      inner_color = QColor(0, 64, 64); //Even Darker Cyan
+      break;
+  }
 
-  painter.setBrush(QBrush(Qt::cyan));
-  painter.drawEllipse(QPointF(width()/2, height()/2), 55, 55);
+  // Draw the outer, middle, and inner circles
+  drawCircle(painter, QPointF(width() / 2, height() / 2), 175, outer_color, border_color, border_thickness);
+  drawCircle(painter, QPointF(width() / 2, height() / 2), 120, middle_color, Qt::NoPen, 0);
+  drawCircle(painter, QPointF(width() / 2, height() / 2), 55, inner_color, Qt::NoPen, 0);
 
-
-
-  // Draw the alert ball
+  // Draws the alert ball
   QColor alert_color = getAlertColor(confidence);
   painter.setBrush(alert_color);
   QPointF ball_pos = calculateAlertBallPosition();
   painter.drawEllipse(ball_pos, 20, 20); // edit the ball size
 }
 
-// Determines what color alert ball is
-QColor DriverAlertDial::getAlertColor(float conf) {
-  if (confidence < 0.33) {
-    return QColor(0, 255, 255); // Cyan
-  } else if (confidence < 0.66) {
-    return QColor(255, 255, 0); // Yellow
-  } else {
-    return QColor(255, 0, 0); // Red
+// Determines what color alert ball based on confidence level
+QColor DriverAlertDial::getAlertColor(cereal::ModelDataV2::ConfidenceClass conf) {
+  switch (conf) {
+    case cereal::ModelDataV2::ConfidenceClass::GREEN:
+      return QColor(0, 255, 255); // Cyan
+    case cereal::ModelDataV2::ConfidenceClass::YELLOW:
+      return QColor(255, 255, 0); // Yellow
+    case cereal::ModelDataV2::ConfidenceClass::RED:
+      return QColor(255, 0, 0); // Red
+    default:
+      return QColor(0, 255, 255); // Default to Cyan
   }
 }
 
-// MODIFY
-QPointF DriverAlertDial::calculateAlertBallPosition() {
+// MODIFY - This should calculate the position of the alert ball
+QPointF DriverAlertDial::calculateAlertBallPosition() const {
   float x = width() / 2;
   float y = height() / 2;
 
@@ -69,9 +100,9 @@ QPointF DriverAlertDial::calculateAlertBallPosition() {
   float high_torque_threshold = 0.5;
 
   // Scaling factor to control movement based on confidence
-  float ball_movement_scale = (1.0f - confidence) * 100; //Higher confidence means alert ball moves less and stays in middle
+  float ball_movement_scale = 5; // Adjust as needed
 
-  if (confidence < 0.66) {
+  if (confidence != cereal::ModelDataV2::ConfidenceClass::GREEN) {
     if (acceleration > too_fast_threshold) {
       // Too fast, move the ball up
       y -= (acceleration - too_fast_threshold) * ball_movement_scale;

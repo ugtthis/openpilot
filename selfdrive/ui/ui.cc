@@ -80,6 +80,10 @@ void update_model(UIState *s,
                   const cereal::ModelDataV2::Reader &model,
                   const cereal::UiPlan::Reader &plan) {
   UIScene &scene = s->scene;
+
+  // Retrieve confident score from model AND convert itWHich
+  scene.confidence = model.getConfidence();
+
   auto plan_position = plan.getPosition();
   if (plan_position.getX().size() < model.getPosition().getX().size()) {
     plan_position = model.getPosition();

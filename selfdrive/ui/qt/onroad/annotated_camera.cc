@@ -71,11 +71,11 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
   experimental_btn->updateState(s);
 
   // Update DAD widget state
-  // float confidence = cs.LongControlState();
+  cereal::ModelDataV2::ConfidenceClass confidence = s.scene.confidence;
   float steering_torque = car_state.getSteeringTorqueEps();
   float brake_pressure = car_state.getBrake();
   float acceleration = car_state.getAEgo();
-  dad_widget->updateState(steering_torque, brake_pressure, acceleration); // add back in confidence
+  dad_widget->updateState(confidence, steering_torque, brake_pressure, acceleration);
 
   // REMOVE - DM stops updating
   // // update DM icon
@@ -92,6 +92,9 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
     // REMOVE ? rightHandDM
     main_layout->setAlignment(map_settings_btn, (rightHandDM ? Qt::AlignLeft : Qt::AlignRight) | Qt::AlignBottom);
   }
+
+  // Update driver alert dial with the confidence score and other parameters
+  dad_widget->updateState(s.scene.confidence, car_state.getSteeringTorqueEps(), car_state.getBrake(), car_state.getAEgo());
 }
 
 void AnnotatedCameraWidget::drawHud(QPainter &p) {
