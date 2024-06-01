@@ -3,9 +3,9 @@
 
 // Implements createRadialGradient function
 QRadialGradient DriverAlertDial::createRadialGradient(const QPointF &center,
+                                                      const QColor &color,
                                                       int radius,
                                                       int blur_radius,
-                                                      const QColor &color,
                                                       int opacity,
                                                       int x_offset,
                                                       int y_offset) {
@@ -32,31 +32,39 @@ DriverAlertDial::DriverAlertDial(QWidget *parent) : QWidget(parent),
     confidence(cereal::ModelDataV2::ConfidenceClass::GREEN),
     steering_torque(0.0),
     brake_pressure(0.0),
-    acceleration(0.0) {
+    acceleration(0.0),
+    is_engaged(false) {
 
   setFixedSize(390, 390); //Set the widget size
+}
+
+void DriverAlertDial::setEngagedStatus(bool engaged) {
+  is_engaged = engaged;
+  update();
 }
 
 // Updates the internal state of widget
 void DriverAlertDial::updateState(cereal::ModelDataV2::ConfidenceClass conf,
                                   float steer_torque,
                                   float brake,
-                                  float accel) {
+                                  float accel,
+                                  bool engaged) {
   confidence = conf;
   steering_torque = steer_torque;
   brake_pressure = brake;
   acceleration = accel;
+  is_engaged = engaged;
   update(); //this requests a repaint
 }
 
 // Helper function to draw a circle with a border
 void DriverAlertDial::drawCircle(QPainter &painter,
                                   const QPointF &center,
-                                  int radius,
                                   const QColor &fill_color,
                                   const QColor &border_color,
-                                  int border_thickness,
                                   const QColor &shadow_color,
+                                  int border_thickness,
+                                  int radius,
                                   int shadow_blur_radius,
                                   int shadow_opacity,
                                   int shadow_x,
@@ -64,9 +72,9 @@ void DriverAlertDial::drawCircle(QPainter &painter,
   // Draws shadow IF applicable
   if (shadow_blur_radius > 0 && shadow_opacity > 0) {
     QRadialGradient gradient = createRadialGradient(center,
+                                                    shadow_color,
                                                     radius,
                                                     shadow_blur_radius,
-                                                    shadow_color,
                                                     shadow_opacity,
                                                     shadow_x,
                                                     shadow_y);
@@ -93,6 +101,58 @@ void DriverAlertDial::drawCircle(QPainter &painter,
 
   // Aligns the different circles drawn
   painter.drawEllipse(center.x() - radius, center.y() - radius, radius * 2, radius * 2);
+}
+
+// IF openpilot is not engaged DAD properties
+AlertProperties DriverAlertDial::getAlertPropertiesForDisengaged() const {
+  AlertProperties properties;
+
+  // Fill color
+  properties.outerColor = QColor(21, 21, 21, 100);
+  properties.middleColor = QColor(21, 21, 21, 100);
+  properties.innerColor = QColor(21, 21, 21, 100);
+
+  // Border color
+  properties.outerBorderColor = QColor(255, 0, 0, 50);
+  properties.middleBorderColor = QColor(255, 245, 0, 50);
+  properties.innerBorderColor = QColor(0, 209, 255, 50);
+
+  // Shadow color
+  properties.outerShadowColor = QColor(0, 0, 0, 0);
+  properties.middleShadowColor = QColor(0, 0, 0, 0);
+  properties.innerShadowColor = QColor(0, 0, 0, 0);
+
+  // Shadow blur radius
+  properties.outerShadowBlurRadius = 0;
+  properties.middleShadowBlurRadius = 0;
+  properties.innerShadowBlurRadius = 0;
+
+  // Shadow opacity
+  properties.outerShadowOpacity = 0;
+  properties.middleShadowOpacity = 0;
+  properties.innerShadowOpacity = 0;
+
+  // Border thickness
+  properties.outerBorderThickness = 20;
+  properties.middleBorderThickness = 10;
+  properties.innerBorderThickness = 10;
+
+  properties.shadowX = 0;
+  properties.shadowY = 0;
+
+  // Alert ball fill color
+  properties.alertBallOuterColor = QColor(0, 0, 0, 0);
+  properties.alertBallInnerColor = QColor(0, 0, 0, 0);
+
+  // Alert ball border color
+  properties.alertBallOuterBorderColor = QColor(0, 0, 0, 0);
+  properties.alertBallInnerBorderColor = QColor(0, 0, 0, 0);
+
+  // Alert ball border thickness
+  properties.alertBallOuterBorderThickness = 0;
+  properties.alertBallInnerBorderThickness = 0;
+
+  return properties;
 }
 
 // Returns the properties for the given confidence level
@@ -245,56 +305,6 @@ AlertProperties DriverAlertDial::getAlertProperties(cereal::ModelDataV2::Confide
       properties.alertBallInnerBorderThickness = 0;
 
       break;
-
-    default: // Disabled state
-
-      // Fill color
-      properties.outerColor = QColor(108, 108, 108);
-      properties.middleColor = QColor(108, 108, 108);
-      properties.innerColor = QColor(108, 108, 108);
-
-      // Border color
-      properties.outerBorderColor = QColor(79, 16, 16);
-      properties.middleBorderColor = QColor(79, 16, 16);
-      properties.innerBorderColor = QColor(79, 16, 16);
-
-      // Shadow color
-      properties.outerShadowColor = QColor(0, 0, 0);
-      properties.middleShadowColor = QColor(0, 0, 0);
-      properties.innerShadowColor = QColor(0, 0, 0);
-
-      // Shadow blur radius
-      properties.outerShadowBlurRadius = 0;
-      properties.middleShadowBlurRadius = 0;
-      properties.innerShadowBlurRadius = 0;
-
-      // Shadow opacity
-      properties.outerShadowOpacity = 0;
-      properties.middleShadowOpacity = 0;
-      properties.innerShadowOpacity = 0;
-
-      // Border thickness
-      properties.outerBorderThickness = 20;
-      properties.middleBorderThickness = 10;
-      properties.innerBorderThickness = 10;
-
-      properties.shadowX = 0;
-      properties.shadowY = 0;
-
-      // Alert ball fill color
-      // Made it transparent since ball is not needed when disabled
-      properties.alertBallOuterColor = QColor(0, 0, 0, 0);
-      properties.alertBallInnerColor = QColor(0, 0, 0, 0);
-
-      // Alert ball border color
-      properties.alertBallOuterBorderColor = QColor(0, 0, 0);
-      properties.alertBallInnerBorderColor = QColor(0, 0, 0);
-
-      // Alert ball border thickness
-      properties.alertBallOuterBorderThickness = 0;
-      properties.alertBallInnerBorderThickness = 0;
-
-      break;
   }
   return properties;
 
@@ -305,19 +315,24 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
 
-  // Get properties based on confidence level
-  AlertProperties properties = getAlertProperties(confidence);
+  // Get properties based on engagement status and confidence level
+  AlertProperties properties;
+  if (is_engaged) {
+    properties = getAlertProperties(confidence);
+  } else {
+    properties = getAlertPropertiesForDisengaged();
+  }
 
   QPointF center(width() / 2, height() / 2);
 
   // Draws the outer
   drawCircle(painter,
             QPointF(width() / 2, height() / 2),
-            155,
             properties.outerColor,
             properties.outerBorderColor,
-            properties.outerBorderThickness,
             properties.outerShadowColor,
+            properties.outerBorderThickness,
+            155,
             properties.outerShadowBlurRadius,
             properties.outerShadowOpacity,
             properties.shadowX,
@@ -326,11 +341,11 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
   // Draws the middle circle
   drawCircle(painter,
             QPointF(width() / 2, height() / 2),
-            100,
             properties.middleColor,
             properties.middleBorderColor,
-            properties.middleBorderThickness,
             properties.middleShadowColor,
+            properties.middleBorderThickness,
+            100,
             properties.middleShadowBlurRadius / 4,
             properties.middleShadowOpacity,
             properties.shadowX,
@@ -339,11 +354,11 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
   // Draws the inner circle
   drawCircle(painter,
             QPointF(width() / 2, height() / 2),
-            35,
             properties.innerColor,
             properties.innerBorderColor,
-            properties.innerBorderThickness,
             properties.innerShadowColor,
+            properties.innerBorderThickness,
+            35,
             properties.innerShadowBlurRadius / 4,
             properties.innerShadowOpacity,
             properties.shadowX,
@@ -364,14 +379,17 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
   painter.setPen(QPen(properties.alertBallInnerBorderColor, properties.alertBallInnerBorderThickness));
   painter.drawEllipse(ball_pos.x() - inner_ball_radius, ball_pos.y() - inner_ball_radius, 24, 24);
 
-  // Box around UI to see sizing easier - REMOVE soon
-  QPen borderPen(Qt::blue, 2);
-  painter.setPen(borderPen);
-  painter.setBrush(Qt::NoBrush);
+  // // REMOVE SOON ---
+  // // Box around UI to see sizing easier REMOVE
+  // QPen borderPen(Qt::blue, 2);
+  // painter.setPen(borderPen);
+  // painter.setBrush(Qt::NoBrush);
 
-  // Draw a rectangle around the widget
-  QRectF borderRect(0, 0, width(), height());
-  painter.drawRect(borderRect);
+  // // Draw a rectangle around the widget
+  // QRectF borderRect(0, 0, width(), height());
+  // painter.drawRect(borderRect);
+  // // ---
+
 
   // Restore painter state
   painter.restore();

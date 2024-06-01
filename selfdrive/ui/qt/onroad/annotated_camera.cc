@@ -70,12 +70,21 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
   // Update engageability/experimental mode button
   experimental_btn->updateState(s);
 
+  // Set engagement status for DAD widget
+  bool is_engaged = s.status != STATUS_DISENGAGED;
+  dad_widget->setEngagedStatus(is_engaged);
+
   // Update DAD widget state
   cereal::ModelDataV2::ConfidenceClass confidence = s.scene.confidence;
   float steering_torque = car_state.getSteeringTorqueEps();
   float brake_pressure = car_state.getBrake();
   float acceleration = car_state.getAEgo();
-  dad_widget->updateState(confidence, steering_torque, brake_pressure, acceleration);
+
+  dad_widget->updateState(confidence,
+                          steering_torque,
+                          brake_pressure,
+                          acceleration,
+                          is_engaged);
 
   // REMOVE - DM stops updating
   // // update DM icon
@@ -95,7 +104,11 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
   }
 
   // Update driver alert dial with the confidence score and other parameters
-  dad_widget->updateState(s.scene.confidence, car_state.getSteeringTorqueEps(), car_state.getBrake(), car_state.getAEgo());
+  dad_widget->updateState(s.scene.confidence,
+                          car_state.getSteeringTorqueEps(),
+                          car_state.getBrake(),
+                          car_state.getAEgo(),
+                          is_engaged);
 }
 
 void AnnotatedCameraWidget::drawHud(QPainter &p) {

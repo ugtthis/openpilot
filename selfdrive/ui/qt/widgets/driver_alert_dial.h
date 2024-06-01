@@ -49,14 +49,20 @@ class DriverAlertDial : public QWidget {
 
 public:
   explicit DriverAlertDial(QWidget *parent = nullptr);
-  void updateState(cereal::ModelDataV2::ConfidenceClass confidence, float steering_torque, float brake_preassure, float acceleration);
+  void updateState(cereal::ModelDataV2::ConfidenceClass confidence, float steering_torque,
+                                                                    float brake_preassure,
+                                                                    float acceleration,
+                                                                    bool engaged);
+  void setEngagedStatus(bool engaged);
 
 protected:
   void paintEvent(QPaintEvent *event) override;
 
 private:
   cereal::ModelDataV2::ConfidenceClass confidence;
+  bool is_engaged;
   AlertProperties getAlertProperties(cereal::ModelDataV2::ConfidenceClass confidence) const;
+  AlertProperties getAlertPropertiesForDisengaged() const;
   QColor getAlertColor(cereal::ModelDataV2::ConfidenceClass confidence);
   QPointF calculateAlertBallPosition() const;
 
@@ -66,20 +72,20 @@ private:
 
   void drawCircle(QPainter &painter,
                   const QPointF &center,
-                  int radius,
                   const QColor &fill_color,
                   const QColor &border_color,
-                  int border_thickness,
                   const QColor &shadow_color,
+                  int border_thickness,
+                  int radius,
                   int shadow_blur_radius,
                   int shadow_opacity,
                   int shadow_x,
                   int shadow_y);
 
   QRadialGradient createRadialGradient(const QPointF &center,
+                                       const QColor &color,
                                        int radius,
                                        int blur_radius,
-                                       const QColor &color,
                                        int opacity,
                                        int x_offset,
                                        int y_offset);
