@@ -32,6 +32,16 @@ struct AlertProperties {
 
   int shadowX;
   int shadowY;
+
+  // Properties for alert ball
+  QColor alertBallOuterColor;
+  QColor alertBallInnerColor;
+
+  QColor alertBallOuterBorderColor;
+  QColor alertBallInnerBorderColor;
+
+  int alertBallOuterBorderThickness;
+  int alertBallInnerBorderThickness;
 };
 
 class DriverAlertDial : public QWidget {
