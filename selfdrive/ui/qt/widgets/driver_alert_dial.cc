@@ -1,6 +1,29 @@
 #include "selfdrive/ui/qt/widgets/driver_alert_dial.h"
 #include <algorithm>
 
+// Implements createRadialGradient function
+QRadialGradient DriverAlertDial::createRadialGradient(const QPointF &center,
+                                                      int radius,
+                                                      int blur_radius,
+                                                      const QColor &color,
+                                                      int opacity,
+                                                      int x_offset,
+                                                      int y_offset) {
+  QRadialGradient gradient(center + QPointF(x_offset, y_offset), radius + blur_radius);
+  QColor intenseColor = color;
+  intenseColor.setAlpha(opacity);
+  QColor midColor = color;
+  midColor.setAlpha(opacity / 2);
+  QColor transparentColor = color;
+  transparentColor.setAlpha(0);
+
+  gradient.setColorAt(0, intenseColor);
+  gradient.setColorAt(0.8, midColor);
+  gradient.setColorAt(1, transparentColor);
+
+  return gradient;
+}
+
 // Constructor: This initializes the widgets properties
 DriverAlertDial::DriverAlertDial(QWidget *parent) : QWidget(parent),
     confidence(cereal::ModelDataV2::ConfidenceClass::GREEN),
@@ -8,7 +31,7 @@ DriverAlertDial::DriverAlertDial(QWidget *parent) : QWidget(parent),
     brake_pressure(0.0),
     acceleration(0.0) {
 
-  setFixedSize(450, 450); //Set the widget size
+  setFixedSize(445, 445); //Set the widget size
 }
 
 // Updates the internal state of widget
@@ -32,10 +55,19 @@ void DriverAlertDial::drawCircle(QPainter &painter,
                                   int border_thickness,
                                   const QColor &shadow_color,
                                   int shadow_blur_radius,
+                                  int shadow_opacity,
                                   int shadow_x,
                                   int shadow_y) {
   // Draws shadow IF applicable
-  if (shadow_blur_radius > 0 && shadow_color.alpha() > 0) {
+  if (shadow_blur_radius > 0 && shadow_opacity > 0) {
+    QRadialGradient gradient = createRadialGradient(center,
+                                                    radius,
+                                                    shadow_blur_radius,
+                                                    shadow_color,
+                                                    shadow_opacity,
+                                                    shadow_x,
+                                                    shadow_y);
+
     painter.setPen(Qt::NoPen);
     painter.setBrush(QBrush(shadow_color));
     painter.setRenderHint(QPainter::Antialiasing, true);
@@ -48,7 +80,7 @@ void DriverAlertDial::drawCircle(QPainter &painter,
 
     QPainterPath shadow_path;
     shadow_path.addEllipse(shadow_rect);
-    painter.fillPath(shadow_path, shadow_color);
+    painter.fillPath(shadow_path, QBrush(gradient));
   }
 
   // Draws the circle with the border
@@ -65,59 +97,151 @@ AlertProperties DriverAlertDial::getAlertProperties(cereal::ModelDataV2::Confide
   AlertProperties properties;
   switch (conf) {
     case cereal::ModelDataV2::ConfidenceClass::GREEN: // Low Alert
+
+      // Fill color
       properties.outerColor = QColor(21, 21, 21); // Outer fill color
       properties.middleColor = QColor(21, 21, 21); // Middle fill color
       properties.innerColor = QColor(16, 68, 79); // Inner fill color
-      properties.borderColor = QColor(79, 16, 16); //Border color
-      properties.shadowColor = QColor(0, 209, 255, 17); // Shadow color & Transparency
-      properties.shadowBlurRadius = 25;
-      properties.shadowX = 0;
-      properties.shadowY = 0;
+
+      // Border color
+      properties.outerBorderColor = QColor(79, 16, 16); // Outer border color
+      properties.middleBorderColor = QColor(79, 16, 16); // Middle border color
+      properties.innerBorderColor = QColor(79, 16, 16); // Inner border color
+
+      // Shadow color
+      properties.outerShadowColor = QColor(0, 209, 255); // Outer shadow color
+      properties.middleShadowColor = QColor(0, 209, 255); // Middle shadow color
+      properties.innerShadowColor = QColor(0, 209, 255); // Inner shadow color
+
+      // Shadow blur radius
+      properties.outerShadowBlurRadius = 45;
+      properties.middleShadowBlurRadius = 25;
+      properties.innerShadowBlurRadius = 10;
+
+      // Shadow opacity
+      properties.outerShadowOpacity = 179;
+      properties.middleShadowOpacity = 45;
+      properties.innerShadowOpacity = 45;
+
+      // Border thickness
       properties.outerBorderThickness = 20;
       properties.middleBorderThickness = 10;
       properties.innerBorderThickness = 10;
+
+      properties.shadowX = 0;
+      properties.shadowY = 0;
+
       break;
 
     case cereal::ModelDataV2::ConfidenceClass::YELLOW: // Medium Alert
-      properties.outerColor = QColor(21, 21, 21); // Outer fill color
+
+      // Fill color
+      properties.outerColor = QColor(28, 27, 21); // Outer fill color
       properties.middleColor = QColor(80, 77, 16); // Middle fill color
-      properties.innerColor = QColor(21, 21, 21); // Inner fill color
-      properties.borderColor = QColor(79, 16, 16); //Border color
-      properties.shadowColor = QColor(255, 245, 0, 17); // Shadow color & Transparency
-      properties.shadowBlurRadius = 25;
-      properties.shadowX = 0;
-      properties.shadowY = 0;
+      properties.innerColor = QColor(80, 77, 16); // Inner fill color
+
+      // Border color
+      properties.outerBorderColor = QColor(79, 16, 16); // Outer border color
+      properties.middleBorderColor = QColor(255, 245, 16); // Middle border color
+      properties.innerBorderColor = QColor(60 , 102, 76); // Inner border color
+
+      // Shadow color
+      properties.outerShadowColor = QColor(255, 245, 0); // Outer shadow color
+      properties.middleShadowColor = QColor(255, 245, 0); // Middle shadow color
+      properties.innerShadowColor = QColor(0, 0, 0); // Inner shadow color
+
+      // Shadow blur radius
+      properties.outerShadowBlurRadius = 45;
+      properties.middleShadowBlurRadius = 25;
+      properties.innerShadowBlurRadius = 0;
+
+      // Shadow opacity
+      properties.outerShadowOpacity = 255;
+      properties.middleShadowOpacity = 45;
+      properties.innerShadowOpacity = 0;
+
+      // Border thickness
       properties.outerBorderThickness = 20;
       properties.middleBorderThickness = 10;
       properties.innerBorderThickness = 10;
+
+      properties.shadowX = 0;
+      properties.shadowY = 0;
+
       break;
 
     case cereal::ModelDataV2::ConfidenceClass::RED: // High Alert
-      properties.outerColor = QColor(21, 21, 21); // Outer fill color
+
+      // Fill color
+      properties.outerColor = QColor(13, 13, 13); // Outer fill color
       properties.middleColor = QColor(13, 13, 13); // Middle fill color
       properties.innerColor = QColor(13, 13, 13); // Inner fill color
-      properties.borderColor = QColor(255, 0, 0); //Border color
-      properties.shadowColor = QColor(255, 0, 0, 17); // Shadow color & Transparency
-      properties.shadowBlurRadius = 25;
-      properties.shadowX = 0;
-      properties.shadowY = 0;
+
+      // Border color
+      properties.outerBorderColor = QColor(255, 0, 0); // Outer border color
+      properties.middleBorderColor = QColor(30, 30, 30); // Middle border color
+      properties.innerBorderColor = QColor(30, 30, 30); // Inner border color
+
+      // Shadow color
+      properties.outerShadowColor = QColor(255, 0, 0); // Outer shadow color
+      properties.middleShadowColor = QColor(0, 0, 0); // Middle shadow color
+      properties.innerShadowColor = QColor(0, 0, 0); // Inner shadow color
+
+      // Shadow blur radius
+      properties.outerShadowBlurRadius = 45;
+      properties.middleShadowBlurRadius = 0;
+      properties.innerShadowBlurRadius = 0;
+
+      // Shadow opacity
+      properties.outerShadowOpacity = 255;
+      properties.middleShadowOpacity = 0;
+      properties.innerShadowOpacity = 0;
+
+      // Border thickness
       properties.outerBorderThickness = 20;
       properties.middleBorderThickness = 10;
       properties.innerBorderThickness = 10;
+
+      properties.shadowX = 0;
+      properties.shadowY = 0;
+
       break;
 
     default: // Disabled state
+
+      // Fill color
       properties.outerColor = QColor(108, 108, 108); // Outer fill color
       properties.middleColor = QColor(108, 108, 108); // Middle fill color
       properties.innerColor = QColor(108, 108, 108); // Inner fill color
-      properties.borderColor = QColor(122, 97, 97); //Border color
-      properties.shadowColor = QColor(0, 0, 0, 0); // Shadow color & Transparency
-      properties.shadowBlurRadius = 0;
-      properties.shadowX = 0;
-      properties.shadowY = 0;
+
+      // Border color
+      properties.outerBorderColor = QColor(79, 16, 16); // Outer border color
+      properties.middleBorderColor = QColor(79, 16, 16); // Middle border color
+      properties.innerBorderColor = QColor(79, 16, 16); // Inner border color
+
+      // Shadow color
+      properties.outerShadowColor = QColor(0, 0, 0); // Outer shadow color
+      properties.middleShadowColor = QColor(0, 0, 0); // Middle shadow color
+      properties.innerShadowColor = QColor(0, 0, 0); // Inner shadow color
+
+      // Shadow blur radius
+      properties.outerShadowBlurRadius = 0;
+      properties.middleShadowBlurRadius = 0;
+      properties.innerShadowBlurRadius = 0;
+
+      // Shadow opacity
+      properties.outerShadowOpacity = 0;
+      properties.middleShadowOpacity = 0;
+      properties.innerShadowOpacity = 0;
+
+      // Border thickness
       properties.outerBorderThickness = 20;
       properties.middleBorderThickness = 10;
       properties.innerBorderThickness = 10;
+
+      properties.shadowX = 0;
+      properties.shadowY = 0;
+
       break;
   }
   return properties;
@@ -137,36 +261,39 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
   // Draws the outer
   drawCircle(painter,
             QPointF(width() / 2, height() / 2),
-            175,
+            170,
             properties.outerColor,
-            properties.borderColor,
+            properties.outerBorderColor,
             properties.outerBorderThickness,
-            properties.shadowColor,
-            properties.shadowBlurRadius,
+            properties.outerShadowColor,
+            properties.outerShadowBlurRadius,
+            properties.outerShadowOpacity,
             properties.shadowX,
             properties.shadowY);
 
   // Draws the middle circle
   drawCircle(painter,
             QPointF(width() / 2, height() / 2),
-            120,
+            115,
             properties.middleColor,
-            properties.borderColor,
+            properties.middleBorderColor,
             properties.middleBorderThickness,
-            properties.shadowColor,
-            properties.shadowBlurRadius / 4,
+            properties.middleShadowColor,
+            properties.middleShadowBlurRadius / 4,
+            properties.middleShadowOpacity,
             properties.shadowX,
             properties.shadowY);
 
   // Draws the inner circle
   drawCircle(painter,
             QPointF(width() / 2, height() / 2),
-            55,
+            50,
             properties.innerColor,
-            properties.borderColor,
+            properties.innerBorderColor,
             properties.innerBorderThickness,
-            properties.shadowColor,
-            properties.shadowBlurRadius / 4,
+            properties.innerShadowColor,
+            properties.innerShadowBlurRadius / 4,
+            properties.innerShadowOpacity,
             properties.shadowX,
             properties.shadowY);
 

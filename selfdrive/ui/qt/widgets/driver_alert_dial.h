@@ -9,15 +9,29 @@ struct AlertProperties {
   QColor outerColor;
   QColor middleColor;
   QColor innerColor;
-  QColor borderColor;
-  QColor shadowColor;
 
-  int shadowBlurRadius;
-  int shadowX;
-  int shadowY;
+  QColor outerBorderColor;
+  QColor middleBorderColor;
+  QColor innerBorderColor;
+
+  QColor outerShadowColor;
+  QColor middleShadowColor;
+  QColor innerShadowColor;
+
+  int outerShadowOpacity;
+  int middleShadowOpacity;
+  int innerShadowOpacity;
+
+  int outerShadowBlurRadius;
+  int middleShadowBlurRadius;
+  int innerShadowBlurRadius;
+
   int outerBorderThickness;
   int middleBorderThickness;
   int innerBorderThickness;
+
+  int shadowX;
+  int shadowY;
 };
 
 class DriverAlertDial : public QWidget {
@@ -32,12 +46,14 @@ protected:
 
 private:
   cereal::ModelDataV2::ConfidenceClass confidence;
+  AlertProperties getAlertProperties(cereal::ModelDataV2::ConfidenceClass confidence) const;
+  QColor getAlertColor(cereal::ModelDataV2::ConfidenceClass confidence);
+  QPointF calculateAlertBallPosition() const;
+
   float steering_torque;
   float brake_pressure;
   float acceleration;
-  QColor getAlertColor(cereal::ModelDataV2::ConfidenceClass confidence);
-  QPointF calculateAlertBallPosition() const;
-  AlertProperties getAlertProperties(cereal::ModelDataV2::ConfidenceClass confidence) const;
+
   void drawCircle(QPainter &painter,
                   const QPointF &center,
                   int radius,
@@ -46,6 +62,15 @@ private:
                   int border_thickness,
                   const QColor &shadow_color,
                   int shadow_blur_radius,
+                  int shadow_opacity,
                   int shadow_x,
                   int shadow_y);
+
+  QRadialGradient createRadialGradient(const QPointF &center,
+                                       int radius,
+                                       int blur_radius,
+                                       const QColor &color,
+                                       int opacity,
+                                       int x_offset,
+                                       int y_offset);
 };
