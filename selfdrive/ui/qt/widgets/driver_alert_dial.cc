@@ -1,5 +1,11 @@
 #include "selfdrive/ui/qt/widgets/driver_alert_dial.h"
 #include <algorithm>
+#include <QPainter>
+#include <QPen>
+#include <QBrush>
+#include <QPainterPath>
+#include <QRectF>
+#include <cmath>
 
 // Implements createRadialGradient function
 QRadialGradient DriverAlertDial::createRadialGradient(const QPointF &center,
@@ -310,6 +316,55 @@ AlertProperties DriverAlertDial::getAlertProperties(cereal::ModelDataV2::Confide
 
 }
 
+// ---
+// MODIFY - This should calculate the position of the alert ball
+// ---
+QRectF DriverAlertDial::getZoneForConfidence(cereal::ModelDataV2::ConfidenceClass conf) const {
+  QPointF center(width() / 2, height() / 2);
+
+  switch (conf) {
+    case cereal::ModelDataV2::ConfidenceClass::GREEN:
+      return QRectF(center.x() - INNER_RADIUS, center.y() - INNER_RADIUS, INNER_RADIUS * 2, INNER_RADIUS * 2);
+    case cereal::ModelDataV2::ConfidenceClass::YELLOW:
+      return QRectF(center.x() - MIDDLE_RADIUS, center.y() - MIDDLE_RADIUS, MIDDLE_RADIUS * 2, MIDDLE_RADIUS * 2);
+    case cereal::ModelDataV2::ConfidenceClass::RED:
+      return QRectF(center.x() - OUTER_RADIUS, center.y() - OUTER_RADIUS, OUTER_RADIUS * 2, OUTER_RADIUS * 2);
+  }
+}
+
+QPointF DriverAlertDial::calculateAlertBallPosition() const {
+  float x = width() / 2;
+  float y = height() / 2;
+
+  QRectF currentZone = getZoneForConfidence(confidence);
+
+  if (confidence != cereal::ModelDataV2::ConfidenceClass::GREEN) {
+    if (acceleration > TOO_FAST_THRESHOLD) {
+      y -= (acceleration - TOO_FAST_THRESHOLD) * BALL_MOVEMENT_SCALE;
+    } else if (acceleration < TOO_SLOW_THRESHOLD) {
+      y += (TOO_FAST_THRESHOLD - acceleration) * BALL_MOVEMENT_SCALE;
+    }
+
+    if (steering_torque < LOW_TORQUE_THRESHOLD) {
+      x -= (LOW_TORQUE_THRESHOLD - steering_torque) * BALL_MOVEMENT_SCALE;
+    } else if (steering_torque > HIGH_TORQUE_THRESHOLD) {
+      x += (steering_torque - HIGH_TORQUE_THRESHOLD) * BALL_MOVEMENT_SCALE;
+    }
+  }
+
+  // Clamp position within the current circular zone
+  float radius = currentZone.width() / 2.0;
+  float dist = std::sqrt((x - width() / 2) * (x - width() / 2) + (y - height() / 2) * (y - height() / 2));
+  if (dist > radius) {
+    float angle = std::atan2(y - height() / 2, x - width() / 2);
+    x = width() / 2 + radius * std::cos(angle);
+    y = height() / 2 + radius * std::sin(angle);
+  }
+
+  return QPointF(x, y);
+}
+
+
 // Paints the widget
 void DriverAlertDial::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
@@ -332,7 +387,7 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
             properties.outerBorderColor,
             properties.outerShadowColor,
             properties.outerBorderThickness,
-            155,
+            155, // If changed, adjust OUTER_RADIUS in .h file
             properties.outerShadowBlurRadius,
             properties.outerShadowOpacity,
             properties.shadowX,
@@ -345,7 +400,7 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
             properties.middleBorderColor,
             properties.middleShadowColor,
             properties.middleBorderThickness,
-            100,
+            100, // If changed, adjust MIDDLE_RADIUS in .h file
             properties.middleShadowBlurRadius / 4,
             properties.middleShadowOpacity,
             properties.shadowX,
@@ -358,26 +413,24 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
             properties.innerBorderColor,
             properties.innerShadowColor,
             properties.innerBorderThickness,
-            35,
+            35, // If changed, adjust INNER_RADIUS in .h file
             properties.innerShadowBlurRadius / 4,
             properties.innerShadowOpacity,
             properties.shadowX,
             properties.shadowY);
 
-  // Draws the alert ball
-  QPointF ball_pos = calculateAlertBallPosition();
-  int outer_ball_radius = 50 / 2;
-  int inner_ball_radius = 24 / 2;
 
-  // Draws outer part of ball
+  QPointF ball_pos = calculateAlertBallPosition();
+
+  // Draws outer part of alert ball
   painter.setBrush(properties.alertBallOuterColor);
   painter.setPen(QPen(properties.alertBallOuterBorderColor, properties.alertBallOuterBorderThickness));
-  painter.drawEllipse(ball_pos.x() - outer_ball_radius, ball_pos.y() - outer_ball_radius, 50, 50);
+  painter.drawEllipse(ball_pos.x() - BALL_OUTER_RADIUS, ball_pos.y() - BALL_OUTER_RADIUS, BALL_OUTER_RADIUS * 2, BALL_OUTER_RADIUS * 2);
 
-  // Draws the inner part of ball
+  // Draws the inner part of alert ball
   painter.setBrush(properties.alertBallInnerColor);
   painter.setPen(QPen(properties.alertBallInnerBorderColor, properties.alertBallInnerBorderThickness));
-  painter.drawEllipse(ball_pos.x() - inner_ball_radius, ball_pos.y() - inner_ball_radius, 24, 24);
+  painter.drawEllipse(ball_pos.x() - BALL_INNER_RADIUS, ball_pos.y() - BALL_INNER_RADIUS, BALL_INNER_RADIUS * 2, BALL_INNER_RADIUS * 2);
 
   // // REMOVE SOON ---
   // // Box around UI to see sizing easier REMOVE
@@ -393,46 +446,4 @@ void DriverAlertDial::paintEvent(QPaintEvent *event) {
 
   // Restore painter state
   painter.restore();
-}
-
-// ---
-// MODIFY - This should calculate the position of the alert ball
-// ---
-
-QPointF DriverAlertDial::calculateAlertBallPosition() const {
-  float x = width() / 2;
-  float y = height() / 2;
-
-  // Define thresholds for different states
-  float too_fast_threshold = 0.75;
-  float too_slow_threshold = 0.25;
-  float low_torque_threshold = -0.5;
-  float high_torque_threshold = 0.5;
-
-  // Scaling factor to control movement based on confidence
-  float ball_movement_scale = 5; // Adjust as needed
-
-  if (confidence != cereal::ModelDataV2::ConfidenceClass::GREEN) {
-    if (acceleration > too_fast_threshold) {
-      // Too fast, move the ball up
-      y -= (acceleration - too_fast_threshold) * ball_movement_scale;
-    } else if (acceleration < too_slow_threshold) {
-      // Too slow, move the ball up
-      y += (too_slow_threshold - acceleration) * ball_movement_scale;
-    }
-
-    if (steering_torque < low_torque_threshold) {
-      // Not enough torque, turn left
-      x -= (low_torque_threshold - steering_torque) * ball_movement_scale;
-    } else if (steering_torque > high_torque_threshold) {
-      // Not enough torque, turn right
-      x += (steering_torque - high_torque_threshold) * ball_movement_scale;
-    }
-  }
-
-  // Clamp the position within the widget bounds
-  x = std::max(10.0f, std::min(x, width() - 10.0f));
-  y = std::max(10.0f, std::min(y, height() - 10.0f));
-
-  return QPointF(x, y);
 }

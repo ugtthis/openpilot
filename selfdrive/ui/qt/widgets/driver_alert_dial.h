@@ -61,14 +61,22 @@ protected:
 private:
   cereal::ModelDataV2::ConfidenceClass confidence;
   bool is_engaged;
-  AlertProperties getAlertProperties(cereal::ModelDataV2::ConfidenceClass confidence) const;
-  AlertProperties getAlertPropertiesForDisengaged() const;
-  QColor getAlertColor(cereal::ModelDataV2::ConfidenceClass confidence);
-  QPointF calculateAlertBallPosition() const;
 
   float steering_torque;
   float brake_pressure;
   float acceleration;
+
+  AlertProperties getAlertProperties(cereal::ModelDataV2::ConfidenceClass confidence) const;
+  AlertProperties getAlertPropertiesForDisengaged() const;
+
+  QColor getAlertColor(cereal::ModelDataV2::ConfidenceClass confidence);
+  QPointF calculateAlertBallPosition() const;
+  QRectF getZoneForConfidence(cereal::ModelDataV2::ConfidenceClass conf) const;
+
+  // Alert ball zones that it stays within depending on confidence level
+  const int OUTER_RADIUS = 125; // RED - confidence level
+  const int MIDDLE_RADIUS = 70; // YELLOW - confidence level
+  const int INNER_RADIUS = 30; // GREEN - confidence level
 
   void drawCircle(QPainter &painter,
                   const QPointF &center,
@@ -89,4 +97,14 @@ private:
                                        int opacity,
                                        int x_offset,
                                        int y_offset);
+
+  // Constants that effect the alert ball
+  static constexpr float TOO_FAST_THRESHOLD = 0.75;
+  static constexpr float TOO_SLOW_THRESHOLD = 0.25;
+  static constexpr float LOW_TORQUE_THRESHOLD = -0.5;
+  static constexpr float HIGH_TORQUE_THRESHOLD = 0.5;
+  static constexpr float BALL_MOVEMENT_SCALE = 3.0f;
+
+  static constexpr int BALL_OUTER_RADIUS = 25; // 50 / 2
+  static constexpr int BALL_INNER_RADIUS = 12; // 24 / 2
 };
