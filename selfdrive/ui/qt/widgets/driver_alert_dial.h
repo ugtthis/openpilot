@@ -103,7 +103,7 @@ private:
   static constexpr float TOO_SLOW_THRESHOLD = 0.25;
   static constexpr float LOW_TORQUE_THRESHOLD = -0.5;
   static constexpr float HIGH_TORQUE_THRESHOLD = 0.5;
-  static constexpr float BALL_MOVEMENT_SCALE = 3.0f;
+  static constexpr float BALL_MOVEMENT_SCALE = 1.0f;
 
   static constexpr int BALL_OUTER_RADIUS = 25; // 50 / 2
   static constexpr int BALL_INNER_RADIUS = 12; // 24 / 2
