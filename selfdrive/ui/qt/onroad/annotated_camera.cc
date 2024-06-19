@@ -1,9 +1,10 @@
-
-#include "selfdrive/ui/qt/onroad/annotated_camera.h"
-
 #include <QPainter>
 #include <algorithm>
 #include <cmath>
+
+#include "selfdrive/ui/qt/onroad/annotated_camera.h"
+#include "selfdrive/ui/qt/widgets/driver_alert_cluster.h"
+#include "selfdrive/ui/ui.h"
 
 #include "common/swaglog.h"
 #include "selfdrive/ui/qt/onroad/buttons.h"
@@ -22,6 +23,9 @@ AnnotatedCameraWidget::AnnotatedCameraWidget(VisionStreamType type, QWidget* par
 
   map_settings_btn = new MapSettingsButton(this);
   main_layout->addWidget(map_settings_btn, 0, Qt::AlignBottom | Qt::AlignRight);
+
+  driver_alert_cluster = new DriverAlertCluster(uiState(), this);
+  main_layout->addWidget(driver_alert_cluster, 0, Qt::AlignBottom | Qt::AlignLeft);
 
   // REMOVE - takes away the ring and face
   // dm_img = loadPixmap("../assets/img_driver_face.png", {img_size + 5, img_size + 5});
@@ -65,6 +69,9 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
 
   // update engageability/experimental mode button
   experimental_btn->updateState(s);
+
+  // updates the DAC state
+  driver_alert_cluster->updateAlertLevel(s); //Implement this in the other dac file
 
   // REMOVE
   // // update DM icon

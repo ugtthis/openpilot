@@ -1,6 +1,10 @@
 #pragma once
 
+#include <QWidget>
 #include <QVBoxLayout>
+#include <QLabel>
+#include <QPainter>
+#include <QTimer>
 #include <memory>
 
 #include "selfdrive/ui/qt/widgets/driver_alert_cluster.h"
@@ -21,6 +25,7 @@ private:
 
   QVBoxLayout *main_layout;
   ExperimentalButton *experimental_btn;
+  DriverAlertCluster *driver_alert_cluster;
   // REMOVE
   // QPixmap dm_img;
   float speed;
