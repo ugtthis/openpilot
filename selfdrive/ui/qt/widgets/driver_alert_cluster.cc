@@ -8,24 +8,12 @@
 DriverAlertCluster::DriverAlertCluster(UIState* ui_State, QWidget *parent)
   : QWidget(parent), steeringAlertLevel(0), gasAlertLevel(0), brakeAlertLevel(0), ui_State(ui_State) {
 
-  mainLayout = new QVBoxLayout(this);
-  mainLayout->setContentsMargins(32, 24, 32, 24);
-
-  steeringLabel = new QLabel(this);
-  steeringLabel->setText("Steering");
-  mainLayout->addWidget(steeringLabel);
-
-  brakeLabel = new QLabel(this);
-  brakeLabel->setText("Brake");
-  mainLayout->addWidget(brakeLabel);
-
-  gasLabel = new QLabel(this);
-  gasLabel->setText("Gas");
-  mainLayout->addWidget(gasLabel);
-
   updateTimer = new QTimer(this);
   connect(updateTimer, &QTimer::timeout, this, QOverload<>::of(&DriverAlertCluster::update));
   updateTimer->start(1000 / 20); //Update at 20Hz
+
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  setFixedSize(640, 360);
 }
 
 // Helper function to get disengage predictions
@@ -67,6 +55,7 @@ AlertProperties DriverAlertCluster::getAlertProperties(int alertLevel) {
       properties.borderWidth = 4;
       properties.shadowColor = QColor(0, 0, 0, 50);
       properties.shadowOpacity = 0.4f;
+      properties.blurRadius = 10;
       for (int i = 0; i < 7; ++i) {
         properties.circleColors[i] = QColor(118, 117, 117, 50);
       }
@@ -80,6 +69,7 @@ AlertProperties DriverAlertCluster::getAlertProperties(int alertLevel) {
       properties.borderWidth = 4;
       properties.shadowColor = QColor(0, 0, 0);
       properties.shadowOpacity = 0.4f;
+      properties.blurRadius = 10;
       properties.circleColors[0] = QColor(0, 209, 255);
       for (int i = 1; i < 7; ++i) {
         properties.circleColors[i] = QColor(118, 117, 117);
@@ -94,6 +84,7 @@ AlertProperties DriverAlertCluster::getAlertProperties(int alertLevel) {
       properties.borderWidth = 4;
       properties.shadowColor = QColor(0, 0, 0);
       properties.shadowOpacity = 0.4f;
+      properties.blurRadius = 10;
       properties.circleColors[0] = QColor(0, 209, 255);
       properties.circleColors[1] = QColor(0, 209, 255);
       for (int i = 2; i < 7; ++i) {
@@ -109,6 +100,7 @@ AlertProperties DriverAlertCluster::getAlertProperties(int alertLevel) {
       properties.borderWidth = 4;
       properties.shadowColor = QColor(0, 0, 0);
       properties.shadowOpacity = 0.4f;
+      properties.blurRadius = 10;
       properties.circleColors[0] = QColor(8, 64, 80); // Dark cyan
       properties.circleColors[1] = QColor(8, 64, 80); // Dark cyan
       properties.circleColors[2] = QColor(239, 255, 54); // Yellow
@@ -125,6 +117,7 @@ AlertProperties DriverAlertCluster::getAlertProperties(int alertLevel) {
       properties.borderWidth = 4;
       properties.shadowColor = QColor(0, 0, 0);
       properties.shadowOpacity = 0.4f;
+      properties.blurRadius = 10;
       properties.circleColors[0] = QColor(8, 64, 80); // Dark cyan
       properties.circleColors[1] = QColor(8, 64, 80); // Dark cyan
       properties.circleColors[2] = QColor(239, 255, 54); // Yellow
@@ -142,6 +135,7 @@ AlertProperties DriverAlertCluster::getAlertProperties(int alertLevel) {
       properties.borderWidth = 4;
       properties.shadowColor = QColor(239, 255, 54); // Yellow
       properties.shadowOpacity = 0.4f;
+      properties.blurRadius = 20;
       properties.circleColors[0] = QColor(8, 64, 80); // Dark cyan
       properties.circleColors[1] = QColor(8, 64, 80); // Dark cyan
       properties.circleColors[2] = QColor(67, 71, 21); // Dark yellow
@@ -160,6 +154,7 @@ AlertProperties DriverAlertCluster::getAlertProperties(int alertLevel) {
       properties.borderWidth = 4;
       properties.shadowColor = QColor(255, 60, 70); // Red
       properties.shadowOpacity = 0.4f;
+      properties.blurRadius = 20;
       properties.circleColors[0] = QColor(8, 64, 80); // Dark cyan
       properties.circleColors[1] = QColor(8, 64, 80); // Dark cyan
       properties.circleColors[2] = QColor(67, 71, 21); // Dark yellow
@@ -177,6 +172,7 @@ AlertProperties DriverAlertCluster::getAlertProperties(int alertLevel) {
       properties.borderWidth = 4;
       properties.shadowColor = QColor(255, 60, 70); // Red
       properties.shadowOpacity = 0.4f;
+      properties.blurRadius = 20;
       properties.circleColors[0] = QColor(8, 64, 80); // Dark cyan
       properties.circleColors[1] = QColor(8, 64, 80); // Dark cyan
       properties.circleColors[2] = QColor(67, 71, 21); // Dark yellow
@@ -192,24 +188,59 @@ AlertProperties DriverAlertCluster::getAlertProperties(int alertLevel) {
   return properties;
 }
 
-void DriverAlertCluster::drawAlertBar(QPainter &painter, QLabel *label, const capnp::List<float>::Reader& probs, int yOffset) {
+QRadialGradient DriverAlertCluster::createRadialGradient(const QPointF &center,
+                                                         int radius,
+                                                         int blur_radius,
+                                                         const QColor &color,
+                                                         int opacity,
+                                                         int x_offset,
+                                                         int y_offset) {
+  QRadialGradient gradient(center + QPointF(x_offset, y_offset), radius + blur_radius);
+  QColor intenseColor = color;
+  intenseColor.setAlpha(opacity);
+  QColor midColor = color;
+  midColor.setAlpha(opacity / 2);
+  QColor transparentColor = color;
+  transparentColor.setAlpha(0);
+
+  gradient.setColorAt(0, intenseColor);
+  gradient.setColorAt(0.8, midColor);
+  gradient.setColorAt(1, transparentColor);
+
+  return gradient;
+}
+
+void DriverAlertCluster::drawAlertBar(QPainter &painter, const QString &labelText, const capnp::List<float>::Reader& probs, int yOffset) {
   int alertLevel = calculateAlertLevel(probs);
   AlertProperties properties = getAlertProperties(alertLevel);
 
   QRect barRect(32, yOffset, 521, 82);
+
+  // Draw radial gradient shadow for specific alert levels
+  if (alertLevel == 5 || alertLevel == 6 || alertLevel == 7 ) {
+    QRadialGradient shadowGradient = createRadialGradient(barRect.center(),
+                                                          41,
+                                                          properties.blurRadius,
+                                                          properties.shadowColor,
+                                                          static_cast<int>(properties.shadowOpacity * 255),
+                                                          0,
+                                                          0);
+    painter.setBrush(shadowGradient);
+    painter.setPen(Qt::NoPen);
+    painter.drawRoundedRect(barRect.adjusted(0, 0, 0, 0), 70, 70);
+  }
+
+  // Draw main rectangle
   painter.setBrush(properties.fillColor);
   painter.setPen(QPen(properties.borderColor, properties.borderWidth));
-  painter.drawRoundRect(barRect, 16, 16);
+  painter.drawRoundRect(barRect, 70, 70);
 
-  painter.setPen(Qt::NoPen);
-  painter.setBrush(properties.shadowColor);
-  painter.setOpacity(properties.shadowOpacity);
-  painter.drawRoundedRect(barRect, 16, 16);
-
+  // Draw text
   painter.setPen(properties.textColor);
-  painter.setFont(QFont("Inter", 28, QFont::DemiBold));
-  painter.drawText(barRect.adjusted(40, 0, 0, 0), Qt::AlignVCenter, label->text());
+  painter.setFont(QFont("Inter", 16, QFont::DemiBold));
+  painter.drawText(barRect.adjusted(40, 0, 0, 0), Qt::AlignVCenter, labelText);
 
+  // Draw circles
   int circleXOffset = barRect.x() + 250;
   for (int i = 0; i < 7; ++i) {
     painter.setBrush(properties.circleColors[i]);
@@ -221,9 +252,11 @@ void DriverAlertCluster::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
 
+  painter.fillRect(this->rect(), Qt::transparent);
+
   const auto& disengagePreds = getDisengagePredictions(*ui_State->sm);
 
-  drawAlertBar(painter, steeringLabel, disengagePreds.getSteerOverrideProbs(), 24);
-  drawAlertBar(painter, brakeLabel, disengagePreds.getBrakeDisengageProbs(), 106);
-  drawAlertBar(painter, gasLabel, disengagePreds.getGasDisengageProbs(), 188);
+  drawAlertBar(painter, "Steering", disengagePreds.getSteerOverrideProbs(), 24);
+  drawAlertBar(painter, "Brake", disengagePreds.getBrakeDisengageProbs(), 106);
+  drawAlertBar(painter, "Gas", disengagePreds.getGasDisengageProbs(), 188);
 }
