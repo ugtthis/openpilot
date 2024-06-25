@@ -71,7 +71,7 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
   experimental_btn->updateState(s);
 
   // updates the DAC state
-  driver_alert_cluster->updateAlertLevel(s); //Implement this in the other dac file
+  driver_alert_cluster->updateState(s); //Implement this in the other dac file
 
   // REMOVE
   // // update DM icon
