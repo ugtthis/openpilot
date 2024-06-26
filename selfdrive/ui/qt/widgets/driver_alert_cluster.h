@@ -43,14 +43,17 @@ private:
   };
 
   // UI Constants
-  static constexpr int BAR_WIDTH = 560;
-  static constexpr int BAR_HEIGHT = 82;
-  static constexpr int HORIZONTAL_PADDING = 32;
-  static constexpr int VERTICAL_PADDING = 20;
-  static constexpr int CIRCLE_SIZE = 27;
+  static constexpr int BAR_WIDTH = 585; // Individual bar widths
+  static constexpr int BAR_HEIGHT = 87; // Individual bar heights
+  static constexpr int HORIZONTAL_PADDING = 20; // Controls horizontal space of the whole DAC UI from left edge of screen
+  static constexpr int VERTICAL_PADDING = 20; // Controls vertical spacing between the DAC bars
+  static constexpr int CIRCLE_SIZE = 35;
   static constexpr int FONT_SIZE = 14;
-  static constexpr int ICON_SIZE = 40;
+  static constexpr int ICON_SIZE = 50;
   static constexpr int CORNER_RADIUS = 41;
+  static constexpr int CIRCLE_AREA_WIDTH = 310; // How close together circles are
+  static constexpr int ICON_PADDING = 30; // Left side padding?
+  static constexpr int CIRCLE_RIGHT_MARGIN = 20; // Controls spacing of the right side of the individual bar
 
   void initializeAlertBars();
   bool loadIcons();
@@ -58,7 +61,7 @@ private:
   int calculateAlertLevel(const capnp::List<float>::Reader& probs);
   AlertProperties getAlertProperties(int alertLevel);
   void drawAlertBar(QPainter &painter, const AlertBar &alertBar, int yOffset);
-  bool renderIcon(QPainter &painter, const QString &iconName, const QRect &rect, const QColor &color);
+  bool renderIcon(QPainter &painter, const QString &iconName, const QRectF &rect, const QColor &color);
   QRadialGradient createGlowGradient(const QRectF &rect, const QColor &color) const;
   void drawRoundedRect(QPainter &painter, const QRectF &rect, qreal xRadius, qreal yRadius);
 

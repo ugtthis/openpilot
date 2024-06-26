@@ -156,16 +156,17 @@ QRadialGradient DriverAlertCluster::createGlowGradient(const QRectF &rect, const
   return gradient;
 }
 
-bool DriverAlertCluster::renderIcon(QPainter &painter, const QString &iconName, const QRect &rect, const QColor &color) {
+bool DriverAlertCluster::renderIcon(QPainter &painter, const QString &iconName, const QRectF &rect, const QColor &color) {
   auto it = icons.find(iconName);
   if (it != icons.end()) {
     painter.save();
-    QPixmap pixmap = it.value().pixmap(rect.size());
+    QSize iconSize = rect.size().toSize();
+    QPixmap pixmap = it.value().pixmap(iconSize);
     QPainter pixmapPainter(&pixmap);
     pixmapPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
     pixmapPainter.fillRect(pixmap.rect(), color);
     pixmapPainter.end();
-    painter.drawPixmap(rect, pixmap);
+    painter.drawPixmap(rect.toRect(), pixmap);
     painter.restore();
     return true;
   }
@@ -202,25 +203,32 @@ void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBa
   painter.setBrush(Qt::NoBrush);
   drawRoundedRect(painter, barRect, CORNER_RADIUS, CORNER_RADIUS);
 
-  // Draw text
-  painter.setPen(properties.textColor);
-  painter.setFont(QFont("Inter", FONT_SIZE, QFont::DemiBold));
-  painter.drawText(barRect.adjusted(20 + ICON_SIZE + 10, 0, -20, 0), Qt::AlignVCenter | Qt::AlignLeft, alertBar.label);
+  // Calculate rectangles for different areas of the alert bar
+  QRectF iconRect(barRect.left() + ICON_PADDING,
+                  barRect.top() + (barRect.height() - ICON_SIZE) / 2,
+                  ICON_SIZE, ICON_SIZE);
+
+  QRectF textRect = barRect.adjusted(ICON_PADDING + ICON_SIZE + 10, 0, -CIRCLE_AREA_WIDTH - CIRCLE_RIGHT_MARGIN, 0);
+  QRectF circleAreaRect(barRect.right() - CIRCLE_AREA_WIDTH - CIRCLE_RIGHT_MARGIN, barRect.top(), CIRCLE_AREA_WIDTH, barRect.height());
 
   // Draw icon
-  QRect iconRect(barRect.left() + 20, barRect.top() + (barRect.height() - ICON_SIZE) / 2, ICON_SIZE, ICON_SIZE);
   if (!renderIcon(painter, alertBar.iconName, iconRect, properties.iconColor)) {
     qWarning() << "Failed to render icon:" << alertBar.iconName;
   }
 
+  // Draw text
+  painter.setPen(properties.textColor);
+  painter.setFont(QFont("Inter", FONT_SIZE, QFont::DemiBold));
+  painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, alertBar.label);
+
   // Draw circles
-  int circleXOffset = barRect.right() - 280;
+  int circleSpacing = (CIRCLE_AREA_WIDTH - (NUM_CIRCLES * CIRCLE_SIZE)) / (NUM_CIRCLES + 1);
   for (int i = 0; i < NUM_CIRCLES; ++i) {
     painter.setBrush(properties.circleColors[i]);
     painter.setPen(Qt::NoPen);
-    QPointF circleCenter(circleXOffset + (i * 35) + CIRCLE_SIZE / 2,
-                         barRect.y() + (barRect.height() / 2));
-    painter.drawEllipse(circleCenter, CIRCLE_SIZE / 2, CIRCLE_SIZE / 2);
+    qreal circleX = circleAreaRect.left() + circleSpacing + (i * (CIRCLE_SIZE + circleSpacing));
+    qreal circleY = circleAreaRect.top() + (circleAreaRect.height() - CIRCLE_SIZE) / 2;
+    painter.drawEllipse(QRectF(circleX, circleY, CIRCLE_SIZE, CIRCLE_SIZE));
   }
 }
 
