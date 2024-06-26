@@ -42,7 +42,10 @@ bool DriverAlertCluster::loadIcons() {
     QString path = QString("../assets/icons/%1.svg").arg(alertBar.iconName);
     QPixmap pixmap = loadPixmap(path);
     if (!pixmap.isNull()) {
-      icons[alertBar.iconName] = QIcon(pixmap);
+      IconInfo info;
+      info.icon = QIcon(pixmap);
+      info.aspectRatio = static_cast<qreal>(pixmap.width()) / pixmap.height();
+      iconInfo[alertBar.iconName] = info;
     } else {
       qWarning() << "Failed to load icon:" << path;
       allLoaded = false;
@@ -157,16 +160,35 @@ QRadialGradient DriverAlertCluster::createGlowGradient(const QRectF &rect, const
 }
 
 bool DriverAlertCluster::renderIcon(QPainter &painter, const QString &iconName, const QRectF &rect, const QColor &color) {
-  auto it = icons.find(iconName);
-  if (it != icons.end()) {
+  auto it = iconInfo.find(iconName);
+  if (it != iconInfo.end()) {
     painter.save();
-    QSize iconSize = rect.size().toSize();
-    QPixmap pixmap = it.value().pixmap(iconSize);
+
+    qreal availableAspectRatio = rect.width() / rect.height();
+    QSizeF iconSize;
+
+    if (it.value().aspectRatio > availableAspectRatio) {
+      // Icon is wider than the available space
+      iconSize = QSizeF(rect.width(), rect.width() / it.value().aspectRatio);
+    } else {
+      // Icon is taller than or equal to the available space
+      iconSize = QSizeF(rect.height() * it.value().aspectRatio, rect.height());
+    }
+
+    QRectF iconRect(
+      rect.x() + (rect.width() - iconSize.width()) / 2,
+      rect.y() + (rect.height() - iconSize.height()) / 2,
+      iconSize.width(),
+      iconSize.height());
+
+    QPixmap pixmap = it.value().icon.pixmap(iconSize.toSize());
+
     QPainter pixmapPainter(&pixmap);
     pixmapPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
     pixmapPainter.fillRect(pixmap.rect(), color);
     pixmapPainter.end();
-    painter.drawPixmap(rect.toRect(), pixmap);
+
+    painter.drawPixmap(iconRect.toRect(), pixmap);
     painter.restore();
     return true;
   }
@@ -208,8 +230,14 @@ void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBa
                   barRect.top() + (barRect.height() - ICON_SIZE) / 2,
                   ICON_SIZE, ICON_SIZE);
 
-  QRectF textRect = barRect.adjusted(ICON_PADDING + ICON_SIZE + 10, 0, -CIRCLE_AREA_WIDTH - CIRCLE_RIGHT_MARGIN, 0);
-  QRectF circleAreaRect(barRect.right() - CIRCLE_AREA_WIDTH - CIRCLE_RIGHT_MARGIN, barRect.top(), CIRCLE_AREA_WIDTH, barRect.height());
+  QRectF textRect = barRect.adjusted(ICON_PADDING + ICON_SIZE + TEXT_ICON_SPACING,
+                                     0,
+                                     -CIRCLE_AREA_WIDTH - CIRCLE_RIGHT_MARGIN,
+                                     0);
+  QRectF circleAreaRect(barRect.right() - CIRCLE_AREA_WIDTH - CIRCLE_RIGHT_MARGIN,
+                        barRect.top(),
+                        CIRCLE_AREA_WIDTH,
+                        barRect.height());
 
   // Draw icon
   if (!renderIcon(painter, alertBar.iconName, iconRect, properties.iconColor)) {
