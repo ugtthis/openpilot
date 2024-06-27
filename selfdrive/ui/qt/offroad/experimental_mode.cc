@@ -1,76 +1,78 @@
-#include "selfdrive/ui/qt/offroad/experimental_mode.h"
+// REMOVE PR
 
-#include <QDebug>
-#include <QHBoxLayout>
-#include <QPainter>
-#include <QPainterPath>
-#include <QStyle>
+// #include "selfdrive/ui/qt/offroad/experimental_mode.h"
 
-#include "selfdrive/ui/ui.h"
+// #include <QDebug>
+// #include <QHBoxLayout>
+// #include <QPainter>
+// #include <QPainterPath>
+// #include <QStyle>
 
-ExperimentalModeButton::ExperimentalModeButton(QWidget *parent) : QPushButton(parent) {
-  chill_pixmap = QPixmap("../assets/img_couch.svg").scaledToWidth(img_width, Qt::SmoothTransformation);
-  experimental_pixmap = QPixmap("../assets/img_experimental_grey.svg").scaledToWidth(img_width, Qt::SmoothTransformation);
+// #include "selfdrive/ui/ui.h"
 
-  // go to toggles and expand experimental mode description
-  connect(this, &QPushButton::clicked, [=]() { emit openSettings(2, "ExperimentalMode"); });
+// ExperimentalModeButton::ExperimentalModeButton(QWidget *parent) : QPushButton(parent) {
+//   chill_pixmap = QPixmap("../assets/img_couch.svg").scaledToWidth(img_width, Qt::SmoothTransformation);
+//   experimental_pixmap = QPixmap("../assets/img_experimental_grey.svg").scaledToWidth(img_width, Qt::SmoothTransformation);
 
-  setFixedHeight(125);
-  QHBoxLayout *main_layout = new QHBoxLayout;
-  main_layout->setContentsMargins(horizontal_padding, 0, horizontal_padding, 0);
+//   // go to toggles and expand experimental mode description
+//   connect(this, &QPushButton::clicked, [=]() { emit openSettings(2, "ExperimentalMode"); });
 
-  mode_label = new QLabel;
-  mode_icon = new QLabel;
-  mode_icon->setSizePolicy(QSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed));
+//   setFixedHeight(125);
+//   QHBoxLayout *main_layout = new QHBoxLayout;
+//   main_layout->setContentsMargins(horizontal_padding, 0, horizontal_padding, 0);
 
-  main_layout->addWidget(mode_label, 1, Qt::AlignLeft);
-  main_layout->addWidget(mode_icon, 0, Qt::AlignRight);
+//   mode_label = new QLabel;
+//   mode_icon = new QLabel;
+//   mode_icon->setSizePolicy(QSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed));
 
-  setLayout(main_layout);
+//   main_layout->addWidget(mode_label, 1, Qt::AlignLeft);
+//   main_layout->addWidget(mode_icon, 0, Qt::AlignRight);
 
-  setStyleSheet(R"(
-    QPushButton {
-      border: none;
-    }
+//   setLayout(main_layout);
 
-    QLabel {
-      font-size: 45px;
-      font-weight: 300;
-      text-align: left;
-      font-family: JetBrainsMono;
-      color: #000000;
-    }
-  )");
-}
+//   setStyleSheet(R"(
+//     QPushButton {
+//       border: none;
+//     }
 
-void ExperimentalModeButton::paintEvent(QPaintEvent *event) {
-  QPainter p(this);
-  p.setPen(Qt::NoPen);
-  p.setRenderHint(QPainter::Antialiasing);
+//     QLabel {
+//       font-size: 45px;
+//       font-weight: 300;
+//       text-align: left;
+//       font-family: JetBrainsMono;
+//       color: #000000;
+//     }
+//   )");
+// }
 
-  QPainterPath path;
-  path.addRoundedRect(rect(), 10, 10);
+// void ExperimentalModeButton::paintEvent(QPaintEvent *event) {
+//   QPainter p(this);
+//   p.setPen(Qt::NoPen);
+//   p.setRenderHint(QPainter::Antialiasing);
 
-  // gradient
-  bool pressed = isDown();
-  QLinearGradient gradient(rect().left(), 0, rect().right(), 0);
-  if (experimental_mode) {
-    gradient.setColorAt(0, QColor(255, 155, 63, pressed ? 0xcc : 0xff));
-    gradient.setColorAt(1, QColor(219, 56, 34, pressed ? 0xcc : 0xff));
-  } else {
-    gradient.setColorAt(0, QColor(20, 255, 171, pressed ? 0xcc : 0xff));
-    gradient.setColorAt(1, QColor(35, 149, 255, pressed ? 0xcc : 0xff));
-  }
-  p.fillPath(path, gradient);
+//   QPainterPath path;
+//   path.addRoundedRect(rect(), 10, 10);
 
-  // vertical line
-  p.setPen(QPen(QColor(0, 0, 0, 0x4d), 3, Qt::SolidLine));
-  int line_x = rect().right() - img_width - (2 * horizontal_padding);
-  p.drawLine(line_x, rect().bottom(), line_x, rect().top());
-}
+//   // gradient
+//   bool pressed = isDown();
+//   QLinearGradient gradient(rect().left(), 0, rect().right(), 0);
+//   if (experimental_mode) {
+//     gradient.setColorAt(0, QColor(255, 155, 63, pressed ? 0xcc : 0xff));
+//     gradient.setColorAt(1, QColor(219, 56, 34, pressed ? 0xcc : 0xff));
+//   } else {
+//     gradient.setColorAt(0, QColor(20, 255, 171, pressed ? 0xcc : 0xff));
+//     gradient.setColorAt(1, QColor(35, 149, 255, pressed ? 0xcc : 0xff));
+//   }
+//   p.fillPath(path, gradient);
 
-void ExperimentalModeButton::showEvent(QShowEvent *event) {
-  experimental_mode = params.getBool("ExperimentalMode");
-  mode_icon->setPixmap(experimental_mode ? experimental_pixmap : chill_pixmap);
-  mode_label->setText(experimental_mode ? tr("EXPERIMENTAL MODE ON") : tr("CHILL MODE ON"));
-}
+//   // vertical line
+//   p.setPen(QPen(QColor(0, 0, 0, 0x4d), 3, Qt::SolidLine));
+//   int line_x = rect().right() - img_width - (2 * horizontal_padding);
+//   p.drawLine(line_x, rect().bottom(), line_x, rect().top());
+// }
+
+// void ExperimentalModeButton::showEvent(QShowEvent *event) {
+//   experimental_mode = params.getBool("ExperimentalMode");
+//   mode_icon->setPixmap(experimental_mode ? experimental_pixmap : chill_pixmap);
+//   mode_label->setText(experimental_mode ? tr("EXPERIMENTAL MODE ON") : tr("CHILL MODE ON"));
+// }

@@ -1,31 +1,33 @@
-#pragma once
+// REMOVE PR
 
-#include <QLabel>
-#include <QPushButton>
+// #pragma once
 
-#include "common/params.h"
+// #include <QLabel>
+// #include <QPushButton>
 
-class ExperimentalModeButton : public QPushButton {
-  Q_OBJECT
+// #include "common/params.h"
 
-public:
-  explicit ExperimentalModeButton(QWidget* parent = 0);
+// class ExperimentalModeButton : public QPushButton {
+//   Q_OBJECT
 
-signals:
-  void openSettings(int index = 0, const QString &toggle = "");
+// public:
+//   explicit ExperimentalModeButton(QWidget* parent = 0);
 
-private:
-  void showEvent(QShowEvent *event) override;
+// signals:
+//   void openSettings(int index = 0, const QString &toggle = "");
 
-  Params params;
-  bool experimental_mode;
-  int img_width = 100;
-  int horizontal_padding = 30;
-  QPixmap experimental_pixmap;
-  QPixmap chill_pixmap;
-  QLabel *mode_label;
-  QLabel *mode_icon;
+// private:
+//   void showEvent(QShowEvent *event) override;
 
-protected:
-  void paintEvent(QPaintEvent *event) override;
-};
+//   Params params;
+//   bool experimental_mode;
+//   int img_width = 100;
+//   int horizontal_padding = 30;
+//   QPixmap experimental_pixmap;
+//   QPixmap chill_pixmap;
+//   QLabel *mode_label;
+//   QLabel *mode_icon;
+
+// protected:
+//   void paintEvent(QPaintEvent *event) override;
+// };

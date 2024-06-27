@@ -5,7 +5,9 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
-#include "selfdrive/ui/qt/offroad/experimental_mode.h"
+// REMOVE ?
+// #include "selfdrive/ui/qt/offroad/experimental_mode.h"
+
 #include "selfdrive/ui/qt/util.h"
 #include "selfdrive/ui/qt/widgets/prime.h"
 
@@ -163,15 +165,17 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     home_layout->addWidget(left_widget, 1);
 
     // right: ExperimentalModeButton, SetupWidget
+
+    // REMOVE ?
     QWidget* right_widget = new QWidget(this);
     QVBoxLayout* right_column = new QVBoxLayout(right_widget);
     right_column->setContentsMargins(0, 0, 0, 0);
     right_widget->setFixedWidth(750);
     right_column->setSpacing(30);
 
-    ExperimentalModeButton *experimental_mode = new ExperimentalModeButton(this);
-    QObject::connect(experimental_mode, &ExperimentalModeButton::openSettings, this, &OffroadHome::openSettings);
-    right_column->addWidget(experimental_mode, 1);
+    // ExperimentalModeButton *experimental_mode = new ExperimentalModeButton(this);
+    // QObject::connect(experimental_mode, &ExperimentalModeButton::openSettings, this, &OffroadHome::openSettings);
+    // right_column->addWidget(experimental_mode, 1);
 
     SetupWidget *setup_widget = new SetupWidget;
     QObject::connect(setup_widget, &SetupWidget::openSettings, this, &OffroadHome::openSettings);
