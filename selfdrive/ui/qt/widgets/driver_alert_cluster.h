@@ -36,10 +36,13 @@ private:
     QColor iconColor;
     QColor textColor;
     int borderWidth;
-    QColor shadowColor;
-    qreal shadowOpacity;
-    qreal shadowBlurRadius;
-    qreal shadowSpread;
+
+    // REMOVE - Shadow code
+    // QColor shadowColor;
+    // qreal shadowOpacity;
+    // qreal shadowBlurRadius;
+    // qreal shadowSpread;
+
     std::array<QColor, NUM_CIRCLES> circleColors;
   };
 
@@ -69,8 +72,10 @@ private:
   AlertProperties getAlertProperties(int alertLevel);
   void drawAlertBar(QPainter &painter, const AlertBar &alertBar, int yOffset);
   bool renderIcon(QPainter &painter, const QString &iconName, const QRectF &rect, const QColor &color);
-  // QRadialGradient createGlowGradient(const QRectF &rect, const QColor &color) const;
-  void drawGradientShadow(QPainter &painter, const QRectF &rect, const AlertProperties &properties);
+
+  // REMOVE - Shadow code
+  // void drawGradientShadow(QPainter &painter, const QRectF &rect, const AlertProperties &properties);
+
   void drawRoundedRect(QPainter &painter, const QRectF &rect, qreal xRadius, qreal yRadius);
 
   std::array<AlertBar, NUM_ALERT_BARS> alertBars;
