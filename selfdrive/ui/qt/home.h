@@ -27,6 +27,9 @@ public:
 signals:
   void openSettings(int index = 0, const QString &param = "");
 
+private slots:
+  void onModeToggled(const QString &mode, bool enabled);
+
 private:
   void showEvent(QShowEvent *event) override;
   void hideEvent(QHideEvent *event) override;

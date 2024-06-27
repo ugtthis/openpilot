@@ -106,7 +106,7 @@ void HomeWindow::mouseDoubleClickEvent(QMouseEvent* e) {
 
 OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
   QVBoxLayout* main_layout = new QVBoxLayout(this);
-  main_layout->setContentsMargins(40, 40, 40, 40);
+  main_layout->setContentsMargins(30, 30, 30, 30);
 
   // top header
   QHBoxLayout* header_layout = new QHBoxLayout();
@@ -142,6 +142,7 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
 
     // left column: Add InfoDisplayBar and ModeButtons
     QVBoxLayout *left_layout = new QVBoxLayout();
+    left_layout->setSpacing(20);
 
     // Add the InfoDisplayBar at the top
     infoDisplayBar = new InfoDisplayBar(this);
@@ -151,31 +152,24 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     chillModeButton = new ModeButton(this);
     chillModeButton->setModeText("chill mode");
     chillModeButton->setDescriptionText("Focuses on comfort and safety by reducing acceleration...");
-    connect(chillModeButton, &ModeButton::modeToggled, [=](const QString &mode, bool enabled) {
-      infoDisplayBar->setMessage(enabled ? mode + " enabled" : "Tap on mode for more info", ":/path/to/chill_mode_icon.png");
-    });
+    chillModeButton->setGradient(QColor(20, 255, 171), QColor(35, 149, 255));
+    connect(chillModeButton, &ModeButton::modeToggled, this, &OffroadHome::onModeToggled);
     left_layout->addWidget(chillModeButton);
 
     // Add the Experimental Mode Button
     experimentalModeButton = new ModeButton(this);
     experimentalModeButton->setModeText("Experimental Mode");
     experimentalModeButton->setDescriptionText("Enables beta features and experimental tools...");
-    connect(experimentalModeButton, &ModeButton::modeToggled, [=](const QString &mode, bool enabled) {
-      if (enabled) {
-        infoDisplayBar->setMessage(mode + " enabled", ":/path/to/experimental_mode_icon.png");
-      } else {
-        infoDisplayBar->setMessage("Experimental mode is not available for this car", ":/path/to/error_icon.png");
-      }
-    });
+    experimentalModeButton->setGradient(QColor(255, 81, 0), QColor(222, 0, 0));
+    connect(experimentalModeButton, &ModeButton::modeToggled, this, &OffroadHome::onModeToggled);
     left_layout->addWidget(experimentalModeButton);
 
     // Add the Disable openpilot Button
     disableOpenPilotButton = new ModeButton(this);
     disableOpenPilotButton->setModeText("Disable openpilot");
     disableOpenPilotButton->setDescriptionText("Enables use of stock LKAS & ACC of the car...");
-    connect(disableOpenPilotButton, &ModeButton::modeToggled, [=](const QString &mode, bool enabled) {
-      infoDisplayBar->setMessage(enabled ? mode + " enabled" : "Tap on mode for more info");
-    });
+    disableOpenPilotButton->setGradient(QColor(128, 128, 128), QColor(64, 64, 64));
+    connect(disableOpenPilotButton, &ModeButton::modeToggled, this, &OffroadHome::onModeToggled);
     left_layout->addWidget(disableOpenPilotButton);
 
     home_layout->addLayout(left_layout, 1);
@@ -186,7 +180,7 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     QWidget* right_widget = new QWidget(this);
     QVBoxLayout* right_column = new QVBoxLayout(right_widget);
     right_column->setContentsMargins(0, 0, 0, 0);
-    right_widget->setFixedWidth(750);
+    right_widget->setFixedWidth(750); // CHANGE this later ?
     right_column->setSpacing(30);
 
     // ExperimentalModeButton *experimental_mode = new ExperimentalModeButton(this);
@@ -232,6 +226,14 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
       font-size: 55px;
     }
   )");
+}
+
+void OffroadHome::onModeToggled(const QString &mode, bool enabled) {
+  if (enabled) {
+    infoDisplayBar->setMessage(mode + " enabled", ":/icons/" + mode.toLower().replace(" ", "_") + "_icon.png");
+  } else {
+    infoDisplayBar->setMessage("Tap mode for more info");
+  }
 }
 
 void OffroadHome::showEvent(QShowEvent *event) {

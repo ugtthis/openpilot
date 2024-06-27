@@ -12,13 +12,12 @@ public:
   explicit ModeButton(QWidget* parent = nullptr);
   void setModeText(const QString &text);
   void setDescriptionText(const QString &text);
-  void setGradient(const QString &gradient);
-  void toggleMode();
-  void expandDescription();
-  void collapseDescription();
+  void setGradient(const QColor &startColor, const QColor &endColor);
+  void setToggleEnabled(bool enabled);
 
 signals:
   void modeToggled(const QString &mode, bool enabled);
+  void descriptionToggled(bool expanded);
 
 private slots:
   void onButtonClicked();
@@ -34,7 +33,10 @@ private:
   bool isToggledOn;
   QString modeText;
   QString description;
+  QColor gradientStart;
+  QColor gradientEnd;
 
 protected:
   void paintEvent(QPaintEvent *event) override;
+  void mousePressEvent(QMouseEvent *event) override;
 };
