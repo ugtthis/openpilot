@@ -279,17 +279,6 @@
     </message>
 </context>
 <context>
-    <name>ExperimentalModeButton</name>
-    <message>
-        <source>EXPERIMENTAL MODE ON</source>
-        <translation>试验模式运行</translation>
-    </message>
-    <message>
-        <source>CHILL MODE ON</source>
-        <translation>轻松模式运行</translation>
-    </message>
-</context>
-<context>
     <name>InputDialog</name>
     <message>
         <source>Cancel</source>
