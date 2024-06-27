@@ -94,13 +94,6 @@ DriverAlertCluster::AlertProperties DriverAlertCluster::getAlertProperties(int a
   properties.iconColor = QColor(254, 255, 255);
   properties.textColor = QColor(254, 255, 255);
   properties.borderWidth = 10;
-
-  // REMOVE - Shadow code
-  // properties.shadowColor = Qt::transparent;
-  // properties.shadowOpacity = 0.0;
-  // properties.shadowBlurRadius = 0;
-  // properties.shadowSpread = 0;
-
   properties.circleColors.fill(QColor(118, 117, 117));
 
   switch (alertLevel) {
@@ -133,13 +126,6 @@ DriverAlertCluster::AlertProperties DriverAlertCluster::getAlertProperties(int a
     case 7: // High alert level 2
       properties.borderColor = (alertLevel == 5) ? QColor(239, 255, 54) : QColor(255, 60, 70);
       properties.iconColor = QColor(254, 255, 255);
-
-      // REMOVE - Shadow code
-      // properties.shadowColor = (alertLevel == 5) ? QColor(239, 255, 54) : QColor(255, 60, 70);
-      // properties.shadowOpacity = 0.4;
-      // properties.shadowBlurRadius = 10;
-      // properties.shadowSpread = 5;
-
       properties.circleColors[0] = QColor(8, 64, 80);
       properties.circleColors[1] = QColor(8, 64, 80);
       properties.circleColors[2] = QColor(67, 71, 21);
@@ -152,55 +138,6 @@ DriverAlertCluster::AlertProperties DriverAlertCluster::getAlertProperties(int a
 
   return properties;
 }
-
-// REMOVE - Shadow code
-// void DriverAlertCluster::drawGradientShadow(QPainter &painter, const QRectF &rect, const AlertProperties &properties) {
-//     if (properties.shadowBlurRadius > 0) {
-//         painter.save();
-//         painter.setRenderHint(QPainter::Antialiasing);
-
-//         // Create a slightly larger rectangle for the shadow
-//         qreal spread = properties.shadowSpread;
-//         QRectF shadowRect = rect.adjusted(-spread, -spread, spread, spread);
-
-//         // Create a path for the rounded rectangle
-//         QPainterPath path;
-//         path.addRoundedRect(shadowRect, CORNER_RADIUS + spread, CORNER_RADIUS + spread);
-
-//         // Set up the gradient stops
-//         QColor shadowColor = properties.shadowColor;
-//         shadowColor.setAlphaF(properties.shadowOpacity);
-//         QColor transparentColor = shadowColor;
-//         transparentColor.setAlphaF(0);
-
-//         // Create and draw gradients for each side
-//         QLinearGradient topGradient(shadowRect.topLeft(), shadowRect.bottomLeft());
-//         topGradient.setColorAt(0, shadowColor);
-//         topGradient.setColorAt(1, transparentColor);
-//         painter.setBrush(topGradient);
-//         painter.drawPath(path);
-
-//         QLinearGradient bottomGradient(shadowRect.bottomLeft(), shadowRect.topLeft());
-//         bottomGradient.setColorAt(0, shadowColor);
-//         bottomGradient.setColorAt(1, transparentColor);
-//         painter.setBrush(bottomGradient);
-//         painter.drawPath(path);
-
-//         QLinearGradient leftGradient(shadowRect.topLeft(), shadowRect.topRight());
-//         leftGradient.setColorAt(0, shadowColor);
-//         leftGradient.setColorAt(1, transparentColor);
-//         painter.setBrush(leftGradient);
-//         painter.drawPath(path);
-
-//         QLinearGradient rightGradient(shadowRect.topRight(), shadowRect.topLeft());
-//         rightGradient.setColorAt(0, shadowColor);
-//         rightGradient.setColorAt(1, transparentColor);
-//         painter.setBrush(rightGradient);
-//         painter.drawPath(path);
-
-//         painter.restore();
-//     }
-// }
 
 bool DriverAlertCluster::renderIcon(QPainter &painter, const QString &iconName, const QRectF &rect, const QColor &color) {
   auto it = iconInfo.find(iconName);
@@ -258,10 +195,6 @@ void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBa
   const AlertProperties &properties = cachedAlertProperties[alertBar.alertLevel];
 
   QRectF barRect(HORIZONTAL_PADDING, yOffset, BAR_WIDTH, BAR_HEIGHT);
-
-  // REMOVE - Shadow code
-  // // Draw glow effect for Medium Alert (3rd level) and High Alert states
-  // drawGradientShadow(painter, barRect, properties);
 
   // Draw background
   painter.setPen(QPen(properties.borderColor, properties.borderWidth));
