@@ -81,7 +81,7 @@ int DriverAlertCluster::calculateAlertLevel(const capnp::List<float>::Reader& pr
   if (max_prob > 0.3) return 4;
   if (max_prob > 0.2) return 3;
   if (max_prob > 0.1) return 2;
-  if (max_prob > 0.05) return 1;
+  if (max_prob > 0.001) return 1; // Lowered this from 0.5 to get it not to be in disengaged state
   return 0;
 }
 
@@ -98,11 +98,11 @@ DriverAlertCluster::AlertProperties DriverAlertCluster::getAlertProperties(int a
 
   switch (alertLevel) {
     case 0: // Disabled
-      properties.borderColor = QColor(0, 0, 0, 50);
+      properties.borderColor = QColor(0, 0, 0, 0);
       properties.fillColor = QColor(11, 16, 22, 50);
-      properties.iconColor = QColor(118, 117, 117, 50);
-      properties.textColor = QColor(118, 117, 117, 50);
-      properties.circleColors.fill(QColor(118, 117, 117, 50));
+      properties.iconColor = QColor(118, 117, 117, 70);
+      properties.textColor = QColor(118, 117, 117, 70);
+      properties.circleColors.fill(QColor(118, 117, 117, 70));
       break;
 
     case 1: // Low alert level 1
@@ -125,12 +125,13 @@ DriverAlertCluster::AlertProperties DriverAlertCluster::getAlertProperties(int a
     case 6: // High alert level 1
     case 7: // High alert level 2
       properties.borderColor = (alertLevel == 5) ? QColor(239, 255, 54) : QColor(255, 60, 70);
+      properties.fillColor = (alertLevel >= 6) ? QColor(255, 60, 70, 80) : QColor(11, 16, 22);
       properties.iconColor = QColor(254, 255, 255);
       properties.circleColors[0] = QColor(8, 64, 80);
       properties.circleColors[1] = QColor(8, 64, 80);
       properties.circleColors[2] = QColor(67, 71, 21);
       properties.circleColors[3] = QColor(67, 71, 21);
-      properties.circleColors[4] = (alertLevel == 5) ? QColor(239, 255, 54) : QColor(255, 60, 70);
+      properties.circleColors[4] = QColor(239, 255, 54);
       if (alertLevel >= 6) properties.circleColors[5] = QColor(255, 60, 70);
       if (alertLevel == 7) properties.circleColors[6] = QColor(255, 60, 70);
       break;
