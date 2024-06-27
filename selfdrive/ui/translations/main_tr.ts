@@ -460,37 +460,6 @@
     </message>
 </context>
 <context>
-    <name>PrimeAdWidget</name>
-    <message>
-        <source>Upgrade Now</source>
-        <translation>Hemen yükselt</translation>
-    </message>
-    <message>
-        <source>Become a comma prime member at connect.comma.ai</source>
-        <translation>connect.comma.ai üzerinden comma prime üyesi olun</translation>
-    </message>
-    <message>
-        <source>PRIME FEATURES:</source>
-        <translation>PRIME ABONELİĞİNİN ÖZELLİKLERİ:</translation>
-    </message>
-    <message>
-        <source>Remote access</source>
-        <translation>Uzaktan erişim</translation>
-    </message>
-    <message>
-        <source>24/7 LTE connectivity</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>1 year of drive storage</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Remote snapshots</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
     <name>PrimeUserWidget</name>
     <message>
         <source>✓ SUBSCRIBED</source>

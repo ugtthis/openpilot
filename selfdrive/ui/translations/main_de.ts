@@ -461,37 +461,6 @@
     </message>
 </context>
 <context>
-    <name>PrimeAdWidget</name>
-    <message>
-        <source>Upgrade Now</source>
-        <translation>Jetzt abonieren</translation>
-    </message>
-    <message>
-        <source>Become a comma prime member at connect.comma.ai</source>
-        <translation>Werde Comma Prime Mitglied auf connect.comma.ai</translation>
-    </message>
-    <message>
-        <source>PRIME FEATURES:</source>
-        <translation>PRIME FUNKTIONEN:</translation>
-    </message>
-    <message>
-        <source>Remote access</source>
-        <translation>Fernzugriff</translation>
-    </message>
-    <message>
-        <source>24/7 LTE connectivity</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>1 year of drive storage</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Remote snapshots</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
     <name>PrimeUserWidget</name>
     <message>
         <source>✓ SUBSCRIBED</source>
