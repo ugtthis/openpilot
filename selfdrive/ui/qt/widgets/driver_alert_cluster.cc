@@ -131,9 +131,9 @@ DriverAlertCluster::AlertProperties DriverAlertCluster::getAlertProperties(int a
       properties.borderColor = (alertLevel == 5) ? QColor(239, 255, 54) : QColor(255, 60, 70);
       properties.iconColor = QColor(254, 255, 255);
       properties.shadowColor = (alertLevel == 5) ? QColor(239, 255, 54) : QColor(255, 60, 70);
-      properties.shadowOpacity = 0.5;
-      properties.shadowBlurRadius = 5;
-      properties.shadowSpread = 1;
+      properties.shadowOpacity = 0.4;
+      properties.shadowBlurRadius = 10;
+      properties.shadowSpread = 5;
       properties.circleColors[0] = QColor(8, 64, 80);
       properties.circleColors[1] = QColor(8, 64, 80);
       properties.circleColors[2] = QColor(67, 71, 21);
@@ -152,24 +152,44 @@ void DriverAlertCluster::drawGradientShadow(QPainter &painter, const QRectF &rec
         painter.save();
         painter.setRenderHint(QPainter::Antialiasing);
 
-        // Create a larger rectangle for the shadow
-        QRectF shadowRect = rect.adjusted(-properties.shadowBlurRadius, -properties.shadowBlurRadius,
-                                          properties.shadowBlurRadius, properties.shadowBlurRadius);
+        // Create a slightly larger rectangle for the shadow
+        qreal spread = properties.shadowSpread;
+        QRectF shadowRect = rect.adjusted(-spread, -spread, spread, spread);
 
-        // Create a radial gradient for the shadow
-        QRadialGradient gradient(rect.center(), shadowRect.width() / 2);
+        // Create a path for the rounded rectangle
+        QPainterPath path;
+        path.addRoundedRect(shadowRect, CORNER_RADIUS + spread, CORNER_RADIUS + spread);
+
+        // Set up the gradient stops
         QColor shadowColor = properties.shadowColor;
         shadowColor.setAlphaF(properties.shadowOpacity);
-        gradient.setColorAt(0, shadowColor);
-        gradient.setColorAt(1, Qt::transparent);
+        QColor transparentColor = shadowColor;
+        transparentColor.setAlphaF(0);
 
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(gradient);
-        painter.drawRoundedRect(shadowRect, CORNER_RADIUS + properties.shadowBlurRadius, CORNER_RADIUS + properties.shadowBlurRadius);
+        // Create and draw gradients for each side
+        QLinearGradient topGradient(shadowRect.topLeft(), shadowRect.bottomLeft());
+        topGradient.setColorAt(0, shadowColor);
+        topGradient.setColorAt(1, transparentColor);
+        painter.setBrush(topGradient);
+        painter.drawPath(path);
 
-        // DEBUG: Visualize shadow area
-        painter.setPen(QPen(Qt::blue, 1, Qt::DashLine));
-        painter.drawRect(shadowRect);
+        QLinearGradient bottomGradient(shadowRect.bottomLeft(), shadowRect.topLeft());
+        bottomGradient.setColorAt(0, shadowColor);
+        bottomGradient.setColorAt(1, transparentColor);
+        painter.setBrush(bottomGradient);
+        painter.drawPath(path);
+
+        QLinearGradient leftGradient(shadowRect.topLeft(), shadowRect.topRight());
+        leftGradient.setColorAt(0, shadowColor);
+        leftGradient.setColorAt(1, transparentColor);
+        painter.setBrush(leftGradient);
+        painter.drawPath(path);
+
+        QLinearGradient rightGradient(shadowRect.topRight(), shadowRect.topLeft());
+        rightGradient.setColorAt(0, shadowColor);
+        rightGradient.setColorAt(1, transparentColor);
+        painter.setBrush(rightGradient);
+        painter.drawPath(path);
 
         painter.restore();
     }
@@ -223,13 +243,11 @@ void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBa
   QRectF barRect(HORIZONTAL_PADDING, yOffset, BAR_WIDTH, BAR_HEIGHT);
 
   // Draw glow effect for Medium Alert (3rd level) and High Alert states
-  QRectF shadowRect = barRect.adjusted(-20, -20, 20, 20);
-
-  drawGradientShadow(painter, shadowRect, properties);
+  drawGradientShadow(painter, barRect, properties);
 
   // Draw background
-  painter.setPen(Qt::NoPen);
-  painter.setBrush(properties.fillColor);
+  painter.setPen(QPen(properties.borderColor, properties.borderWidth));
+  painter.setBrush(Qt::NoBrush);
   drawRoundedRect(painter, barRect, CORNER_RADIUS, CORNER_RADIUS);
 
   // Draw border
@@ -279,9 +297,10 @@ void DriverAlertCluster::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
 
-  // DRAWS BORDER - VISUAL
-  painter.setPen(QPen(Qt::red, 2));  // Red color, 2px width
-  painter.drawRect(rect().adjusted(1, 1, -1, -1));  // Adjust to keep border inside the widget
+  // REMOVE PR
+  // // DRAWS BORDER - VISUAL
+  // painter.setPen(QPen(Qt::red, 2));  // Red color, 2px width
+  // painter.drawRect(rect().adjusted(1, 1, -1, -1));  // Adjust to keep border inside the widget
 
   // Clear the background
   painter.fillRect(rect(), Qt::transparent);
