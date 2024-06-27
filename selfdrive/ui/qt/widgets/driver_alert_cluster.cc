@@ -199,6 +199,7 @@ bool DriverAlertCluster::renderIcon(QPainter &painter, const QString &iconName, 
   auto it = iconInfo.find(iconName);
   if (it != iconInfo.end()) {
     painter.save();
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
     qreal availableAspectRatio = rect.width() / rect.height();
     QSizeF iconSize;
@@ -232,12 +233,21 @@ bool DriverAlertCluster::renderIcon(QPainter &painter, const QString &iconName, 
 }
 
 void DriverAlertCluster::drawRoundedRect(QPainter &painter, const QRectF &rect, qreal xRadius, qreal yRadius) {
+  painter.save();
+  painter.setRenderHint(QPainter::Antialiasing, true);
+
   QPainterPath path;
   path.addRoundedRect(rect, xRadius, yRadius);
   painter.drawPath(path);
+
+  painter.restore();
 }
 
 void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBar, int yOffset) {
+  painter.save();
+  painter.setRenderHint(QPainter::Antialiasing, true);
+  painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+
   const AlertProperties &properties = cachedAlertProperties[alertBar.alertLevel];
 
   QRectF barRect(HORIZONTAL_PADDING, yOffset, BAR_WIDTH, BAR_HEIGHT);
@@ -247,7 +257,7 @@ void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBa
 
   // Draw background
   painter.setPen(QPen(properties.borderColor, properties.borderWidth));
-  painter.setBrush(Qt::NoBrush);
+  painter.setBrush(properties.fillColor);
   drawRoundedRect(painter, barRect, CORNER_RADIUS, CORNER_RADIUS);
 
   // Draw border
@@ -288,6 +298,7 @@ void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBa
     qreal circleY = circleAreaRect.top() + (circleAreaRect.height() - CIRCLE_SIZE) / 2;
     painter.drawEllipse(QRectF(circleX, circleY, CIRCLE_SIZE, CIRCLE_SIZE));
   }
+  painter.restore();
 }
 
 
@@ -296,6 +307,8 @@ void DriverAlertCluster::paintEvent(QPaintEvent *event) {
 
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
+  painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+  painter.setRenderHint(QPainter::TextAntialiasing, true);
 
   // REMOVE PR
   // // DRAWS BORDER - VISUAL
