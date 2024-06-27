@@ -7,7 +7,7 @@
 
 DriverAlertCluster::DriverAlertCluster(UIState *ui_state, QWidget *parent)
     : QWidget(parent), ui_state(ui_state) {
-  setFixedSize(720, 360); // BEFORE 640
+  setFixedSize(720, 360); // BEFORE 640 / 360
   initializeAlertBars();
   if (!loadIcons()) {
     qWarning() << "Failed to load one or more icons for DriverAlertCluster";
@@ -131,9 +131,9 @@ DriverAlertCluster::AlertProperties DriverAlertCluster::getAlertProperties(int a
       properties.borderColor = (alertLevel == 5) ? QColor(239, 255, 54) : QColor(255, 60, 70);
       properties.iconColor = QColor(254, 255, 255);
       properties.shadowColor = (alertLevel == 5) ? QColor(239, 255, 54) : QColor(255, 60, 70);
-      properties.shadowOpacity = 0.1;
-      properties.shadowBlurRadius = 38;
-      properties.shadowSpread = 3;
+      properties.shadowOpacity = 0.5;
+      properties.shadowBlurRadius = 5;
+      properties.shadowSpread = 1;
       properties.circleColors[0] = QColor(8, 64, 80);
       properties.circleColors[1] = QColor(8, 64, 80);
       properties.circleColors[2] = QColor(67, 71, 21);
@@ -148,36 +148,31 @@ DriverAlertCluster::AlertProperties DriverAlertCluster::getAlertProperties(int a
 }
 
 void DriverAlertCluster::drawGradientShadow(QPainter &painter, const QRectF &rect, const AlertProperties &properties) {
-  if (properties.shadowBlurRadius > 0) {
-    painter.save();
-    painter.setRenderHint(QPainter::Antialiasing);
+    if (properties.shadowBlurRadius > 0) {
+        painter.save();
+        painter.setRenderHint(QPainter::Antialiasing);
 
-    QColor shadowColor = properties.shadowColor;
-    shadowColor.setAlphaF(properties.shadowOpacity);
+        // Create a larger rectangle for the shadow
+        QRectF shadowRect = rect.adjusted(-properties.shadowBlurRadius, -properties.shadowBlurRadius,
+                                          properties.shadowBlurRadius, properties.shadowBlurRadius);
 
-    for (int i = properties.shadowBlurRadius; i > 0; i -= 2) {
-      qreal opacity = std::sqrt(i / static_cast<qreal>(properties.shadowBlurRadius));
-      QColor currentColor = shadowColor;
-      currentColor.setAlphaF(currentColor.alphaF() * opacity);
+        // Create a radial gradient for the shadow
+        QRadialGradient gradient(rect.center(), shadowRect.width() / 2);
+        QColor shadowColor = properties.shadowColor;
+        shadowColor.setAlphaF(properties.shadowOpacity);
+        gradient.setColorAt(0, shadowColor);
+        gradient.setColorAt(1, Qt::transparent);
 
-      qreal shrinkage = (properties.shadowBlurRadius - i) / 2.0;
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(gradient);
+        painter.drawRoundedRect(shadowRect, CORNER_RADIUS + properties.shadowBlurRadius, CORNER_RADIUS + properties.shadowBlurRadius);
 
-      QPainterPath path;
-      path.addRoundedRect(rect, CORNER_RADIUS, CORNER_RADIUS);
+        // DEBUG: Visualize shadow area
+        painter.setPen(QPen(Qt::blue, 1, Qt::DashLine));
+        painter.drawRect(shadowRect);
 
-      QPainterPath innerPath;
-      innerPath.addRoundedRect(rect.adjusted(shrinkage, shrinkage, -shrinkage, -shrinkage),
-                               CORNER_RADIUS - shrinkage / 2, CORNER_RADIUS - shrinkage / 2);
-
-      QPainterPath shadowPath = path.subtracted(innerPath);
-
-      painter.setPen(Qt::NoPen);
-      painter.setBrush(currentColor);
-      painter.drawPath(shadowPath);
+        painter.restore();
     }
-
-    painter.restore();
-  }
 }
 
 bool DriverAlertCluster::renderIcon(QPainter &painter, const QString &iconName, const QRectF &rect, const QColor &color) {
@@ -228,7 +223,8 @@ void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBa
   QRectF barRect(HORIZONTAL_PADDING, yOffset, BAR_WIDTH, BAR_HEIGHT);
 
   // Draw glow effect for Medium Alert (3rd level) and High Alert states
-  QRectF shadowRect = barRect.adjusted(-12, -12, 12, 12);
+  QRectF shadowRect = barRect.adjusted(-20, -20, 20, 20);
+
   drawGradientShadow(painter, shadowRect, properties);
 
   // Draw background
