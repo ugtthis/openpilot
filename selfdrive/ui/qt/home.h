@@ -15,6 +15,8 @@
 #include "selfdrive/ui/qt/widgets/controls.h"
 #include "selfdrive/ui/qt/widgets/offroad_alerts.h"
 #include "selfdrive/ui/ui.h"
+#include "selfdrive/ui/qt/offroad/mode_button.h"
+#include "selfdrive/ui/qt/offroad/info_display_bar.h"
 
 class OffroadHome : public QFrame {
   Q_OBJECT
@@ -39,6 +41,11 @@ private:
   OffroadAlert* alerts_widget;
   QPushButton* alert_notif;
   QPushButton* update_notif;
+
+  InfoDisplayBar *infoDisplayBar;
+  ModeButton *chillModeButton;
+  ModeButton *experimentalModeButton;
+  ModeButton *disableOpenPilotButton;
 };
 
 class HomeWindow : public QWidget {

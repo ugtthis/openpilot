@@ -1,4 +1,6 @@
 #include "selfdrive/ui/qt/home.h"
+#include "selfdrive/ui/qt/offroad/mode_button.h"
+#include "selfdrive/ui/qt/offroad/info_display_bar.h"
 
 #include <QHBoxLayout>
 #include <QMouseEvent>
@@ -138,31 +140,45 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     home_layout->setContentsMargins(0, 0, 0, 0);
     home_layout->setSpacing(30);
 
-    // REPLACE
-    // left: PLACEHOLDER for PrimeAdWidget
-    QStackedWidget *left_widget = new QStackedWidget(this);
-    QVBoxLayout *left_prime_layout = new QVBoxLayout();
-    QWidget *prime_user = new PrimeUserWidget();
-    prime_user->setStyleSheet(R"(
-    border-radius: 10px;
-    background-color: #333333;
-    )");
-    left_prime_layout->addWidget(prime_user);
-    left_prime_layout->addStretch();
-    left_widget->addWidget(new LayoutWidget(left_prime_layout));
+    // left column: Add InfoDisplayBar and ModeButtons
+    QVBoxLayout *left_layout = new QVBoxLayout();
 
-    // Add an empty placeholder widget
-    QWidget *placeholder = new QWidget();
-    left_widget->addWidget(placeholder);
+    // Add the InfoDisplayBar at the top
+    infoDisplayBar = new InfoDisplayBar(this);
+    left_layout->addWidget(infoDisplayBar);
 
-    left_widget->setStyleSheet("border-radius: 10px;");
-
-    left_widget->setCurrentIndex(uiState()->hasPrime() ? 0 : 1);
-    connect(uiState(), &UIState::primeChanged, [=](bool prime) {
-      left_widget->setCurrentIndex(prime ? 0 : 1);
+    // Add the Chill Mode Button
+    chillModeButton = new ModeButton(this);
+    chillModeButton->setModeText("chill mode");
+    chillModeButton->setDescriptionText("Focuses on comfort and safety by reducing acceleration...");
+    connect(chillModeButton, &ModeButton::modeToggled, [=](const QString &mode, bool enabled) {
+      infoDisplayBar->setMessage(enabled ? mode + " enabled" : "Tap on mode for more info", ":/path/to/chill_mode_icon.png");
     });
+    left_layout->addWidget(chillModeButton);
 
-    home_layout->addWidget(left_widget, 1);
+    // Add the Experimental Mode Button
+    experimentalModeButton = new ModeButton(this);
+    experimentalModeButton->setModeText("Experimental Mode");
+    experimentalModeButton->setDescriptionText("Enables beta features and experimental tools...");
+    connect(experimentalModeButton, &ModeButton::modeToggled, [=](const QString &mode, bool enabled) {
+      if (enabled) {
+        infoDisplayBar->setMessage(mode + " enabled", ":/path/to/experimental_mode_icon.png");
+      } else {
+        infoDisplayBar->setMessage("Experimental mode is not available for this car", ":/path/to/error_icon.png");
+      }
+    });
+    left_layout->addWidget(experimentalModeButton);
+
+    // Add the Disable openpilot Button
+    disableOpenPilotButton = new ModeButton(this);
+    disableOpenPilotButton->setModeText("Disable openpilot");
+    disableOpenPilotButton->setDescriptionText("Enables use of stock LKAS & ACC of the car...");
+    connect(disableOpenPilotButton, &ModeButton::modeToggled, [=](const QString &mode, bool enabled) {
+      infoDisplayBar->setMessage(enabled ? mode + " enabled" : "Tap on mode for more info");
+    });
+    left_layout->addWidget(disableOpenPilotButton);
+
+    home_layout->addLayout(left_layout, 1);
 
     // right: ExperimentalModeButton, SetupWidget
 
