@@ -151,7 +151,7 @@ DriverAlertCluster::AlertProperties DriverAlertCluster::getAlertProperties(int a
       properties.circleColors[1] = QColor(8, 64, 80);
       properties.circleColors[2] = QColor(67, 71, 21);
       properties.circleColors[3] = QColor(67, 71, 21);
-      properties.circleColors[4] = QColor(239, 255, 54);
+      properties.circleColors[4] = (alertLevel >= 6) ? QColor(67, 71, 21) : QColor(239, 255, 54);
       if (alertLevel >= 6) properties.circleColors[5] = QColor(255, 60, 70);
       if (alertLevel == 7) properties.circleColors[6] = QColor(255, 60, 70);
       break;
