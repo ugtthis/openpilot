@@ -52,10 +52,10 @@ private:
   static constexpr int BAR_WIDTH = 585; // Individual bar widths
   static constexpr int BAR_HEIGHT = 87; // Individual bar heights
   static constexpr int HORIZONTAL_PADDING = 20; // Controls horizontal space of the whole DAC UI from left edge of screen
-  static constexpr int VERTICAL_PADDING = 20; // Controls vertical spacing between the DAC bars
+  static constexpr int VERTICAL_PADDING = 25; // Controls vertical spacing between the DAC bars
   static constexpr int CIRCLE_SIZE = 33;
-  static constexpr int FONT_SIZE = 24;
-  static constexpr int ICON_SIZE = 50;
+  static constexpr int FONT_SIZE = 26;
+  static constexpr int ICON_SIZE = 56;
   static constexpr int CORNER_RADIUS = 41;
   static constexpr int CIRCLE_AREA_WIDTH = 310; // How close together circles are
   static constexpr int ICON_PADDING = 30; // Left side padding?
