@@ -15,6 +15,7 @@ public:
   ~DriverAlertCluster();
 
   void updateState(const UIState &s);
+  void printAlertLevels() const;
 
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -28,6 +29,7 @@ private:
     QString label;
     int alertLevel;
     QString iconName;
+    float probability;
   };
 
   struct AlertProperties {

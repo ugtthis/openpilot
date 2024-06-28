@@ -4,6 +4,10 @@
 #include <algorithm>
 #include <cmath>
 #include "selfdrive/ui/qt/util.h"
+#include <iostream>
+#include <string>
+#include <iomanip>
+
 
 DriverAlertCluster::DriverAlertCluster(UIState *ui_state, QWidget *parent)
     : QWidget(parent), ui_state(ui_state) {
@@ -59,17 +63,33 @@ cereal::ModelDataV2::DisengagePredictions::Reader DriverAlertCluster::getDisenga
   return sm["modelV2"].getModelV2().getMeta().getDisengagePredictions();
 }
 
+void DriverAlertCluster::printAlertLevels() const {
+    std::cout << "\n\n***** DRIVER ALERT CLUSTER DEBUG OUTPUT *****" << std::endl;
+    std::cout << "Alert Levels and Probabilities:" << std::endl;
+    for (const auto& bar : alertBars) {
+        std::cout << bar.label.toStdString() << ": "
+                  << "Level " << bar.alertLevel
+                  << " (Probability: " << std::fixed << std::setprecision(4) << bar.probability << ")"
+                  << std::endl;
+    }
+    std::cout << "*********************************************\n\n" << std::endl;
+    std::cout.flush();  // Ensure output is flushed to console
+}
+
 void DriverAlertCluster::updateState(const UIState &s) {
   const auto& disengagePreds = getDisengagePredictions(*s.sm);
-  alertBars[0].alertLevel = calculateAlertLevel(disengagePreds.getSteerOverrideProbs());
-  alertBars[1].alertLevel = calculateAlertLevel(disengagePreds.getBrakeDisengageProbs());
-  alertBars[2].alertLevel = calculateAlertLevel(disengagePreds.getGasDisengageProbs());
 
-  // Debug output
-  qDebug() << "Alert Levels: Steering:" << alertBars[0].alertLevel
-           << "Brake:" << alertBars[1].alertLevel
-           << "Gas:" << alertBars[2].alertLevel;
+  auto updateAlertBar = [this](int index, const capnp::List<float>::Reader& probs) {
+    float max_prob = *std::max_element(probs.begin(), probs.end());
+    alertBars[index].alertLevel = calculateAlertLevel(probs);
+    alertBars[index].probability = max_prob;
+  };
 
+  updateAlertBar(0, disengagePreds.getSteerOverrideProbs());
+  updateAlertBar(1, disengagePreds.getBrakeDisengageProbs());
+  updateAlertBar(2, disengagePreds.getGasDisengageProbs());
+
+  printAlertLevels();
   update();
 }
 
