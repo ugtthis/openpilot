@@ -29,7 +29,7 @@ private:
     QString label;
     int alertLevel;
     QString iconName;
-    float probability;
+    float probability; // For printAlertLevels()
   };
 
   struct AlertProperties {

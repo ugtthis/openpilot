@@ -7,7 +7,7 @@
 #include <QTimer>
 #include <memory>
 
-#include "selfdrive/ui/qt/widgets/driver_alert_cluster.h"
+#include "selfdrive/ui/qt/onroad/driver_alert_cluster.h"
 #include "selfdrive/ui/qt/onroad/buttons.h"
 #include "selfdrive/ui/qt/widgets/cameraview.h"
 

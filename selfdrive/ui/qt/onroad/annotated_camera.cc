@@ -3,7 +3,7 @@
 #include <cmath>
 
 #include "selfdrive/ui/qt/onroad/annotated_camera.h"
-#include "selfdrive/ui/qt/widgets/driver_alert_cluster.h"
+#include "selfdrive/ui/qt/onroad/driver_alert_cluster.h"
 #include "selfdrive/ui/ui.h"
 
 #include "common/swaglog.h"
