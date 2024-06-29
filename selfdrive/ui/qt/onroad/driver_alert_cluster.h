@@ -50,17 +50,18 @@ private:
 
   // UI Constants
   static constexpr int BAR_WIDTH = 585; // Individual bar widths
-  static constexpr int BAR_HEIGHT = 87; // Individual bar heights
+  static constexpr int BAR_HEIGHT = 88; // Individual bar heights
   static constexpr int HORIZONTAL_PADDING = 20; // Controls horizontal space of the whole DAC UI from left edge of screen
-  static constexpr int VERTICAL_PADDING = 25; // Controls vertical spacing between the DAC bars
-  static constexpr int CIRCLE_SIZE = 33;
+  static constexpr int VERTICAL_PADDING = 27; // Controls vertical spacing between the DAC bars
+  static constexpr int CIRCLE_SIZE = 34;
   static constexpr int FONT_SIZE = 26;
   static constexpr int ICON_SIZE = 56;
   static constexpr int CORNER_RADIUS = 41;
   static constexpr int CIRCLE_AREA_WIDTH = 310; // How close together circles are
   static constexpr int ICON_PADDING = 30; // Left side padding?
   static constexpr int CIRCLE_RIGHT_MARGIN = 20; // Controls spacing of the right side of the individual bar
-  static constexpr int TEXT_ICON_SPACING = 13;
+  static constexpr int TEXT_ICON_SPACING = 11; // Space between icon and bar title(gas, brake, steering)
+  static constexpr int BORDER_WIDTH = 13;
 
   void initializeAlertBars();
   bool loadIcons();

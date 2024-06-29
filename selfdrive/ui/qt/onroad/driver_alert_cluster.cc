@@ -115,7 +115,7 @@ DriverAlertCluster::AlertProperties DriverAlertCluster::getAlertProperties(int a
   properties.fillColor = QColor(11, 16, 22);
   properties.iconColor = QColor(254, 255, 255);
   properties.textColor = QColor(254, 255, 255);
-  properties.borderWidth = 18;
+  properties.borderWidth = BORDER_WIDTH;
   properties.circleColors.fill(QColor(118, 117, 117));
 
   switch (alertLevel) {
