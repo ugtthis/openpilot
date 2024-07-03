@@ -80,13 +80,15 @@ jobs:
             const items = response.data.items
             if (items.length < 1) {
               console.error('No PRs found')
-              return
+              return 'no-pr-found'
             }
             const pullRequestNumber = items[0].number
             console.info('Pull request number is', pullRequestNumber)
-            return pullRequestNumber
+            return pullRequestNumber.toString()
 
       - name: Deploy to Cloudflare Pages
+        id: deploy
+        if: steps.pr.outputs.result != 'no-pr-found'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
@@ -94,6 +96,7 @@ jobs:
           command: pages deploy ./site --project-name=docs-openpilot --branch=${{ steps.pr.outputs.result }} --commit-dirty=true
 
       - name: Comment URL on PR
+        if: steps.pr.outputs.result != 'no-pr-found'
         uses: thollander/actions-comment-pull-request@v2
         with:
           message: |
