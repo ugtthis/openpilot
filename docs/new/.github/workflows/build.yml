@@ -1,0 +1,45 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -r docs/new/requirements.txt
+
+      - name: Build MkDocs site
+        run: |
+          source .venv/bin/activate
+          mkdocs build -f docs/new/mkdocs.yml
+
+      - name: Upload built project
+        uses: actions/upload-artifact@v4
+        with:
+          path: docs/new/site
+          overwrite: true
+          retention-days: 1
+          name: build-artifacts-${{ github.run_id }}
+
+      - name: Deploy to Cloudflare Pages
+        if: github.ref == 'refs/heads/main'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          command: pages publish docs/new/site --project-name=openpilot-docs --branch=main
