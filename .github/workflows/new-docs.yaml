@@ -10,8 +10,6 @@ on:
 jobs:
   build-docs:
     runs-on: ubuntu-latest
-    outputs:
-      artifact_name: ${{ steps.upload-artifact.outputs.artifact-name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -59,8 +57,15 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: new-doc-build-artifacts-${{ needs.build-docs.outputs.artifact_name }}
+          name: new-doc-build-artifacts-${{ github.run_id }}
           path: ./site
+
+      - name: Verify artifact contents
+        run: |
+          if [ ! -d "./site" ] || [ -z "$(ls -A ./site)" ]; then
+            echo "Error: Downloaded artifact is empty or missing"
+            exit 1
+          fi
 
       - name: Find PR number
         id: pr
@@ -82,12 +87,14 @@ jobs:
             return pullRequestNumber
 
       - name: Deploy to Cloudflare Pages
+        if: steps.pr.outputs.result != ''
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
           command: pages publish site --project-name=openpilot-docs-preview --branch=${{ steps.pr.outputs.result }}
 
       - name: Comment URL on PR
+        if: steps.pr.outputs.result != ''
         uses: thollander/actions-comment-pull-request@v2
         with:
           message: |
