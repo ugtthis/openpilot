@@ -95,9 +95,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## openpilot docs preview
-              Preview link for this PR: [Preview URL](${process.env.PREVIEW_URL})
+              body: `**openpilot docs preview**
+              ${{ steps.deploy.outputs.url }}
               <!-- _(run_id **${process.env.GITHUB_RUN_ID}**)_ -->`
             })
-        env:
-          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
