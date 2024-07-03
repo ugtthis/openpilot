@@ -31,7 +31,6 @@ jobs:
           mkdocs build -f docs/new/mkdocs.yml
 
       - name: Upload built project
-        id: upload-artifact
         uses: actions/upload-artifact@v4
         with:
           name: new-doc-build-artifacts-${{ github.run_id }}
