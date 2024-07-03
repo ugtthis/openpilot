@@ -55,7 +55,8 @@ jobs:
         with:
           message: |
             <!-- _(run_id **${{ github.run_id }}**)_ -->
-            Preview for this PR is available at:
+            # opnepilot docs
+            Preview link for this PR:
             https://${{ github.head_ref }}-openpilot-docs-preview.pages.dev
           comment_tag: preview-url
           pr_number: ${{ steps.pr.outputs.result }}
