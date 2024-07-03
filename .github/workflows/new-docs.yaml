@@ -73,13 +73,15 @@ jobs:
             echo "Error: Downloaded artifact is empty or missing"
             exit 1
           fi
+          echo "Contents of ./site directory:"
+          ls -R ./site
 
       - name: Deploy to Cloudflare Pages
         id: deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
-          command: pages publish site --project-name=openpilot-docs-preview --branch=${{ github.head_ref }}
+          command: pages publish ./site --project-name=docs-openpilot --branch=${{ github.head_ref }} --verbose
 
       - name: Comment URL on PR
         if: success()
