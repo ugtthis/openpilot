@@ -10,6 +10,8 @@ on:
 jobs:
   build-docs:
     runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -30,10 +32,14 @@ jobs:
           source .venv/bin/activate
           mkdocs build -f docs/new/mkdocs.yml
 
+      - name: Set artifact name
+        id: set-artifact-name
+        run: echo "artifact_name=new-doc-build-artifacts-${{ github.run_id }}" >> $GITHUB_OUTPUT
+
       - name: Upload built project
         uses: actions/upload-artifact@v4
         with:
-          name: new-doc-build-artifacts-${{ github.run_id }}
+          name: ${{ steps.set-artifact-name.outputs.artifact_name }}
           path: docs/new/site
           overwrite: true
           retention-days: 1
@@ -56,7 +62,7 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: new-doc-build-artifacts-${{ github.run_id }}
+          name: ${{ needs.build-docs.outputs.artifact_name }}
           path: ./site
 
       - name: Verify artifact contents
