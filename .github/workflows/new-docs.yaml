@@ -49,7 +49,8 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
-          command: pages publish docs/new/site --project-name=openpilot-docs --branch=master
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages publish docs/new/site --project-name=docs-openpilot --branch=master
 
   preview-docs:
     needs: build-docs
@@ -81,7 +82,8 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
-          command: pages publish ./site --project-name=docs-openpilot --branch=${{ github.head_ref }} --verbose
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy ./site --project-name=docs-openpilot --branch=${{ github.head_ref }}
 
       - name: Comment URL on PR
         if: success()
