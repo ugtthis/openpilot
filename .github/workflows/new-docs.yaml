@@ -94,6 +94,6 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `**openpilot docs PR preview**
-              https://pr.${{ steps.findPr.outputs.number }}-docs-openpilot.pages.dev
+              https://pr-${{ steps.findPr.outputs.number }}.docs-openpilot.pages.dev
               <!-- _(run_id **${{ github.run_id }}**)_ -->`
             })
