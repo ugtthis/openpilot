@@ -55,6 +55,8 @@ jobs:
     needs: build-docs
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -72,41 +74,26 @@ jobs:
             exit 1
           fi
 
-      - name: Find PR number
-        id: pr
-        uses: actions/github-script@v7
-        with:
-          retries: 3
-          script: |
-            const response = await github.rest.search.issuesAndPullRequests({
-              q: 'repo:${{ github.repository }} is:pr sha:${{ github.sha }}',
-              per_page: 1,
-            })
-            const items = response.data.items
-            if (items.length < 1) {
-              console.error('No PRs found')
-              return
-            }
-            const pullRequestNumber = items[0].number
-            console.info('Pull request number is', pullRequestNumber)
-            return pullRequestNumber
-
       - name: Deploy to Cloudflare Pages
-        if: steps.pr.outputs.result != ''
+        id: deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
-          command: pages publish site --project-name=openpilot-docs-preview --branch=${{ steps.pr.outputs.result }}
+          command: pages publish site --project-name=openpilot-docs-preview --branch=${{ github.head_ref }}
 
       - name: Comment URL on PR
-        if: steps.pr.outputs.result != ''
-        uses: thollander/actions-comment-pull-request@v2
+        if: success()
+        uses: actions/github-script@v7
         with:
-          message: |
-            <!-- _(run_id **${{ github.run_id }}**)_ -->
-            # openpilot docs
-            Preview link for this PR:
-            [Preview URL](https://${{ github.head_ref }}-openpilot-docs-preview.pages.dev)
-          comment_tag: preview-url
-          pr_number: ${{ steps.pr.outputs.result }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## openpilot docs preview
+              Preview link for this PR: [Preview URL](${process.env.PREVIEW_URL})
+              <!-- _(run_id **${process.env.GITHUB_RUN_ID}**)_ -->`
+            })
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
