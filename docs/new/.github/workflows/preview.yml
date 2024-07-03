@@ -20,7 +20,7 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: build-artifacts-${{ github.event.workflow_run.id }}
+          name: new-doc-build-artifacts-${{ github.event.workflow_run.id }}
           path: ./site
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -54,6 +54,7 @@ jobs:
         uses: thollander/actions-comment-pull-request@v2
         with:
           message: |
+            <!-- _(run_id **${{ github.run_id }}**)_ -->
             Preview for this PR is available at:
             https://${{ github.head_ref }}-openpilot-docs-preview.pages.dev
           comment_tag: preview-url
