@@ -10,8 +10,6 @@ on:
 jobs:
   build-docs:
     runs-on: ubuntu-latest
-    outputs:
-      artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,6 +18,14 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: |
@@ -32,16 +38,11 @@ jobs:
           source .venv/bin/activate
           mkdocs build -f docs/new/mkdocs.yml
 
-      - name: Set artifact name
-        id: set-artifact-name
-        run: echo "artifact_name=new-doc-build-artifacts-${{ github.run_id }}" >> $GITHUB_OUTPUT
-
       - name: Upload built project
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.set-artifact-name.outputs.artifact_name }}
+          name: docs-site-build
           path: docs/new/site
-          overwrite: true
           retention-days: 1
 
       - name: Deploy to Cloudflare Pages
@@ -56,8 +57,6 @@ jobs:
     needs: build-docs
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -65,43 +64,42 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.build-docs.outputs.artifact_name }}
+          name: docs-site-build
           path: ./site
 
-      - name: Verify artifact contents
-        run: |
-          if [ ! -d "./site" ] || [ -z "$(ls -A ./site)" ]; then
-            echo "Error: Downloaded artifact is empty or missing"
-            exit 1
-          fi
-          echo "Contents of ./site directory:"
-          ls -R ./site
+      - name: Find PR number
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          retries: 3
+          script: |
+            const response = await github.rest.search.issuesAndPullRequests({
+              q: 'repo:${{ github.repository }} is:pr sha:${{ github.sha }}',
+              per_page: 1,
+            })
+            const items = response.data.items
+            if (items.length < 1) {
+              console.error('No PRs found')
+              return
+            }
+            const pullRequestNumber = items[0].number
+            console.info('Pull request number is', pullRequestNumber)
+            return pullRequestNumber
 
       - name: Deploy to Cloudflare Pages
-        id: deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ./site --project-name=docs-openpilot --branch=${{ github.head_ref }}
-
-      - name: Get deployment URL
-        id: get_url
-        run: |
-          DEPLOY_URL=$(echo '${{ steps.deploy.outputs.result }}' | jq -r '.deployment.url')
-          echo "DEPLOY_URL=${DEPLOY_URL}" >> $GITHUB_OUTPUT
+          command: pages deploy ./site --project-name=docs-openpilot --branch=${{ steps.pr.outputs.result }} --commit-dirty=true
 
       - name: Comment URL on PR
-        if: success()
-        uses: actions/github-script@v7
+        uses: thollander/actions-comment-pull-request@v2
         with:
-          github-token: ${{secrets.GITHUB_TOKEN}}
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `**openpilot docs PR preview**
-              ${{ steps.get_url.outputs.DEPLOY_URL }}
-              <!-- _(run_id **${process.env.GITHUB_RUN_ID}**)_ -->`
-            })
+          message: |
+            <!-- _(run_id **${{ github.run_id }}**)_ -->
+            **openpilot docs PR preview**
+            https://${{ steps.pr.outputs.result }}-docs-openpilot.pages.dev
+          comment_tag: preview-url
+          pr_number: ${{ steps.pr.outputs.result }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
