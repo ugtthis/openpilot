@@ -1,5 +1,7 @@
 
 #include "selfdrive/ui/qt/onroad/annotated_camera.h"
+#include "selfdrive/ui/qt/onroad/driver_alert_cluster.h"
+#include "selfdrive/ui/ui.h"
 
 #include <QPainter>
 #include <algorithm>
@@ -19,6 +21,9 @@ AnnotatedCameraWidget::AnnotatedCameraWidget(VisionStreamType type, QWidget* par
 
   experimental_btn = new ExperimentalButton(this);
   main_layout->addWidget(experimental_btn, 0, Qt::AlignTop | Qt::AlignRight);
+
+  driver_alert_cluster = new DriverAlertCluster(uiState(), this);
+  main_layout->addWidget(driver_alert_cluster, 0, Qt::AlignBottom | Qt::AlignLeft);
 
   // REMOVE
   // dm_img = loadPixmap("../assets/img_driver_face.png", {img_size + 5, img_size + 5});
@@ -54,6 +59,9 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
 
   // update engageability/experimental mode button
   experimental_btn->updateState(s);
+
+  // updates the DAC state
+  driver_alert_cluster->updateState(s);
 
   // REMOVE
   // // update DM icon
