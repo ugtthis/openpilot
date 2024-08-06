@@ -10,6 +10,16 @@
 
 #include "selfdrive/ui/qt/util.h"
 
+// Utility function to find the maximum element in a capnp list
+float findMaxProbability(const capnp::List<float>::Reader& probs) {
+  float max_prob = 0.0f;
+  for (const auto& prob : probs) {
+    if (prob > max_prob) {
+      max_prob = prob;
+    }
+  }
+  return max_prob;
+}
 
 DriverAlertCluster::DriverAlertCluster(UIState *ui_state, QWidget *parent)
     : QWidget(parent), ui_state(ui_state) {
@@ -66,23 +76,23 @@ cereal::ModelDataV2::DisengagePredictions::Reader DriverAlertCluster::getDisenga
 }
 
 void DriverAlertCluster::printAlertLevels() const {
-    std::cout << "\n\n***** DRIVER ALERT CLUSTER DEBUG OUTPUT *****" << std::endl;
-    std::cout << "Alert Levels and Probabilities:" << std::endl;
-    for (const auto& bar : alertBars) {
-        std::cout << bar.label.toStdString() << ": "
-                  << "Level " << bar.alertLevel
-                  << " (Probability: " << std::fixed << std::setprecision(4) << bar.probability << ")"
-                  << std::endl;
-    }
-    std::cout << "*********************************************\n\n" << std::endl;
-    std::cout.flush();  // Ensure output is flushed to console
+  std::cout << "\n\n***** DRIVER ALERT CLUSTER DEBUG OUTPUT *****" << std::endl;
+  std::cout << "Alert Levels and Probabilities:" << std::endl;
+  for (const auto& bar : alertBars) {
+    std::cout << bar.label.toStdString() << ": "
+              << "Level " << bar.alertLevel
+              << " (Probability: " << std::fixed << std::setprecision(4) << bar.probability << ")"
+              << std::endl;
+  }
+  std::cout << "*********************************************\n\n" << std::endl;
+  std::cout.flush();  // Ensure output is flushed to console
 }
 
 void DriverAlertCluster::updateState(const UIState &s) {
   const auto& disengagePreds = getDisengagePredictions(*s.sm);
 
   auto updateAlertBar = [this](int index, const capnp::List<float>::Reader& probs) {
-    float max_prob = *std::max_element(probs.begin(), probs.end());
+    float max_prob = findMaxProbability(probs);
     alertBars[index].alertLevel = calculateAlertLevel(probs);
     alertBars[index].probability = max_prob;
   };
@@ -96,7 +106,7 @@ void DriverAlertCluster::updateState(const UIState &s) {
 }
 
 int DriverAlertCluster::calculateAlertLevel(const capnp::List<float>::Reader& probs) {
-  float max_prob = *std::max_element(probs.begin(), probs.end());
+  float max_prob = findMaxProbability(probs);
   if (max_prob > 0.8) return 7;
   if (max_prob > 0.6) return 6;
   if (max_prob > 0.4) return 5;
@@ -172,10 +182,8 @@ bool DriverAlertCluster::renderIcon(QPainter &painter, const QString &iconName, 
     QSizeF iconSize;
 
     if (it.value().aspectRatio > availableAspectRatio) {
-      // Icon is wider than the available space
       iconSize = QSizeF(rect.width(), rect.width() / it.value().aspectRatio);
     } else {
-      // Icon is taller than or equal to the available space
       iconSize = QSizeF(rect.height() * it.value().aspectRatio, rect.height());
     }
 
@@ -219,17 +227,14 @@ void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBa
 
   QRectF barRect(HORIZONTAL_PADDING, yOffset, BAR_WIDTH, BAR_HEIGHT);
 
-  // Draw background
   painter.setPen(QPen(properties.borderColor, properties.borderWidth));
   painter.setBrush(properties.fillColor);
   drawRoundedRect(painter, barRect, CORNER_RADIUS, CORNER_RADIUS);
 
-  // Draw border
   painter.setPen(QPen(properties.borderColor, properties.borderWidth));
   painter.setBrush(Qt::NoBrush);
   drawRoundedRect(painter, barRect, CORNER_RADIUS, CORNER_RADIUS);
 
-  // Calculate rectangles for different areas of the alert bar
   QRectF iconRect(barRect.left() + ICON_PADDING,
                   barRect.top() + (barRect.height() - ICON_SIZE) / 2,
                   ICON_SIZE, ICON_SIZE);
@@ -243,17 +248,14 @@ void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBa
                         CIRCLE_AREA_WIDTH,
                         barRect.height());
 
-  // Draw icon
   if (!renderIcon(painter, alertBar.iconName, iconRect, properties.iconColor)) {
     qWarning() << "Failed to render icon:" << alertBar.iconName;
   }
 
-  // Draw text
   painter.setPen(properties.textColor);
   painter.setFont(QFont("Inter", FONT_SIZE, QFont::DemiBold));
   painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, alertBar.label);
 
-  // Draw circles
   int circleSpacing = (CIRCLE_AREA_WIDTH - (NUM_CIRCLES * CIRCLE_SIZE)) / (NUM_CIRCLES + 1);
   for (int i = 0; i < NUM_CIRCLES; ++i) {
     painter.setBrush(properties.circleColors[i]);
@@ -265,7 +267,6 @@ void DriverAlertCluster::drawAlertBar(QPainter &painter, const AlertBar &alertBa
   painter.restore();
 }
 
-
 void DriverAlertCluster::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
 
@@ -274,15 +275,8 @@ void DriverAlertCluster::paintEvent(QPaintEvent *event) {
   painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
   painter.setRenderHint(QPainter::TextAntialiasing, true);
 
-  // REMOVE PR
-  // // DRAWS BORDER - VISUAL
-  // painter.setPen(QPen(Qt::red, 2));  // Red color, 2px width
-  // painter.drawRect(rect().adjusted(1, 1, -1, -1));  // Adjust to keep border inside the widget
-
-  // Clear the background
   painter.fillRect(rect(), Qt::transparent);
 
-  // Draw each alert bar
   for (size_t i = 0; i < alertBars.size(); ++i) {
     int yOffset = VERTICAL_PADDING + i * (BAR_HEIGHT + VERTICAL_PADDING);
     drawAlertBar(painter, alertBars[i], yOffset);
