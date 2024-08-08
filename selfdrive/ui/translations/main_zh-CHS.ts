@@ -461,37 +461,6 @@
     </message>
 </context>
 <context>
-    <name>PrimeAdWidget</name>
-    <message>
-        <source>Upgrade Now</source>
-        <translation>现在升级</translation>
-    </message>
-    <message>
-        <source>Become a comma prime member at connect.comma.ai</source>
-        <translation>打开connect.comma.ai以注册comma prime会员</translation>
-    </message>
-    <message>
-        <source>PRIME FEATURES:</source>
-        <translation>comma prime特权：</translation>
-    </message>
-    <message>
-        <source>Remote access</source>
-        <translation>远程访问</translation>
-    </message>
-    <message>
-        <source>24/7 LTE connectivity</source>
-        <translation>全天候 LTE 連線</translation>
-    </message>
-    <message>
-        <source>1 year of drive storage</source>
-        <translation>一年的行驶记录储存空间</translation>
-    </message>
-    <message>
-        <source>Remote snapshots</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
     <name>PrimeUserWidget</name>
     <message>
         <source>✓ SUBSCRIBED</source>

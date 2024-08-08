@@ -461,37 +461,6 @@
     </message>
 </context>
 <context>
-    <name>PrimeAdWidget</name>
-    <message>
-        <source>Upgrade Now</source>
-        <translation>อัพเกรดเดี๋ยวนี้</translation>
-    </message>
-    <message>
-        <source>Become a comma prime member at connect.comma.ai</source>
-        <translation>สมัครสมาชิก comma prime ได้ที่ connect.comma.ai</translation>
-    </message>
-    <message>
-        <source>PRIME FEATURES:</source>
-        <translation>คุณสมบัติของ PRIME:</translation>
-    </message>
-    <message>
-        <source>Remote access</source>
-        <translation>การเข้าถึงระยะไกล</translation>
-    </message>
-    <message>
-        <source>24/7 LTE connectivity</source>
-        <translation>การเชื่อมต่อ LTE แบบ 24/7</translation>
-    </message>
-    <message>
-        <source>1 year of drive storage</source>
-        <translation>จัดเก็บข้อมูลการขับขี่นาน 1 ปี</translation>
-    </message>
-    <message>
-        <source>Remote snapshots</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
     <name>PrimeUserWidget</name>
     <message>
         <source>✓ SUBSCRIBED</source>

@@ -461,37 +461,6 @@
     </message>
 </context>
 <context>
-    <name>PrimeAdWidget</name>
-    <message>
-        <source>Upgrade Now</source>
-        <translation>지금 업그레이드하세요</translation>
-    </message>
-    <message>
-        <source>Become a comma prime member at connect.comma.ai</source>
-        <translation>connect.comma.ai에 접속하여 comma prime 회원으로 등록하세요</translation>
-    </message>
-    <message>
-        <source>PRIME FEATURES:</source>
-        <translation>PRIME 기능:</translation>
-    </message>
-    <message>
-        <source>Remote access</source>
-        <translation>원격 접속</translation>
-    </message>
-    <message>
-        <source>24/7 LTE connectivity</source>
-        <translation>항상 LTE 연결</translation>
-    </message>
-    <message>
-        <source>1 year of drive storage</source>
-        <translation>1년간 드라이브 로그 저장</translation>
-    </message>
-    <message>
-        <source>Remote snapshots</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
     <name>PrimeUserWidget</name>
     <message>
         <source>✓ SUBSCRIBED</source>
