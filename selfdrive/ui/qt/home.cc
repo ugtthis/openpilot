@@ -136,7 +136,8 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     home_layout->setContentsMargins(0, 0, 0, 0);
     home_layout->setSpacing(30);
 
-    // left: PrimeAdWidget
+    // REPLACE
+    // left: PLACEHOLDER for PrimeAdWidget
     QStackedWidget *left_widget = new QStackedWidget(this);
     QVBoxLayout *left_prime_layout = new QVBoxLayout();
     QWidget *prime_user = new PrimeUserWidget();
@@ -147,7 +148,11 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     left_prime_layout->addWidget(prime_user);
     left_prime_layout->addStretch();
     left_widget->addWidget(new LayoutWidget(left_prime_layout));
-    left_widget->addWidget(new PrimeAdWidget);
+
+    // Add an empty placeholder widget
+    QWidget *placeholder = new QWidget();
+    left_widget->addWidget(placeholder);
+
     left_widget->setStyleSheet("border-radius: 10px;");
 
     left_widget->setCurrentIndex(uiState()->hasPrime() ? 0 : 1);

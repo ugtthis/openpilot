@@ -44,13 +44,13 @@ public:
   explicit PrimeUserWidget(QWidget* parent = 0);
 };
 
-
-// widget for paired users without prime
-class PrimeAdWidget : public QFrame {
-  Q_OBJECT
-public:
-  explicit PrimeAdWidget(QWidget* parent = 0);
-};
+// REMOVE PR
+// // widget for paired users without prime
+// class PrimeAdWidget : public QFrame {
+//   Q_OBJECT
+// public:
+//   explicit PrimeAdWidget(QWidget* parent = 0);
+// };
 
 
 // container widget
