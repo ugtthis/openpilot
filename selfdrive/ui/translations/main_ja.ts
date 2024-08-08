@@ -279,17 +279,6 @@
     </message>
 </context>
 <context>
-    <name>ExperimentalModeButton</name>
-    <message>
-        <source>EXPERIMENTAL MODE ON</source>
-        <translation>実験モード</translation>
-    </message>
-    <message>
-        <source>CHILL MODE ON</source>
-        <translation>チルモード</translation>
-    </message>
-</context>
-<context>
     <name>InputDialog</name>
     <message>
         <source>Cancel</source>
