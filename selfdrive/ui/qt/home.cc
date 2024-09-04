@@ -10,6 +10,9 @@
 #include "selfdrive/ui/qt/widgets/prime.h"
 #include "selfdrive/ui/qt/offroad/experimental_mode_toggle.h"
 
+#include "selfdrive/ui/qt/widgets/driving_mode_button.h"
+#include "selfdrive/ui/qt/offroad/driving_mode_panel.h"
+
 // HomeWindow: the container for the offroad and onroad UIs
 
 HomeWindow::HomeWindow(QWidget* parent) : QWidget(parent) {
@@ -137,25 +140,23 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     home_layout->setContentsMargins(0, 0, 0, 0);
     home_layout->setSpacing(30);
 
-    // left: PrimeAdWidget
-    QStackedWidget *left_widget = new QStackedWidget(this);
-    QVBoxLayout *left_prime_layout = new QVBoxLayout();
-    QWidget *prime_user = new PrimeUserWidget();
-    prime_user->setStyleSheet(R"(
-    border-radius: 10px;
-    background-color: #333333;
-    )");
-    left_prime_layout->addWidget(prime_user);
-    left_prime_layout->addStretch();
-    left_widget->addWidget(new LayoutWidget(left_prime_layout));
-    left_widget->addWidget(new PrimeAdWidget);
-    left_widget->setStyleSheet("border-radius: 10px;");
+    // left: DrivingModePanel
+    QWidget *left_widget = new QWidget(this);
+    QVBoxLayout *left_layout = new QVBoxLayout(left_widget);
+    left_layout->setContentsMargins(0, 0, 0, 0);
+    left_layout->setSpacing(20);
 
-    left_widget->setCurrentIndex(uiState()->hasPrime() ? 0 : 1);
-    connect(uiState(), &UIState::primeChanged, [=](bool prime) {
-      left_widget->setCurrentIndex(prime ? 0 : 1);
-    });
+    // Create the DrivingModePanel
+    DrivingModePanel *driving_mode_panel = new DrivingModePanel(this);
+    left_layout->addWidget(driving_mode_panel);
 
+    // Add a stretch to push the panel to the top
+    left_layout->addStretch();
+
+    // Set the style for the left widget
+    left_widget->setStyleSheet("background-color: #333333; border-radius: 10px;");
+
+    // Add the left widget to the home layout
     home_layout->addWidget(left_widget, 1);
 
     // right: ExperimentalModeToggle, ExperimentalModeButton, SetupWidget
@@ -247,3 +248,4 @@ void OffroadHome::refresh() {
     alert_notif->setText(QString::number(alerts) + (alerts > 1 ? tr(" ALERTS") : tr(" ALERT")));
   }
 }
+
