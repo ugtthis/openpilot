@@ -8,6 +8,7 @@
 #include "selfdrive/ui/qt/offroad/experimental_mode.h"
 #include "selfdrive/ui/qt/util.h"
 #include "selfdrive/ui/qt/widgets/prime.h"
+#include "selfdrive/ui/qt/offroad/experimental_mode_toggle.h"
 
 // HomeWindow: the container for the offroad and onroad UIs
 
@@ -157,12 +158,16 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
 
     home_layout->addWidget(left_widget, 1);
 
-    // right: ExperimentalModeButton, SetupWidget
+    // right: ExperimentalModeToggle, ExperimentalModeButton, SetupWidget
     QWidget* right_widget = new QWidget(this);
     QVBoxLayout* right_column = new QVBoxLayout(right_widget);
     right_column->setContentsMargins(0, 0, 0, 0);
     right_widget->setFixedWidth(750);
     right_column->setSpacing(30);
+
+    // ExperimentalModeToggle
+    ExperimentalModeToggle *experimental_toggle = new ExperimentalModeToggle(this);
+    right_column->addWidget(experimental_toggle, 0, Qt::AlignHCenter);
 
     ExperimentalModeButton *experimental_mode = new ExperimentalModeButton(this);
     QObject::connect(experimental_mode, &ExperimentalModeButton::openSettings, this, &OffroadHome::openSettings);
@@ -228,7 +233,8 @@ void OffroadHome::refresh() {
   int idx = center_layout->currentIndex();
   if (!updateAvailable && !alerts) {
     idx = 0;
-  } else if (updateAvailable && (!update_notif->isVisible() || (!alerts && idx == 2))) {
+  // } else if (updateAvailable && (!update_notif->isVisible() || (!alerts && idx == 2))) {
+  } else if (updateAvailable && (!alert_notif->isVisible() || (!alerts && idx == 2))) {
     idx = 1;
   } else if (alerts && (!alert_notif->isVisible() || (!updateAvailable && idx == 1))) {
     idx = 2;

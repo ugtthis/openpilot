@@ -5,6 +5,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QStyle>
+#include <iostream>
 
 #include "selfdrive/ui/ui.h"
 
@@ -70,7 +71,16 @@ void ExperimentalModeButton::paintEvent(QPaintEvent *event) {
 }
 
 void ExperimentalModeButton::showEvent(QShowEvent *event) {
+  bool previous_mode = experimental_mode;
   experimental_mode = params.getBool("ExperimentalMode");
+
+  std::cout << "ExperimentalModeButton shown" << std::endl;
+  std::cout << "Previous mode: " << (previous_mode ? "true" : "false") << std::endl;
+  std::cout << "Current mode: " << (experimental_mode ? "true" : "false") << std::endl;
+
   mode_icon->setPixmap(experimental_mode ? experimental_pixmap : chill_pixmap);
   mode_label->setText(experimental_mode ? tr("EXPERIMENTAL MODE ON") : tr("CHILL MODE ON"));
+
+  std::cout << "ExperimentalModeButton updated" << std::endl;
+  std::cout << std::flush;
 }
