@@ -3,7 +3,7 @@
 
 DrivingModeButton::DrivingModeButton(QString text, DrivingMode mode, Params& params, QWidget* parent)
   : QPushButton(text, parent), mode(mode), params(params) {
-  setFixedSize(600, 100);
+  setFixedSize(925, 225);
   setStyleSheet(R"(
     QPushButton {
       font-size: 40px;
@@ -20,8 +20,8 @@ void DrivingModeButton::updateState() {
   setEnabled(!isEnabled);
   setStyleSheet(QString(R"(
     QPushButton {
-      font-size: 40px;
-      font-weight: 500;
+      font-size: 80px;
+      font-weight: 700;
       border-radius: 10px;
       background-color: %1;
       color: %2;
