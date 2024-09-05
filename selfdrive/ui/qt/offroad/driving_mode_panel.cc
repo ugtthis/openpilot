@@ -5,7 +5,7 @@ DrivingModePanel::DrivingModePanel(QWidget* parent) : QWidget(parent) {
   QVBoxLayout* layout = new QVBoxLayout(this);
   layout->setSpacing(20);
 
-  chillButton = new DrivingModeButton("Chill Mode", DrivingMode::Chill, params, this);
+  chillButton = new DrivingModeButton("Kirby Lose Mode", DrivingMode::Chill, params, this);
   experimentalButton = new DrivingModeButton("Experimental Mode", DrivingMode::Experimental, params, this);
   stockADASButton = new DrivingModeButton("Stock ADAS Mode", DrivingMode::StockADAS, params, this);
 
