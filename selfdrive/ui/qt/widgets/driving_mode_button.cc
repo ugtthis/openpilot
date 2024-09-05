@@ -1,8 +1,8 @@
 #include "selfdrive/ui/qt/widgets/driving_mode_button.h"
 #include "selfdrive/ui/qt/util.h"
 
-DrivingModeButton::DrivingModeButton(QString text, DrivingMode mode, QWidget* parent)
-  : QPushButton(text, parent), mode(mode) {
+DrivingModeButton::DrivingModeButton(QString text, DrivingMode mode, Params& params, QWidget* parent)
+  : QPushButton(text, parent), mode(mode), params(params) {
   setFixedSize(600, 100);
   setStyleSheet(R"(
     QPushButton {
@@ -16,7 +16,7 @@ DrivingModeButton::DrivingModeButton(QString text, DrivingMode mode, QWidget* pa
 }
 
 void DrivingModeButton::updateState() {
-  bool isEnabled = (getCurrentDrivingMode() == mode);
+  bool isEnabled = (getCurrentDrivingMode(params) == mode);
   setEnabled(!isEnabled);
   setStyleSheet(QString(R"(
     QPushButton {
@@ -30,7 +30,7 @@ void DrivingModeButton::updateState() {
 }
 
 void DrivingModeButton::onClicked() {
-  setDrivingMode(mode);
+  setDrivingMode(params, mode);
   updateState();
   emit drivingModeChanged();
 }

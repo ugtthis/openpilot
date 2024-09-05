@@ -7,7 +7,7 @@ class DrivingModeButton : public QPushButton {
   Q_OBJECT
 
 public:
-  DrivingModeButton(QString text, DrivingMode mode, QWidget* parent = nullptr);
+  DrivingModeButton(QString text, DrivingMode mode, Params& params, QWidget* parent = nullptr);
   void updateState();
 
 private slots:
@@ -18,4 +18,5 @@ signals:
 
 private:
   DrivingMode mode;
+  Params& params;
 };
