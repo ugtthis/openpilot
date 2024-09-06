@@ -2,9 +2,9 @@
 #include "common/params.h"
 
 enum class DrivingMode {
-  StockADAS,
   Chill,
-  Experimental
+  Experimental,
+  StockADAS,
 };
 
 class DrivingModePanel;  // Forward declaration
