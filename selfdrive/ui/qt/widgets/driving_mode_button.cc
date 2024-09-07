@@ -3,7 +3,10 @@
 
 DrivingModeButton::DrivingModeButton(QString text, DrivingMode mode, Params& params, QWidget* parent)
   : QPushButton(text, parent), mode(mode), params(params) {
-  setFixedSize(925, 225);
+  setFixedHeight(225);
+  // Allow horizontal stretching
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
   setStyleSheet(R"(
     QPushButton {
       font-size: 40px;
