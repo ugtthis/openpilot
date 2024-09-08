@@ -5,17 +5,16 @@ DrivingModePanel::DrivingModePanel(QWidget* parent) : QWidget(parent) {
   QVBoxLayout* layout = new QVBoxLayout(this);
   layout->setSpacing(20);
 
-  chillButton = new DrivingModeButton("Kirby Lose Mode", DrivingMode::Chill, params, this);
-  experimentalButton = new DrivingModeButton("Experimental Mode", DrivingMode::Experimental, params, this);
-  stockADASButton = new DrivingModeButton("Stock ADAS Mode", DrivingMode::StockADAS, params, this);
+  auto addDrivingModeButton = [&](const QString &text, DrivingMode mode) {
+    DrivingModeButton *button = new DrivingModeButton(text, mode, params, this);
+    layout->addWidget(button);
+    connect(button, &DrivingModeButton::drivingModeChanged, this, &DrivingModePanel::updateButtons);
+    return button;
+  };
 
-  layout->addWidget(chillButton);
-  layout->addWidget(experimentalButton);
-  layout->addWidget(stockADASButton);
-
-  connect(chillButton, &DrivingModeButton::drivingModeChanged, this, &DrivingModePanel::updateButtons);
-  connect(experimentalButton, &DrivingModeButton::drivingModeChanged, this, &DrivingModePanel::updateButtons);
-  connect(stockADASButton, &DrivingModeButton::drivingModeChanged, this, &DrivingModePanel::updateButtons);
+  chillButton = addDrivingModeButton("Kirby Lose Mode", DrivingMode::Chill);
+  experimentalButton = addDrivingModeButton("Experimental Mode", DrivingMode::Experimental);
+  stockADASButton = addDrivingModeButton("Stock ADAS Mode", DrivingMode::StockADAS);
 
   connect(this, &DrivingModePanel::drivingModeChanged, this, &DrivingModePanel::updateButtons);
 
