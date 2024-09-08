@@ -9,7 +9,7 @@ DrivingMode getCurrentDrivingMode(Params& params) {
   return experimentalMode ? DrivingMode::Experimental : DrivingMode::Chill;
 }
 
-void setDrivingMode(Params& params, DrivingMode mode, DrivingModePanel* panel) {
+void setDrivingMode(Params& params, DrivingMode mode, QObject* panel) {
   DrivingMode currentMode = getCurrentDrivingMode(params);
   if (currentMode != mode) {
     switch (mode) {
@@ -27,7 +27,22 @@ void setDrivingMode(Params& params, DrivingMode mode, DrivingModePanel* panel) {
         break;
     }
     if (panel) {
-      emit panel->drivingModeChanged();
+      QMetaObject::invokeMethod(panel, "drivingModeChanged", Qt::QueuedConnection);
     }
   }
+}
+
+bool hasDrivingModeChanged(Params& params) {
+  bool lastOpenpilotEnabled = params.getBool("LastOpenpilotEnabledToggle");
+  bool lastExperimentalMode = params.getBool("LastExperimentalMode");
+
+  bool currentOpenpilotEnabled = params.getBool("OpenpilotEnabledToggle");
+  bool currentExperimentalMode = params.getBool("ExperimentalMode");
+
+  if (currentOpenpilotEnabled != lastOpenpilotEnabled || currentExperimentalMode != lastExperimentalMode) {
+    params.putBool("LastOpenpilotEnabledToggle", currentOpenpilotEnabled);
+    params.putBool("LastExperimentalMode", currentExperimentalMode);
+    return true;
+  }
+  return false;
 }

@@ -1,4 +1,5 @@
 #include "selfdrive/ui/qt/offroad/driving_mode_panel.h"
+#include "selfdrive/ui/qt/widgets/driving_mode_helpers.h"
 #include "common/params.h"
 
 DrivingModePanel::DrivingModePanel(QWidget* parent) : QWidget(parent) {
@@ -39,15 +40,7 @@ void DrivingModePanel::updateButtons() {
 }
 
 void DrivingModePanel::checkParamsAndUpdate() {
-  static bool lastOpenpilotEnabled = params.getBool("OpenpilotEnabledToggle");
-  static bool lastExperimentalMode = params.getBool("ExperimentalMode");
-
-  bool currentOpenpilotEnabled = params.getBool("OpenpilotEnabledToggle");
-  bool currentExperimentalMode = params.getBool("ExperimentalMode");
-
-  if (currentOpenpilotEnabled != lastOpenpilotEnabled || currentExperimentalMode != lastExperimentalMode) {
+  if (hasDrivingModeChanged(params)) {
     updateButtons();
-    lastOpenpilotEnabled = currentOpenpilotEnabled;
-    lastExperimentalMode = currentExperimentalMode;
   }
 }

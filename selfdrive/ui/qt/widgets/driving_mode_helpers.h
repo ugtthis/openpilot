@@ -1,5 +1,6 @@
 #pragma once
 #include "common/params.h"
+#include <QObject>
 
 enum class DrivingMode {
   Chill,
@@ -10,4 +11,5 @@ enum class DrivingMode {
 class DrivingModePanel;  // Forward declaration
 
 DrivingMode getCurrentDrivingMode(Params& params);
-void setDrivingMode(Params& params, DrivingMode mode, DrivingModePanel* panel = nullptr);
+void setDrivingMode(Params& params, DrivingMode mode, QObject* panel = nullptr);
+bool hasDrivingModeChanged(Params& params);

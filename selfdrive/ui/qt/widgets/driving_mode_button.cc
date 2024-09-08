@@ -1,4 +1,5 @@
 #include "selfdrive/ui/qt/widgets/driving_mode_button.h"
+#include "selfdrive/ui/qt/widgets/driving_mode_helpers.h"
 #include "selfdrive/ui/qt/util.h"
 
 #include <QVBoxLayout>
