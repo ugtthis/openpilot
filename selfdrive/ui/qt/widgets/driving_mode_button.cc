@@ -4,30 +4,37 @@
 
 #include <QVBoxLayout>
 #include <QLabel>
+#include <QHBoxLayout>
 
-DrivingModeButton::DrivingModeButton(QString text, DrivingMode mode, Params& params, QWidget* parent)
-  : QPushButton(parent), mode(mode), params(params) {
+DrivingModeButton::DrivingModeButton(const QString &text, DrivingMode mode, Params &params, QWidget *parent)
+    : QPushButton(parent), mode(mode), params(params) {
   setFixedHeight(225);
   // Allow horizontal stretching
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
-  // Set content margins to align text to top-left
-  setContentsMargins(10, 10, 10, 10);
+  // Set content margins to align text to top-left and adds 50px right padding
+  setContentsMargins(10, 10, 50, 10);
 
-  // Create a layout for the button
-  QVBoxLayout* layout = new QVBoxLayout(this);
-  layout->setContentsMargins(0, 0, 0, 0);
-  layout->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+  QHBoxLayout *mainLayout = new QHBoxLayout(this);
+  mainLayout->setContentsMargins(0, 0, 0, 0);
 
-  // Create a label for the text
-  QLabel* textLabel = new QLabel(text, this);
+  QVBoxLayout *textLayout = new QVBoxLayout();
+  textLayout->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+  QLabel *textLabel = new QLabel(text, this);
   textLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-  layout->addWidget(textLabel);
+  textLayout->addWidget(textLabel);
+  textLayout->addStretch();
 
-  // Add stretch to push the label to the top
-  layout->addStretch();
+  mainLayout->addLayout(textLayout);
+  mainLayout->addStretch();
 
-  setLayout(layout);
+  statusCircle = new QLabel(this);
+  statusCircle->setFixedSize(76, 76);
+  statusCircle->setStyleSheet("border: 16px solid black; border-radius: 38px; background-color: transparent;");
+  mainLayout->addWidget(statusCircle, 0, Qt::AlignVCenter);
+
+  setLayout(mainLayout);
 
   connect(this, &QPushButton::clicked, this, &DrivingModeButton::onClicked);
   updateState();
@@ -37,10 +44,29 @@ void DrivingModeButton::updateState() {
   bool isEnabled = (getCurrentDrivingMode(params) == mode);
   setEnabled(!isEnabled);
 
+  QString backgroundColor;
+  QString textColor = isEnabled ? "white" : "black";
+
+  if (isEnabled) {
+    switch (mode) {
+      case DrivingMode::StockADAS:
+        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #ff7e5f, stop:1 #feb47b)";  // Example gradient for StockADAS
+        break;
+      case DrivingMode::Chill:
+        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #00c6ff, stop:1 #0072ff)";  // Example gradient for Chill
+        break;
+      case DrivingMode::Experimental:
+        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #f7971e, stop:1 #ffd200)";  // Example gradient for Experimental
+        break;
+    }
+  } else {
+    backgroundColor = "#808080";  // Default background color when not enabled
+  }
+
   QString styleSheet = QString(R"(
     QPushButton {
       border-radius: 10px;
-      background-color: %1;
+      background: %1;
       padding: 0px;
     }
     QLabel {
@@ -51,9 +77,19 @@ void DrivingModeButton::updateState() {
       border-radius: 5px;
       padding: 5px;
     }
-  )").arg(isEnabled ? "#4CAF50" : "#808080", isEnabled ? "white" : "black");
+  )").arg(backgroundColor, textColor);
 
   setStyleSheet(styleSheet);
+  updateCircle();
+}
+
+void DrivingModeButton::updateCircle() {
+  bool isSelected = (getCurrentDrivingMode(params) == mode);
+  if (isSelected) {
+    statusCircle->setStyleSheet("border: 16px solid black; border-radius: 38px; background-color: #00FF00;");
+  } else {
+    statusCircle->setStyleSheet("border: 16px solid black; border-radius: 38px; background-color: transparent;");
+  }
 }
 
 void DrivingModeButton::onClicked() {
