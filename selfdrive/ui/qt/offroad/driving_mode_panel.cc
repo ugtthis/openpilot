@@ -9,6 +9,9 @@ DrivingModePanel::DrivingModePanel(QWidget* parent) : QWidget(parent) {
   auto addDrivingModeButton = [&](const QString &text, DrivingMode mode) {
     DrivingModeButton *button = new DrivingModeButton(text, mode, params, this);
     layout->addWidget(button);
+    connect(button, &DrivingModeButton::clicked, [=]() {
+      emit modeSelected(mode);
+    });
     connect(button, &DrivingModeButton::drivingModeChanged, this, &DrivingModePanel::updateButtons);
     return button;
   };

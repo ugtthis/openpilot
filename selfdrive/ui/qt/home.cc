@@ -12,6 +12,7 @@
 
 #include "selfdrive/ui/qt/widgets/driving_mode_button.h"
 #include "selfdrive/ui/qt/offroad/driving_mode_panel.h"
+#include "selfdrive/ui/qt/offroad/info_display_bar.h"
 
 // HomeWindow: the container for the offroad and onroad UIs
 
@@ -140,17 +141,24 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     home_layout->setContentsMargins(0, 0, 0, 0);
     home_layout->setSpacing(30);
 
-    // left: DrivingModePanel
+    // left: InfoDisplayBar and DrivingModePanel
     QWidget *left_widget = new QWidget(this);
     QVBoxLayout *left_layout = new QVBoxLayout(left_widget);
     left_layout->setContentsMargins(0, 0, 0, 0);
     left_layout->setSpacing(20);
 
+    // Create the InfoDisplayBar
+    InfoDisplayBar *info_display_bar = new InfoDisplayBar(this);
+    left_layout->addWidget(info_display_bar);
+
     // Create the DrivingModePanel
     DrivingModePanel *driving_mode_panel = new DrivingModePanel(this);
     left_layout->addWidget(driving_mode_panel);
 
-    // Add a stretch to push the panel to the top
+    // Connect the DrivingModePanel to the InfoDisplayBar
+    QObject::connect(driving_mode_panel, &DrivingModePanel::modeSelected, info_display_bar, &InfoDisplayBar::showModeMessage);
+
+    // Add a stretch to push the widgets to the top
     left_layout->addStretch();
 
     // Set the style for the left widget

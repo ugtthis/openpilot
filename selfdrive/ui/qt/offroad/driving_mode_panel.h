@@ -10,6 +10,7 @@ class DrivingModePanel : public QWidget {
 
 signals:
   void drivingModeChanged();
+  void modeSelected(DrivingMode mode);
 
 public:
   DrivingModePanel(QWidget* parent = nullptr);
