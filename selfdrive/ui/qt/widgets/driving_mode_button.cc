@@ -24,6 +24,12 @@ DrivingModeButton::DrivingModeButton(const QString &text, DrivingMode mode, Para
   QLabel *textLabel = new QLabel(text, this);
   textLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
   textLayout->addWidget(textLabel);
+
+  iconLabel = new QLabel(this);
+  iconLabel->setFixedSize(76, 76);
+  iconLabel->setScaledContents(true);
+  textLayout->addWidget(iconLabel);
+
   textLayout->addStretch();
 
   mainLayout->addLayout(textLayout);
@@ -50,17 +56,21 @@ void DrivingModeButton::updateState() {
   if (isEnabled) {
     switch (mode) {
       case DrivingMode::StockADAS:
-        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #ff7e5f, stop:1 #feb47b)";  // Example gradient for StockADAS
+        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #ff7e5f, stop:1 #feb47b)";
+        iconLabel->clear();
         break;
       case DrivingMode::Chill:
-        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #00c6ff, stop:1 #0072ff)";  // Example gradient for Chill
+        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #00c6ff, stop:1 #0072ff)";
+        iconLabel->setPixmap(QPixmap("../assets/img_chffr_wheel.png"));
         break;
       case DrivingMode::Experimental:
-        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #f7971e, stop:1 #ffd200)";  // Example gradient for Experimental
+        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #f7971e, stop:1 #ffd200)";
+        iconLabel->setPixmap(QPixmap("../assets/img_experimental.svg"));
         break;
     }
   } else {
-    backgroundColor = "#808080";  // Default background color when not enabled
+    backgroundColor = "#808080";
+    iconLabel->clear();
   }
 
   QString styleSheet = QString(R"(

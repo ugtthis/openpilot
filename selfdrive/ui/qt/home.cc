@@ -153,7 +153,7 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
 
     // Create the DrivingModePanel
     DrivingModePanel *driving_mode_panel = new DrivingModePanel(this);
-    left_layout->addWidget(driving_mode_panel);
+    left_layout->addWidget(static_cast<QWidget*>(driving_mode_panel));
 
     // Connect the DrivingModePanel to the InfoDisplayBar
     QObject::connect(driving_mode_panel, &DrivingModePanel::modeSelected, info_display_bar, &InfoDisplayBar::showModeMessage);
@@ -242,7 +242,7 @@ void OffroadHome::refresh() {
   int idx = center_layout->currentIndex();
   if (!updateAvailable && !alerts) {
     idx = 0;
-  // } else if (updateAvailable && (!update_notif->isVisible() || (!alerts && idx == 2))) {
+  // } else if (updateAvailable && (!alerts && idx == 2))) {
   } else if (updateAvailable && (!alert_notif->isVisible() || (!alerts && idx == 2))) {
     idx = 1;
   } else if (alerts && (!alert_notif->isVisible() || (!updateAvailable && idx == 1))) {

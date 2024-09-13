@@ -12,6 +12,8 @@ public:
 
   void updateState();
 
+  DrivingMode getMode() const { return mode; }
+
 private slots:
   void onClicked();
 
@@ -22,6 +24,7 @@ private:
   DrivingMode mode;
   Params &params;
   QLabel *statusCircle;  // Add this line
+  QLabel *iconLabel;
 
   void updateCircle();
 };
