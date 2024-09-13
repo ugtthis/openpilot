@@ -5,11 +5,13 @@
 #include <QEvent>
 
 DrivingModePanel::DrivingModePanel(QWidget* parent) : QWidget(parent) {
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   mainLayout = new QVBoxLayout(this);
-  mainLayout->setSpacing(20);
+  mainLayout->setContentsMargins(0, 0, 0, 0);
 
   buttonWidget = new QWidget(this);
   QVBoxLayout* buttonLayout = new QVBoxLayout(buttonWidget);
+  buttonLayout->setContentsMargins(0, 0, 0, 0);
   buttonLayout->setSpacing(20);
 
   auto addDrivingModeButton = [&](const QString &text, DrivingMode mode) {

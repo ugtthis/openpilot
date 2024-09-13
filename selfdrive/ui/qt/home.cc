@@ -107,6 +107,7 @@ void HomeWindow::mouseDoubleClickEvent(QMouseEvent* e) {
 
 OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
   QVBoxLayout* main_layout = new QVBoxLayout(this);
+  // LEFT, TOP, RIGHT, BOTTOM margin of the main layout(header + center layout)
   main_layout->setContentsMargins(30, 30, 30, 30);
 
   // top header
@@ -132,6 +133,7 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
   main_layout->addLayout(header_layout);
 
   // main content
+  // TOP spacing between the header and the center layout(left/right widget)
   main_layout->addSpacing(25);
   center_layout = new QStackedLayout();
 
@@ -139,13 +141,17 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
   {
     QHBoxLayout *home_layout = new QHBoxLayout(home_widget);
     home_layout->setContentsMargins(0, 0, 0, 0);
+
+    // Provides spacing between the left and right widgets
     home_layout->setSpacing(30);
 
     // left: InfoDisplayBar and DrivingModePanel
     QWidget *left_widget = new QWidget(this);
     QVBoxLayout *left_layout = new QVBoxLayout(left_widget);
     left_layout->setContentsMargins(0, 0, 0, 0);
-    left_layout->setSpacing(20);
+
+    // Bottom spacing between display bar and driving mode panel
+    left_layout->setSpacing(30);
 
     // Create the InfoDisplayBar
     InfoDisplayBar *info_display_bar = new InfoDisplayBar(this);
@@ -159,6 +165,8 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     QObject::connect(driving_mode_panel, &DrivingModePanel::modeSelected, info_display_bar, &InfoDisplayBar::showModeMessage);
 
     // Add a stretch to push the widgets to the top
+    // Without the stretch, widgets in a vertical layout would be evenly
+    // distributed from top to bottom. The stretch ensures they stay grouped at the top.
     left_layout->addStretch();
 
     // Add the left widget to the home layout
