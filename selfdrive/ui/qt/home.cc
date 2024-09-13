@@ -161,9 +161,6 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     // Add a stretch to push the widgets to the top
     left_layout->addStretch();
 
-    // Set the style for the left widget
-    left_widget->setStyleSheet("background-color: #333333; border-radius: 10px;");
-
     // Add the left widget to the home layout
     home_layout->addWidget(left_widget, 1);
 

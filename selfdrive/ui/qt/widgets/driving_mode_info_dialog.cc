@@ -9,7 +9,10 @@ DrivingModeInfoDialog::DrivingModeInfoDialog(DrivingMode mode, QWidget *parent)
   hide(); // Initially hidden
 
   setStyleSheet(R"(
-    QWidget { background-color: #333333; }
+    DrivingModeInfoDialog {
+      background-color: #333333;
+      border-radius: 10px;
+    }
     QLabel { color: white; }
     #iconLabel { qproperty-alignment: AlignCenter; }
     #titleLabel { font-size: 50px; font-weight: bold; }
@@ -28,6 +31,8 @@ DrivingModeInfoDialog::DrivingModeInfoDialog(DrivingMode mode, QWidget *parent)
       color: white;
     }
   )");
+
+  setAttribute(Qt::WA_StyledBackground, true);
 }
 
 void DrivingModeInfoDialog::show(DrivingMode mode) {
