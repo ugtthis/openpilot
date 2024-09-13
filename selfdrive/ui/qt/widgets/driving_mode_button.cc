@@ -8,7 +8,7 @@
 
 DrivingModeButton::DrivingModeButton(const QString &text, DrivingMode mode, Params &params, QWidget *parent)
     : QPushButton(parent), mode(mode), params(params) {
-  setFixedHeight(225);
+  setFixedHeight(235);
   // Allow horizontal stretching
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 

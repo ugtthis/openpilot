@@ -6,7 +6,7 @@ InfoDisplayBar::InfoDisplayBar(QWidget *parent) : QLabel(parent) {
   setStyleSheet(R"(
     font-size: 40px;
     color: white;
-    background-color: #333333;
+    background-color: #000000;
     border: 4px solid #F5F5F5;
     border-radius: 15px;
     padding: 30px 10px 30px 20px;
