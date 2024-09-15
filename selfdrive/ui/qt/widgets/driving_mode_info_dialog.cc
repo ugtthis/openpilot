@@ -92,7 +92,7 @@ void DrivingModeInfoDialog::setModeInfo(DrivingMode mode) {
                                "when the car is powered off."));
       break;
     case DrivingMode::StockADAS:
-      iconLabel->hide();
+      iconLabel->setPixmap(QPixmap());
       titleLabel->setText(tr("Stock ADAS Mode"));
       contentLabel->setText(tr("This mode uses the stock ADAS features of your vehicle. It provides a familiar driving experience "
                                "with the safety features you're accustomed to."));
