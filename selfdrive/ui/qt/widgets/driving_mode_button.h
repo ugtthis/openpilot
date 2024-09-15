@@ -24,7 +24,6 @@ private:
   DrivingMode mode;
   Params &params;
   QLabel *statusCircle;  // Add this line
-  QLabel *iconLabel;
 
   void updateCircle();
 };
