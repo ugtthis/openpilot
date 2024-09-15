@@ -54,10 +54,12 @@ void DrivingModeButton::updateState() {
         backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #ff7e5f, stop:1 #feb47b)";
         break;
       case DrivingMode::Chill:
-        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #00c6ff, stop:1 #0072ff)";
+        // backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #14ffab, stop:1 #2395ff)";
+        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #00c88c, stop:1 #0077be)";
         break;
       case DrivingMode::Experimental:
-        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #f7971e, stop:1 #ffd200)";
+        // backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #ff9b3f, stop:1 #db3822)";
+        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #ff8c2f, stop:1 #c62a1d)";
         break;
     }
   } else {
