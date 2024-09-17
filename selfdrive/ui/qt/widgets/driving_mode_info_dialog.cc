@@ -45,14 +45,22 @@ void DrivingModeInfoDialog::setupUI() {
   mainLayout->setContentsMargins(50, 50, 50, 50);
   mainLayout->setSpacing(30);
 
+  QHBoxLayout *headerLayout = new QHBoxLayout();
+  headerLayout->setSpacing(20);  // Control spacing between icon and title
+
   iconLabel = new QLabel(this);
   iconLabel->setObjectName("iconLabel");
   iconLabel->setFixedSize(100, 100);
-  mainLayout->addWidget(iconLabel);
+  headerLayout->addWidget(iconLabel);
 
   titleLabel = new QLabel(this);
   titleLabel->setObjectName("titleLabel");
-  mainLayout->addWidget(titleLabel);
+  headerLayout->addWidget(titleLabel);
+
+  headerLayout->addStretch();  // Push icon and title to the left
+  mainLayout->addLayout(headerLayout);
+
+  mainLayout->addSpacing(30);  // Adds additional spacing below the header layout
 
   contentLabel = new QLabel(this);
   contentLabel->setObjectName("contentLabel");
