@@ -18,8 +18,8 @@ DrivingModeInfoDialog::DrivingModeInfoDialog(DrivingMode mode, QWidget *parent)
     #titleLabel { font-size: 50px; font-weight: bold; }
     #contentLabel { font-size: 40px; }
     QPushButton {
-      font-size: 40px;
-      padding: 20px;
+      font-size: 45px;
+      padding: 45px 25px;
       border-radius: 10px;
     }
     #cancelButton {
