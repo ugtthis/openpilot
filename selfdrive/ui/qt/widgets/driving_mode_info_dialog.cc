@@ -16,7 +16,7 @@ DrivingModeInfoDialog::DrivingModeInfoDialog(DrivingMode mode, QWidget *parent)
     }
     QLabel { color: white; }
     #iconLabel { qproperty-alignment: AlignCenter; }
-    #titleLabel { font-size: 50px; font-weight: bold; }
+    #titleLabel { font-size: 57px; font-weight: bold; }
     #contentLabel { font-size: 40px; }
     QPushButton {
       font-size: 45px;
