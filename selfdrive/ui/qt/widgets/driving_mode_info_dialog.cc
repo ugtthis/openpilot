@@ -1,6 +1,7 @@
 #include "driving_mode_info_dialog.h"
 #include <QGuiApplication>
 #include <QScreen>
+#include "selfdrive/ui/qt/widgets/scrollview.h"
 
 DrivingModeInfoDialog::DrivingModeInfoDialog(DrivingMode mode, QWidget *parent)
     : QWidget(parent) {
@@ -60,14 +61,21 @@ void DrivingModeInfoDialog::setupUI() {
   headerLayout->addStretch();  // Push icon and title to the left
   mainLayout->addLayout(headerLayout);
 
-  mainLayout->addSpacing(30);  // Adds additional spacing below the header layout
+  QWidget *scrollContent = new QWidget(this);
+  QVBoxLayout *scrollLayout = new QVBoxLayout(scrollContent);
+  scrollLayout->setSpacing(20); // Adds additional spacing below the header layout
 
-  contentLabel = new QLabel(this);
+  contentLabel = new QLabel(scrollContent);
   contentLabel->setObjectName("contentLabel");
   contentLabel->setWordWrap(true);
-  mainLayout->addWidget(contentLabel);
+  scrollLayout->addWidget(contentLabel);
+  scrollLayout->addStretch(1);
 
-  mainLayout->addStretch();
+  ScrollView *scrollView = new ScrollView(scrollContent, this);
+  scrollView->setWidgetResizable(true);
+  scrollView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  scrollView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  mainLayout->addWidget(scrollView, 1);
 
   QHBoxLayout *buttonLayout = new QHBoxLayout();
   cancelButton = new QPushButton(tr("Cancel"), this);
@@ -95,9 +103,11 @@ void DrivingModeInfoDialog::setModeInfo(DrivingMode mode) {
     case DrivingMode::Experimental:
       iconLabel->setPixmap(QPixmap("../assets/img_experimental.svg").scaled(100, 100, Qt::KeepAspectRatio, Qt::SmoothTransformation));
       titleLabel->setText(tr("Experimental Mode"));
-      contentLabel->setText(tr("Use the openpilot system for adaptive cruise control and lane keep driver assistance. "
-                               "Your attention is required at all times to use this feature. Changing this setting takes effect "
-                               "when the car is powered off."));
+      contentLabel->setText(tr("openpilot defaults to driving in chill mode. Experimental mode enables alpha-level features that aren't ready for chill mode. Experimental features are listed below:\n\n"
+                               "End-to-End Longitudinal Control\n\n"
+                               "Let the driving model control the gas and brakes. openpilot will drive as it thinks a human would, including stopping for red lights and stop signs. Since the driving model decides the speed to drive, the set speed will only act as an upper bound. This is an alpha quality feature; mistakes should be expected.\n\n"
+                               "New Driving Visualization\n\n"
+                               "The driving visualization will transition to the road-facing wide-angle camera at low speeds to better show some turns. The Experimental mode logo will also be shown in the top right corner."));
       break;
     case DrivingMode::StockADAS:
       iconLabel->setPixmap(QPixmap());

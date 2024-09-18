@@ -1,6 +1,6 @@
 #pragma once
 
-#include <QDialog>
+#include <QWidget>
 #include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
