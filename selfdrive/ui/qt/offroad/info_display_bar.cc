@@ -47,7 +47,7 @@ void InfoDisplayBar::showModeMessage(DrivingMode mode) {
       iconPath = "../assets/img_stock_adas.png";
       break;
     case DrivingMode::Chill:
-      message = "Chill mode enabled";
+      message = "chill mode enabled";
       iconPath = "../assets/img_chffr_wheel.png";
       break;
     case DrivingMode::Experimental:

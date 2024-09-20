@@ -25,7 +25,7 @@ DrivingModePanel::DrivingModePanel(QWidget* parent) : QWidget(parent) {
     return button;
   };
 
-  chillButton = addDrivingModeButton("Kirby Lose Mode", DrivingMode::Chill);
+  chillButton = addDrivingModeButton("chill mode", DrivingMode::Chill);
   experimentalButton = addDrivingModeButton("Experimental Mode", DrivingMode::Experimental);
   stockADASButton = addDrivingModeButton("Stock ADAS Mode", DrivingMode::StockADAS);
 
