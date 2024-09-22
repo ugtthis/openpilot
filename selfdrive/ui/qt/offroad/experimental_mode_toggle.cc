@@ -39,48 +39,26 @@ ExperimentalModeToggle::ExperimentalModeToggle(QWidget *parent) : QPushButton(pa
 
   // Connect the clicked signal to the toggle function
   connect(this, &QPushButton::clicked, this, &ExperimentalModeToggle::toggleExperimentalMode);
-  printf("Button connected to toggleExperimentalMode function\n");
-  fflush(stdout);
 
   // Initialize the button state
   updateState();
 }
 
 void ExperimentalModeToggle::toggleExperimentalMode() {
-  bool previous_mode = experimental_mode;
   experimental_mode = !experimental_mode;
   params.putBool("ExperimentalMode", experimental_mode);
-
-  std::cout << "\n*** EXPERIMENTAL MODE TOGGLED ***\n";
-  std::cout << "Previous value: " << (previous_mode ? "true" : "false") << "\n";
-  std::cout << "New value: " << (experimental_mode ? "true" : "false") << "\n";
-  std::cout << "Stored value: " << (params.getBool("ExperimentalMode") ? "true" : "false") << "\n";
-  std::cout << std::flush;
 
   updateState();
 
   // Check OpenpilotEnabledToggle
   std::string openpilotEnabled = params.get("OpenpilotEnabledToggle");
-  std::cout << "OpenpilotEnabledToggle: " << openpilotEnabled << "\n";
 
   // Attempt to toggle OpenpilotEnabledToggle
   bool currentState = (openpilotEnabled == "1");
   params.putBool("OpenpilotEnabledToggle", !currentState);
-  std::cout << "Attempting to toggle OpenpilotEnabledToggle to: " << (!currentState ? "1" : "0") << "\n";
 
   // Check again after toggling
   openpilotEnabled = params.get("OpenpilotEnabledToggle");
-  std::cout << "OpenpilotEnabledToggle after toggle attempt: " << openpilotEnabled << "\n";
-
-  // Print all parameters
-  std::cout << "\nAll parameters:\n";
-  std::map<std::string, std::string> all_params = params.readAll();
-  for (const auto& param : all_params) {
-    std::cout << param.first << ": " << param.second << "\n";
-  }
-
-  std::cout << "\nTotal number of parameters: " << all_params.size() << "\n";
-  std::cout << std::endl;  // Flush the output
 }
 
 void ExperimentalModeToggle::updateState() {

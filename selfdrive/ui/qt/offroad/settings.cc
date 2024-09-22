@@ -136,10 +136,6 @@ void TogglesPanel::showEvent(QShowEvent *event) {
 }
 
 void TogglesPanel::updateToggles() {
-  std::cout << "Updating toggles" << std::endl;
-  std::cout << "ExperimentalMode: " << (params.getBool("ExperimentalMode") ? "true" : "false") << std::endl;
-  std::cout << "OpenpilotEnabledToggle: " << (params.getBool("OpenpilotEnabledToggle") ? "true" : "false") << std::endl;
-
   auto experimental_mode_toggle = toggles["ExperimentalMode"];
   auto op_long_toggle = toggles["ExperimentalLongitudinalEnabled"];
   const QString e2e_description = QString("%1<br>"
@@ -196,11 +192,6 @@ void TogglesPanel::updateToggles() {
     experimental_mode_toggle->setDescription(e2e_description);
     op_long_toggle->setVisible(false);
   }
-
-  std::cout << "Toggles updated" << std::endl;
-  std::cout << "ExperimentalMode after update: " << (params.getBool("ExperimentalMode") ? "true" : "false") << std::endl;
-  std::cout << "OpenpilotEnabledToggle after update: " << (params.getBool("OpenpilotEnabledToggle") ? "true" : "false") << std::endl;
-  std::cout << std::flush;
 }
 
 DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
