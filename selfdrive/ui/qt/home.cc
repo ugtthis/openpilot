@@ -8,7 +8,6 @@
 #include "selfdrive/ui/qt/offroad/experimental_mode.h"
 #include "selfdrive/ui/qt/util.h"
 #include "selfdrive/ui/qt/widgets/prime.h"
-#include "selfdrive/ui/qt/offroad/experimental_mode_toggle.h"
 
 #include "selfdrive/ui/qt/widgets/driving_mode_button.h"
 #include "selfdrive/ui/qt/offroad/driving_mode_panel.h"
@@ -172,16 +171,12 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     // Add the left widget to the home layout
     home_layout->addWidget(left_widget, 1);
 
-    // right: ExperimentalModeToggle, ExperimentalModeButton, SetupWidget
+    // right: ExperimentalModeButton, SetupWidget
     QWidget* right_widget = new QWidget(this);
     QVBoxLayout* right_column = new QVBoxLayout(right_widget);
     right_column->setContentsMargins(0, 0, 0, 0);
     right_widget->setFixedWidth(615);
     right_column->setSpacing(30);
-
-    // ExperimentalModeToggle
-    ExperimentalModeToggle *experimental_toggle = new ExperimentalModeToggle(this);
-    right_column->addWidget(experimental_toggle, 0, Qt::AlignHCenter);
 
     ExperimentalModeButton *experimental_mode = new ExperimentalModeButton(this);
     QObject::connect(experimental_mode, &ExperimentalModeButton::openSettings, this, &OffroadHome::openSettings);
