@@ -52,7 +52,7 @@ void DrivingModeButton::updateState() {
   if (isEnabled) {
     switch (mode) {
       case DrivingMode::StockADAS:
-        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #ff7e5f, stop:1 #feb47b)";
+        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #1f1c18, stop:0.33 #3e3e3e, stop:0.66 #5a5454, stop:1 #8e9eab)";
         break;
       case DrivingMode::Chill:
         // backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #14ffab, stop:1 #2395ff)";
