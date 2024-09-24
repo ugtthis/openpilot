@@ -48,6 +48,7 @@ void DrivingModeButton::updateState() {
   QString backgroundColor;
   QString textColor = isEnabled ? "white" : "black";
 
+  // TODO: Organize this so it also reflects the order of the modes in the enum and device panel
   if (isEnabled) {
     switch (mode) {
       case DrivingMode::StockADAS:
