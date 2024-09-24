@@ -52,11 +52,6 @@ void DrivingModeButton::updateState() {
 
   if (isEnabled) {
     switch (mode) {
-      case DrivingMode::StockADAS:
-        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, "
-                          "stop:0 #1f1c18, stop:0.33 #3e3e3e, "
-                          "stop:0.66 #5a5454, stop:1 #8e9eab)";
-        break;
       case DrivingMode::Chill:
         backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, "
                           "stop:0 #00c88c, stop:1 #0077be)";
@@ -65,15 +60,14 @@ void DrivingModeButton::updateState() {
         backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, "
                           "stop:0 #ff8c2f, stop:1 #c62a1d)";
         break;
+      case DrivingMode::StockADAS:
+        backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, "
+                          "stop:0 #1f1c18, stop:0.33 #3e3e3e, "
+                          "stop:0.66 #5a5454, stop:1 #8e9eab)";
+        break;
     }
   } else {
     switch (mode) {
-      case DrivingMode::StockADAS:
-        backgroundColor = QString("qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, "
-                                  "stop:0 rgba(31,28,24,%1), stop:0.33 rgba(62,62,62,%1), "
-                                  "stop:0.66 rgba(90,84,84,%1), stop:1 rgba(142,158,171,%1))")
-                                  .arg(disabledButtonOpacity * 255);
-        break;
       case DrivingMode::Chill:
         backgroundColor = QString("qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, "
                                   "stop:0 rgba(0,200,140,%1), stop:1 rgba(0,119,190,%1))")
@@ -82,6 +76,12 @@ void DrivingModeButton::updateState() {
       case DrivingMode::Experimental:
         backgroundColor = QString("qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, "
                                   "stop:0 rgba(255,140,47,%1), stop:1 rgba(198,42,29,%1))")
+                                  .arg(disabledButtonOpacity * 255);
+        break;
+      case DrivingMode::StockADAS:
+        backgroundColor = QString("qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, "
+                                  "stop:0 rgba(31,28,24,%1), stop:0.33 rgba(62,62,62,%1), "
+                                  "stop:0.66 rgba(90,84,84,%1), stop:1 rgba(142,158,171,%1))")
                                   .arg(disabledButtonOpacity * 255);
         break;
     }
