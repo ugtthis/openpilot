@@ -63,7 +63,7 @@ void DrivingModeButton::updateState() {
       case DrivingMode::StockADAS:
         backgroundColor = "qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, "
                           "stop:0 #1f1c18, stop:0.33 #3e3e3e, "
-                          "stop:0.66 #5a5454, stop:1 #8e9eab)";
+                          "stop:0.66 #5a5454, stop:1 #6e7e8b)";
         break;
     }
   } else {
@@ -81,7 +81,7 @@ void DrivingModeButton::updateState() {
       case DrivingMode::StockADAS:
         backgroundColor = QString("qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, "
                                   "stop:0 rgba(31,28,24,%1), stop:0.33 rgba(62,62,62,%1), "
-                                  "stop:0.66 rgba(90,84,84,%1), stop:1 rgba(142,158,171,%1))")
+                                  "stop:0.66 rgba(90,84,84,%1), stop:1 rgba(110,126,139,%1))")
                                   .arg(disabledButtonOpacity * 255);
         break;
     }
