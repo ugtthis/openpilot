@@ -130,13 +130,6 @@ PrimeUserWidget::PrimeUserWidget(QWidget *parent) : QFrame(parent) {
   QLabel *commaPrime = new QLabel(tr("comma prime"));
   commaPrime->setStyleSheet("font-size: 75px; font-weight: bold;");
   mainLayout->addWidget(commaPrime);
-
-  setStyleSheet(R"(
-    PrimeUserWidget {
-      border-radius: 10px;
-      background-color: #333333;
-    }
-  )");
 }
 
 
