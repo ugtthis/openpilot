@@ -2,7 +2,7 @@
 
 InfoDisplayBar::InfoDisplayBar(QWidget *parent) : QWidget(parent) {
   QHBoxLayout *layout = new QHBoxLayout(this);
-  layout->setContentsMargins(30, 30, 55, 30);
+  layout->setContentsMargins(30, 35, 55, 35);
   layout->setSpacing(10);
 
   messageLabel = new QLabel(this);
@@ -22,7 +22,7 @@ InfoDisplayBar::InfoDisplayBar(QWidget *parent) : QWidget(parent) {
       border-radius: 15px;
     }
     QLabel {
-      font-size: 40px;
+      font-size: 45px;
       color: white;
       background-color: transparent;
     }
