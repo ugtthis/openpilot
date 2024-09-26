@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QPushButton>
-#include <QLabel>
+#include <QWidget>
 #include "selfdrive/ui/qt/widgets/driving_mode_helpers.h"
 
 class DrivingModeButton : public QPushButton {
@@ -14,6 +14,9 @@ public:
 
   DrivingMode getMode() const { return mode; }
 
+protected:
+  void paintEvent(QPaintEvent *event) override;
+
 private slots:
   void onClicked();
 
@@ -23,7 +26,8 @@ signals:
 private:
   DrivingMode mode;
   Params &params;
-  QLabel *statusCircle;  // Add this line
+  QWidget *statusCircle;
+  bool isCurrentMode;
 
-  void updateCircle();
+  void drawStatusCircle();
 };

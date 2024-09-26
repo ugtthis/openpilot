@@ -5,6 +5,7 @@
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QHBoxLayout>
+#include <QPainter>
 
 DrivingModeButton::DrivingModeButton(const QString &text, DrivingMode mode, Params &params, QWidget *parent)
     : QPushButton(parent), mode(mode), params(params) {
@@ -30,9 +31,8 @@ DrivingModeButton::DrivingModeButton(const QString &text, DrivingMode mode, Para
   mainLayout->addLayout(textLayout);
   mainLayout->addStretch();
 
-  statusCircle = new QLabel(this);
+  statusCircle = new QWidget(this);
   statusCircle->setFixedSize(76, 76);
-  statusCircle->setStyleSheet("border: 16px solid black; border-radius: 38px; background-color: transparent;");
   mainLayout->addWidget(statusCircle, 0, Qt::AlignVCenter);
 
   setLayout(mainLayout);
@@ -42,11 +42,11 @@ DrivingModeButton::DrivingModeButton(const QString &text, DrivingMode mode, Para
 }
 
 void DrivingModeButton::updateState() {
-  bool isEnabled = (getCurrentDrivingMode(params) == mode);
-  setEnabled(!isEnabled);
+  isCurrentMode = (getCurrentDrivingMode(params) == mode);
+  setEnabled(!isCurrentMode);
 
   const double disabledButtonOpacity = 0.3;
-  QString textColor = isEnabled ? "white" : "#555555";
+  QString textColor = isCurrentMode ? "white" : "#555555";
 
   struct GradientColors {
     QColor start;
@@ -61,7 +61,7 @@ void DrivingModeButton::updateState() {
 
   auto colors = gradients.at(mode);
 
-  if (!isEnabled) {
+  if (!isCurrentMode) {
     colors.start.setAlphaF(disabledButtonOpacity);
     colors.end.setAlphaF(disabledButtonOpacity);
   }
@@ -88,16 +88,22 @@ void DrivingModeButton::updateState() {
   )").arg(backgroundColor, textColor);
 
   setStyleSheet(styleSheet);
-  updateCircle();
+  update();
 }
 
-void DrivingModeButton::updateCircle() {
-  bool isSelected = (getCurrentDrivingMode(params) == mode);
-  if (isSelected) {
-    statusCircle->setStyleSheet("border: 16px solid black; border-radius: 38px; background-color: #00FF00;");
-  } else {
-    statusCircle->setStyleSheet("border: 16px solid black; border-radius: 38px; background-color: transparent;");
-  }
+void DrivingModeButton::paintEvent(QPaintEvent *event) {
+  QPushButton::paintEvent(event);
+  drawStatusCircle();
+}
+
+void DrivingModeButton::drawStatusCircle() {
+  QPainter painter(this);
+  painter.setRenderHint(QPainter::Antialiasing);
+
+  QRect circleRect = statusCircle->geometry();
+  painter.setPen(QPen(Qt::black, 20));
+  painter.setBrush(isCurrentMode ? QColor("#00FF00") : Qt::transparent);
+  painter.drawEllipse(circleRect);
 }
 
 void DrivingModeButton::onClicked() {
