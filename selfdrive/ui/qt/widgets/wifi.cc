@@ -6,41 +6,39 @@
 #include <QPushButton>
 
 WiFiPromptWidget::WiFiPromptWidget(QWidget *parent) : QFrame(parent) {
+  setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+
   stack = new QStackedLayout(this);
 
   // Setup Wi-Fi
   QFrame *setup = new QFrame;
   QVBoxLayout *setup_layout = new QVBoxLayout(setup);
-  setup_layout->setContentsMargins(56, 40, 56, 40);
-  setup_layout->setSpacing(20);
+  setup_layout->setContentsMargins(56, 60, 56, 40);
+  setup_layout->setSpacing(45);
   {
-    QHBoxLayout *title_layout = new QHBoxLayout;
-    title_layout->setSpacing(32);
-    {
-      QLabel *icon = new QLabel;
-      QPixmap pixmap("../assets/offroad/icon_wifi_strength_full.svg");
-      icon->setPixmap(pixmap.scaledToWidth(80, Qt::SmoothTransformation));
-      title_layout->addWidget(icon);
+    QLabel *icon = new QLabel;
+    QPixmap pixmap("../assets/offroad/icon_wifi_none.svg");
+    icon->setPixmap(pixmap.scaledToWidth(225, Qt::SmoothTransformation));
+    icon->setAlignment(Qt::AlignCenter);
+    setup_layout->addWidget(icon);
 
-      QLabel *title = new QLabel(tr("Setup Wi-Fi"));
-      title->setStyleSheet("font-size: 64px; font-weight: 600;");
-      title_layout->addWidget(title);
-      title_layout->addStretch();
-    }
-    setup_layout->addLayout(title_layout);
+    setup_layout->addStretch();
 
     QLabel *desc = new QLabel(tr("Connect to Wi-Fi to upload driving data and help improve openpilot"));
-    desc->setStyleSheet("font-size: 40px; font-weight: 400;");
+    desc->setStyleSheet("font-size: 40px; font-weight: 400; padding-left: 50px; padding-right: 50px;");
     desc->setWordWrap(true);
+    desc->setAlignment(Qt::AlignCenter);
     setup_layout->addWidget(desc);
 
-    QPushButton *settings_btn = new QPushButton(tr("Open Settings"));
+    setup_layout->addStretch();
+
+    QPushButton *settings_btn = new QPushButton(tr("Setup Wi-Fi"));
     connect(settings_btn, &QPushButton::clicked, [=]() { emit openSettings(1); });
     settings_btn->setStyleSheet(R"(
       QPushButton {
         font-size: 48px;
         font-weight: 500;
-        border-radius: 10px;
+        border-radius: 20px;
         background-color: #465BEA;
         padding: 32px;
       }
@@ -84,7 +82,7 @@ WiFiPromptWidget::WiFiPromptWidget(QWidget *parent) : QFrame(parent) {
   setStyleSheet(R"(
     WiFiPromptWidget {
       background-color: #333333;
-      border-radius: 10px;
+      border-radius: 25px;
     }
   )");
 
