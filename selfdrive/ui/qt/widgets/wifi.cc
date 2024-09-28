@@ -53,7 +53,7 @@ WiFiPromptWidget::WiFiPromptWidget(QWidget *parent) : QFrame(parent) {
   // Uploading data
   QWidget *uploading = new QWidget;
   QVBoxLayout *uploading_layout = new QVBoxLayout(uploading);
-  uploading_layout->setContentsMargins(32, 60, 32, 60);
+  uploading_layout->setContentsMargins(50, 60, 50, 60);
   uploading_layout->setSpacing(0); // Without this WiFi and Connected labels are too far apart
   QLabel *icon = new QLabel;
   QPixmap pixmap("../assets/offroad/icon_wifi.svg");
@@ -76,7 +76,7 @@ WiFiPromptWidget::WiFiPromptWidget(QWidget *parent) : QFrame(parent) {
   uploading_layout->addStretch();
 
   QLabel *desc = new QLabel(tr("Training data will be pulled periodically while your device is on Wi-Fi"));
-  desc->setStyleSheet("font-size: 42px; font-weight: 400; padding-left: 50px; padding-right: 50px;");
+  desc->setStyleSheet("font-size: 42px; font-weight: 400;");
   desc->setWordWrap(true);
   desc->setAlignment(Qt::AlignCenter);
   uploading_layout->addWidget(desc);
