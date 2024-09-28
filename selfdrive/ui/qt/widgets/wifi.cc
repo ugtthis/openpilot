@@ -6,8 +6,6 @@
 #include <QPushButton>
 
 WiFiPromptWidget::WiFiPromptWidget(QWidget *parent) : QFrame(parent) {
-  setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-
   stack = new QStackedLayout(this);
 
   // Setup Wi-Fi
