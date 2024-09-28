@@ -53,30 +53,34 @@ WiFiPromptWidget::WiFiPromptWidget(QWidget *parent) : QFrame(parent) {
   // Uploading data
   QWidget *uploading = new QWidget;
   QVBoxLayout *uploading_layout = new QVBoxLayout(uploading);
-  uploading_layout->setContentsMargins(64, 56, 64, 56);
-  uploading_layout->setSpacing(36);
-  {
-    QHBoxLayout *title_layout = new QHBoxLayout;
-    {
-      QLabel *title = new QLabel(tr("Ready to upload"));
-      title->setStyleSheet("font-size: 64px; font-weight: 600;");
-      title->setWordWrap(true);
-      title->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
-      title_layout->addWidget(title);
-      title_layout->addStretch();
+  uploading_layout->setContentsMargins(32, 60, 32, 60);
+  uploading_layout->setSpacing(0); // Without this WiFi and Connected labels are too far apart
+  QLabel *icon = new QLabel;
+  QPixmap pixmap("../assets/offroad/icon_wifi.svg");
+  icon->setPixmap(pixmap.scaledToWidth(200, Qt::SmoothTransformation));
+  icon->setAlignment(Qt::AlignCenter);
+  uploading_layout->addWidget(icon);
 
-      QLabel *icon = new QLabel;
-      QPixmap pixmap("../assets/offroad/icon_wifi_uploading.svg");
-      icon->setPixmap(pixmap.scaledToWidth(120, Qt::SmoothTransformation));
-      title_layout->addWidget(icon);
-    }
-    uploading_layout->addLayout(title_layout);
+  uploading_layout->addStretch();
 
-    QLabel *desc = new QLabel(tr("Training data will be pulled periodically while your device is on Wi-Fi"));
-    desc->setStyleSheet("font-size: 48px; font-weight: 400;");
-    desc->setWordWrap(true);
-    uploading_layout->addWidget(desc);
-  }
+  QLabel *top_label = new QLabel(tr("Wi-Fi"));
+  top_label->setStyleSheet("font-size: 58px; font-weight: 400;");
+  top_label->setAlignment(Qt::AlignCenter);
+  uploading_layout->addWidget(top_label);
+
+  QLabel *bottom_label = new QLabel(tr("Connected"));
+  bottom_label->setStyleSheet("font-size: 77px; font-weight: 600; color: #AAED70;");
+  bottom_label->setAlignment(Qt::AlignCenter);
+  uploading_layout->addWidget(bottom_label);
+
+  uploading_layout->addStretch();
+
+  QLabel *desc = new QLabel(tr("Training data will be pulled periodically while your device is on Wi-Fi"));
+  desc->setStyleSheet("font-size: 42px; font-weight: 400; padding-left: 50px; padding-right: 50px;");
+  desc->setWordWrap(true);
+  desc->setAlignment(Qt::AlignCenter);
+  uploading_layout->addWidget(desc);
+
   stack->addWidget(uploading);
 
   setStyleSheet(R"(
