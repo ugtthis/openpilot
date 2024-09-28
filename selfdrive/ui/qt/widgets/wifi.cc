@@ -52,7 +52,7 @@ WiFiPromptWidget::WiFiPromptWidget(QWidget *parent) : QFrame(parent) {
   QWidget *uploading = new QWidget;
   QVBoxLayout *uploading_layout = new QVBoxLayout(uploading);
   uploading_layout->setContentsMargins(50, 60, 50, 60);
-  uploading_layout->setSpacing(0);
+  uploading_layout->setSpacing(0); // Without this WiFi and Connected labels spacing too far apart
 
   QLabel *uploading_icon = new QLabel;
   uploading_icon->setPixmap(QPixmap("../assets/offroad/icon_wifi.svg").scaledToWidth(200, Qt::SmoothTransformation));
