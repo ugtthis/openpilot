@@ -175,34 +175,40 @@ PrimeAdWidget::PrimeAdWidget(QWidget* parent) : QFrame(parent) {
 
 SetupWidget::SetupWidget(QWidget* parent) : QFrame(parent) {
   mainLayout = new QStackedWidget;
+  setFixedHeight(670);
 
   // Unpaired, registration prompt layout
 
   QFrame* finishRegistration = new QFrame;
   finishRegistration->setObjectName("primeWidget");
   QVBoxLayout* finishRegistationLayout = new QVBoxLayout(finishRegistration);
-  finishRegistationLayout->setSpacing(38);
-  finishRegistationLayout->setContentsMargins(64, 48, 64, 48);
+  finishRegistationLayout->setSpacing(0);
+  finishRegistationLayout->setContentsMargins(40, 60, 40, 40);
 
-  QLabel* registrationTitle = new QLabel(tr("Finish Setup"));
-  registrationTitle->setStyleSheet("font-size: 75px; font-weight: bold;");
+  QLabel* registrationTitle = new QLabel(tr("Don't forget\nto pair!"));
+  registrationTitle->setStyleSheet("font-size: 70px; font-weight: bold; color: #FFEB88;");
+  registrationTitle->setFixedHeight(180);
+  registrationTitle->setAlignment(Qt::AlignCenter);
   finishRegistationLayout->addWidget(registrationTitle);
 
-  QLabel* registrationDescription = new QLabel(tr("Pair your device with comma connect (connect.comma.ai) and claim your comma prime offer."));
+  // finishRegistationLayout->addStretch();
+
+  QLabel* registrationDescription = new QLabel(tr("Pair your device with comma connect and claim your comma prime offer."));
   registrationDescription->setWordWrap(true);
-  registrationDescription->setStyleSheet("font-size: 50px; font-weight: light;");
+  registrationDescription->setStyleSheet("font-size: 40px; font-weight: normal; color: white; padding: 0 30px;");
+  registrationDescription->setAlignment(Qt::AlignCenter);
   finishRegistationLayout->addWidget(registrationDescription);
 
-  finishRegistationLayout->addStretch();
+  // finishRegistationLayout->addStretch();
 
   QPushButton* pair = new QPushButton(tr("Pair device"));
   pair->setStyleSheet(R"(
     QPushButton {
-      font-size: 55px;
+      font-size: 50px;
       font-weight: 500;
-      border-radius: 10px;
+      border-radius: 25px;
       background-color: #465BEA;
-      padding: 64px;
+      padding: 33px;
     }
     QPushButton:pressed {
       background-color: #3049F4;
@@ -236,8 +242,9 @@ SetupWidget::SetupWidget(QWidget* parent) : QFrame(parent) {
 
   setStyleSheet(R"(
     #primeWidget {
-      border-radius: 10px;
+      border-radius: 25px;
       background-color: #333333;
+      border: 2px solid #FCE51E;
     }
   )");
 
@@ -247,7 +254,7 @@ SetupWidget::SetupWidget(QWidget* parent) : QFrame(parent) {
   setSizePolicy(sp_retain);
 
   QObject::connect(uiState()->prime_state, &PrimeState::changed, [this](PrimeState::Type type) {
-    if (type == PrimeState::PRIME_TYPE_UNPAIRED) {
+    if (true) {
       mainLayout->setCurrentIndex(0);  // Display "Pair your device" widget
     } else {
       popup->reject();
