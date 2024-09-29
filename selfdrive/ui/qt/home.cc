@@ -102,12 +102,14 @@ void HomeWindow::mouseDoubleClickEvent(QMouseEvent* e) {
 
 OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
   QVBoxLayout* main_layout = new QVBoxLayout(this);
-  main_layout->setContentsMargins(40, 40, 40, 40);
+  main_layout->setContentsMargins(30, 15, 30, 30); // Lower top margin because of top header
+  main_layout->setSpacing(0);
 
   // top header
-  QHBoxLayout* header_layout = new QHBoxLayout();
+  QWidget* header_widget = new QWidget(this);
+  header_widget->setObjectName("headerWidget");
+  QHBoxLayout* header_layout = new QHBoxLayout(header_widget);
   header_layout->setContentsMargins(0, 0, 0, 0);
-  header_layout->setSpacing(16);
 
   update_notif = new QPushButton(tr("UPDATE"));
   update_notif->setVisible(false);
@@ -121,20 +123,21 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
   QObject::connect(alert_notif, &QPushButton::clicked, [=] { center_layout->setCurrentIndex(2); });
   header_layout->addWidget(alert_notif, 0, Qt::AlignHCenter | Qt::AlignLeft);
 
-  version = new ElidedLabel();
-  header_layout->addWidget(version, 0, Qt::AlignHCenter | Qt::AlignRight);
+  openpilot_version_label = new ElidedLabel();
+  openpilot_version_label->setStyleSheet("font-size: 50px; font-family: 'JetBrains Mono';");
+  header_layout->addWidget(openpilot_version_label, 0, Qt::AlignHCenter | Qt::AlignRight);
 
-  main_layout->addLayout(header_layout);
+  main_layout->addWidget(header_widget);
 
   // main content
-  main_layout->addSpacing(25);
+  main_layout->addSpacing(15);
   center_layout = new QStackedLayout();
 
   QWidget *home_widget = new QWidget(this);
   {
     QHBoxLayout *home_layout = new QHBoxLayout(home_widget);
     home_layout->setContentsMargins(0, 0, 0, 0);
-    home_layout->setSpacing(30);
+    home_layout->setSpacing(25);
 
     // left: PrimeAdWidget
     QStackedWidget *left_widget = new QStackedWidget(this);
@@ -156,16 +159,22 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
 
     home_layout->addWidget(left_widget, 1);
 
-    // right: ExperimentalModeButton, SetupWidget
+    // right: PrimeUserWidget, ExperimentalModeButton, SetupWidget
     QWidget* right_widget = new QWidget(this);
     QVBoxLayout* right_column = new QVBoxLayout(right_widget);
     right_column->setContentsMargins(0, 0, 0, 0);
     right_widget->setFixedWidth(615);
-    right_column->setSpacing(30);
+    right_column->setSpacing(25);
 
-    ExperimentalModeButton *experimental_mode = new ExperimentalModeButton(this);
-    QObject::connect(experimental_mode, &ExperimentalModeButton::openSettings, this, &OffroadHome::openSettings);
-    right_column->addWidget(experimental_mode, 1);
+    // Add PrimeUserWidget
+    PrimeUserWidget *prime_account_type = new PrimeUserWidget(this);
+    prime_account_type->setObjectName("primeWidget");
+    right_column->addWidget(prime_account_type);
+
+    // -- Make sure to RM the related file --
+    // ExperimentalModeButton *experimental_mode = new ExperimentalModeButton(this);
+    // QObject::connect(experimental_mode, &ExperimentalModeButton::openSettings, this, &OffroadHome::openSettings);
+    // right_column->addWidget(experimental_mode, 1);
 
     SetupWidget *setup_widget = new SetupWidget;
     QObject::connect(setup_widget, &SetupWidget::openSettings, this, &OffroadHome::openSettings);
@@ -196,7 +205,7 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     OffroadHome {
       background-color: black;
     }
-    OffroadHome > QPushButton {
+    #headerWidget > QPushButton {
       padding: 15px 30px;
       border-radius: 5px;
       font-size: 40px;
@@ -218,7 +227,7 @@ void OffroadHome::hideEvent(QHideEvent *event) {
 }
 
 void OffroadHome::refresh() {
-  version->setText(getBrand() + " " +  QString::fromStdString(params.get("UpdaterCurrentDescription")));
+  openpilot_version_label->setText(getBrand() + " " +  QString::fromStdString(params.get("UpdaterCurrentDescription")));
 
   bool updateAvailable = update_widget->refresh();
   int alerts = alerts_widget->refresh();
