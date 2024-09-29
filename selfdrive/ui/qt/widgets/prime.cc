@@ -120,16 +120,29 @@ PairingPopup::PairingPopup(QWidget *parent) : DialogBase(parent) {
 PrimeUserWidget::PrimeUserWidget(QWidget *parent) : QFrame(parent) {
   setObjectName("primeWidget");
   QVBoxLayout *mainLayout = new QVBoxLayout(this);
-  mainLayout->setContentsMargins(56, 40, 56, 40);
-  mainLayout->setSpacing(20);
+  mainLayout->setContentsMargins(55, 50, 55, 50);
+  mainLayout->setSpacing(3);
 
   QLabel *subscribed = new QLabel(tr("✓ SUBSCRIBED"));
-  subscribed->setStyleSheet("font-size: 41px; font-weight: bold; color: #86FF4E;");
-  mainLayout->addWidget(subscribed);
+  subscribed->setStyleSheet("font-size: 36px; font-weight: bold;");
+  subscribed->setText(QString("<span style='color: #AAED70;'>✓</span> SUBSCRIBED"));
 
   QLabel *commaPrime = new QLabel(tr("comma prime"));
-  commaPrime->setStyleSheet("font-size: 75px; font-weight: bold;");
+  commaPrime->setStyleSheet("font-size: 60px; font-weight: bold;");
+  commaPrime->setText(QString("comma <span style='color: #AAED70;'>prime</span>"));
+
+  // Add stretches to center the labels vertically
+  mainLayout->addStretch();
+  mainLayout->addWidget(subscribed);
   mainLayout->addWidget(commaPrime);
+  mainLayout->addStretch();
+
+  setStyleSheet(R"(
+    #primeWidget {
+      border-radius: 25px;
+      background-color: #333333;
+    }
+  )");
 }
 
 
