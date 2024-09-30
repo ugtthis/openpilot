@@ -207,7 +207,7 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     }
     #headerWidget > QPushButton {
       padding: 15px 30px;
-      border-radius: 5px;
+      border-radius: 20px;
       font-size: 40px;
       font-weight: 500;
     }
