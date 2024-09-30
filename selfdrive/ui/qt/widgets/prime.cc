@@ -201,25 +201,24 @@ SetupWidget::SetupWidget(QWidget* parent) : QFrame(parent) {
 
   QFrame* finishRegistration = new QFrame;
   finishRegistration->setObjectName("primeWidget");
-  QVBoxLayout* finishRegistationLayout = new QVBoxLayout(finishRegistration);
-  finishRegistationLayout->setSpacing(0);
-  finishRegistationLayout->setContentsMargins(40, 60, 40, 40);
+  QVBoxLayout* finishRegistrationLayout = new QVBoxLayout(finishRegistration);
+  finishRegistrationLayout->setSpacing(0);
+  finishRegistrationLayout->setContentsMargins(40, 60, 40, 40);
 
-  QLabel* registrationTitle = new QLabel(tr("Don't forget\nto pair!"));
-  registrationTitle->setStyleSheet("font-size: 70px; font-weight: bold; color: #FFEB88;");
+  QLabel* registrationTitle = new QLabel(tr("Last step to finish setup!"));
+  registrationTitle->setStyleSheet("font-size: 70px; font-weight: bold; color: #FFEB88; padding: 0 30px;");
   registrationTitle->setFixedHeight(180);
-  registrationTitle->setAlignment(Qt::AlignCenter);
-  finishRegistationLayout->addWidget(registrationTitle);
+  registrationTitle->setWordWrap(true);
+  finishRegistrationLayout->addWidget(registrationTitle);
 
-  // finishRegistationLayout->addStretch();
+  // finishRegistrationLayout->addStretch();
 
   QLabel* registrationDescription = new QLabel(tr("Pair your device with comma connect and claim your comma prime offer."));
   registrationDescription->setWordWrap(true);
   registrationDescription->setStyleSheet("font-size: 40px; font-weight: normal; color: white; padding: 0 30px;");
-  registrationDescription->setAlignment(Qt::AlignCenter);
-  finishRegistationLayout->addWidget(registrationDescription);
+  finishRegistrationLayout->addWidget(registrationDescription);
 
-  // finishRegistationLayout->addStretch();
+  // finishRegistrationLayout->addStretch();
 
   QPushButton* pair = new QPushButton(tr("Pair device"));
   pair->setStyleSheet(R"(
@@ -234,7 +233,7 @@ SetupWidget::SetupWidget(QWidget* parent) : QFrame(parent) {
       background-color: #3049F4;
     }
   )");
-  finishRegistationLayout->addWidget(pair);
+  finishRegistrationLayout->addWidget(pair);
 
   popup = new PairingPopup(this);
   QObject::connect(pair, &QPushButton::clicked, popup, &PairingPopup::exec);
@@ -264,7 +263,6 @@ SetupWidget::SetupWidget(QWidget* parent) : QFrame(parent) {
     #primeWidget {
       border-radius: 25px;
       background-color: #333333;
-      border: 2px solid #FCE51E;
     }
   )");
 
