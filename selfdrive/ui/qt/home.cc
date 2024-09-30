@@ -102,7 +102,7 @@ void HomeWindow::mouseDoubleClickEvent(QMouseEvent* e) {
 
 OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
   QVBoxLayout* main_layout = new QVBoxLayout(this);
-  main_layout->setContentsMargins(30, 15, 30, 30); // Lower top margin because of top header
+  main_layout->setContentsMargins(30, 18, 30, 30); // Lower top margin because of top header
   main_layout->setSpacing(0);
 
   // top header
