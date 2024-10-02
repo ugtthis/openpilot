@@ -290,7 +290,6 @@ PrimeUnsubscribedWidget::PrimeUnsubscribedWidget(QWidget *parent) : QPushButton(
   mainLayout->setSpacing(0);
 
   QVBoxLayout *textLayout = new QVBoxLayout();
-  textLayout->setSpacing(3);
 
   QLabel *notSubscribed = new QLabel(tr("NOT SUBSCRIBED"));
   notSubscribed->setStyleSheet("font-size: 36px; font-weight: bold; color: #FFEB88;");
@@ -302,18 +301,17 @@ PrimeUnsubscribedWidget::PrimeUnsubscribedWidget(QWidget *parent) : QPushButton(
   textLayout->addWidget(wantToJoin);
 
   mainLayout->addLayout(textLayout);
-  mainLayout->addStretch();
+  mainLayout->addStretch(); // Pushes btnIcon to the right
 
-  QLabel *chevron = new QLabel("❯");
-  chevron->setStyleSheet("font-size: 60px; font-weight: bold; color: white;");
-  mainLayout->addWidget(chevron);
+  QLabel *btnIcon = new QLabel("❯");
+  btnIcon->setStyleSheet("font-size: 60px; font-weight: bold; color: white;");
+  mainLayout->addWidget(btnIcon);
 
   setStyleSheet(R"(
     #primeUnsubscribedWidget {
       border: 2px solid #F5D847;
       border-radius: 25px;
       background-color: #333333;
-      text-align: left;
     }
     #primeUnsubscribedWidget:pressed {
       background-color: #444444;
