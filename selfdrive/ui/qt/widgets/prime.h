@@ -67,3 +67,14 @@ private:
   PairingPopup *popup;
   QStackedWidget *mainLayout;
 };
+
+// widget for users without prime subscription
+class PrimeUnsubscribedWidget : public QPushButton {
+  Q_OBJECT
+
+public:
+  explicit PrimeUnsubscribedWidget(QWidget* parent = nullptr);
+
+signals:
+  void clicked();
+};

@@ -280,3 +280,43 @@ SetupWidget::SetupWidget(QWidget* parent) : QFrame(parent) {
     }
   });
 }
+
+PrimeUnsubscribedWidget::PrimeUnsubscribedWidget(QWidget *parent) : QPushButton(parent) {
+  setObjectName("primeUnsubscribedWidget");
+  setFixedHeight(244);
+
+  QHBoxLayout *mainLayout = new QHBoxLayout(this);
+  mainLayout->setContentsMargins(55, 50, 55, 50);
+  mainLayout->setSpacing(0);
+
+  QVBoxLayout *textLayout = new QVBoxLayout();
+  textLayout->setSpacing(3);
+
+  QLabel *notSubscribed = new QLabel(tr("NOT SUBSCRIBED"));
+  notSubscribed->setStyleSheet("font-size: 36px; font-weight: bold; color: #FFEB88;");
+
+  QLabel *wantToJoin = new QLabel(tr("Want to join?"));
+  wantToJoin->setStyleSheet("font-size: 60px; font-weight: bold; color: white;");
+
+  textLayout->addWidget(notSubscribed);
+  textLayout->addWidget(wantToJoin);
+
+  mainLayout->addLayout(textLayout);
+  mainLayout->addStretch();
+
+  QLabel *chevron = new QLabel("❯");
+  chevron->setStyleSheet("font-size: 60px; font-weight: bold; color: white;");
+  mainLayout->addWidget(chevron);
+
+  setStyleSheet(R"(
+    #primeUnsubscribedWidget {
+      border: 2px solid #F5D847;
+      border-radius: 25px;
+      background-color: #333333;
+      text-align: left;
+    }
+    #primeUnsubscribedWidget:pressed {
+      background-color: #444444;
+    }
+  )");
+}

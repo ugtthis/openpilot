@@ -141,46 +141,40 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
 
     // left: PrimeAdWidget
     QStackedWidget *left_widget = new QStackedWidget(this);
-    QVBoxLayout *left_prime_layout = new QVBoxLayout();
-    QWidget *prime_user = new PrimeUserWidget();
-    prime_user->setStyleSheet(R"(
-    border-radius: 10px;
-    background-color: #333333;
-    )");
-    left_prime_layout->addWidget(prime_user);
-    left_prime_layout->addStretch();
-    left_widget->addWidget(new LayoutWidget(left_prime_layout));
-    left_widget->addWidget(new PrimeAdWidget);
-    left_widget->setStyleSheet("border-radius: 10px;");
 
-    connect(uiState()->prime_state, &PrimeState::changed, [left_widget]() {
-      left_widget->setCurrentIndex(uiState()->prime_state->isSubscribed() ? 0 : 1);
-    });
+    PrimeAdWidget *prime_ad = new PrimeAdWidget();
+    left_widget->addWidget(prime_ad);
+
+
 
     home_layout->addWidget(left_widget, 1);
 
-    // right: PrimeUserWidget, ExperimentalModeButton, SetupWidget
+    // Leave comment here until ExperimentalMode file is Removed
+
+    // right: PrimeUnsubscribedWidget, SetupWidget
     QWidget* right_widget = new QWidget(this);
     QVBoxLayout* right_column = new QVBoxLayout(right_widget);
     right_column->setContentsMargins(0, 0, 0, 0);
     right_widget->setFixedWidth(615);
     right_column->setSpacing(25);
 
-    // Add PrimeUserWidget
-    PrimeUserWidget *prime_account_type = new PrimeUserWidget(this);
-    prime_account_type->setObjectName("primeWidget");
-    right_column->addWidget(prime_account_type);
-
-    // -- Make sure to RM the related file --
-    // ExperimentalModeButton *experimental_mode = new ExperimentalModeButton(this);
-    // QObject::connect(experimental_mode, &ExperimentalModeButton::openSettings, this, &OffroadHome::openSettings);
-    // right_column->addWidget(experimental_mode, 1);
+    PrimeUnsubscribedWidget *prime_unsubscribed = new PrimeUnsubscribedWidget();
+    right_column->addWidget(prime_unsubscribed);
 
     SetupWidget *setup_widget = new SetupWidget;
     QObject::connect(setup_widget, &SetupWidget::openSettings, this, &OffroadHome::openSettings);
     right_column->addWidget(setup_widget, 1);
 
     home_layout->addWidget(right_widget, 1);
+
+    connect(uiState()->prime_state, &PrimeState::changed, [=]() {
+      left_widget->setCurrentIndex(uiState()->prime_state->isSubscribed() ? 1 : 0);
+      prime_unsubscribed->setVisible(!uiState()->prime_state->isSubscribed());
+    });
+
+    connect(prime_unsubscribed, &QPushButton::clicked, [=]() {
+      prime_ad->setVisible(!prime_ad->isVisible());
+    });
   }
   center_layout->addWidget(home_widget);
 
