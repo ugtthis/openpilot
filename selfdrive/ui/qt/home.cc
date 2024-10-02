@@ -167,11 +167,6 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
 
     home_layout->addWidget(right_widget, 1);
 
-    connect(uiState()->prime_state, &PrimeState::changed, [=]() {
-      left_widget->setCurrentIndex(uiState()->prime_state->isSubscribed() ? 1 : 0);
-      prime_unsubscribed->setVisible(!uiState()->prime_state->isSubscribed());
-    });
-
     connect(prime_unsubscribed, &QPushButton::clicked, [=]() {
       prime_ad->setVisible(!prime_ad->isVisible());
     });
