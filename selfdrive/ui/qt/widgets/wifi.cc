@@ -17,7 +17,7 @@ WiFiPromptWidget::WiFiPromptWidget(QWidget *parent) : QFrame(parent) {
   setup_layout->setSpacing(45);
 
   QLabel *setup_icon = new QLabel;
-  setup_icon->setPixmap(QPixmap("../assets/offroad/icon_wifi_setup.svg").scaledToWidth(225, Qt::SmoothTransformation));
+  setup_icon->setPixmap(QPixmap("../assets/offroad/icon_wifi_setup.svg").scaledToWidth(218, Qt::SmoothTransformation));
   setup_icon->setAlignment(Qt::AlignCenter);
 
   QLabel *setup_desc = new QLabel(tr("Connect to Wi-Fi to upload driving data and help improve openpilot"));
