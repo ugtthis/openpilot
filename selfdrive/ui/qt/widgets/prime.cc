@@ -170,7 +170,7 @@ PrimeAdWidget::PrimeAdWidget(QWidget* parent) : QFrame(parent) {
 
   QVector<QString> bullets = {tr("Remote access"), tr("24/7 LTE connectivity"), tr("1 year of drive storage"), tr("Remote snapshots")};
   for (auto &b : bullets) {
-    const QString check = "<b><font color='#465BEA'>✓</font></b> ";
+    const QString check = "<b><font color='#AAED70'>✓</font></b> ";
     QLabel *l = new QLabel(check + b);
     l->setAlignment(Qt::AlignLeft);
     l->setStyleSheet("font-size: 50px; margin-bottom: 15px;");
@@ -179,8 +179,15 @@ PrimeAdWidget::PrimeAdWidget(QWidget* parent) : QFrame(parent) {
 
   setStyleSheet(R"(
     PrimeAdWidget {
-      border-radius: 10px;
-      background-color: #333333;
+      border-radius: 25px;
+      background: qlineargradient(
+        x1: 0, y1: 0,
+        x2: 1, y2: 1,
+        stop: 0 #081912,
+        stop: 0.5 #2a5633,
+        stop: 1 #5caa6c
+      );
+      border: 9px solid rgba(57, 255, 20, 0.3);
     }
   )");
 }
