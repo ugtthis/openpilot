@@ -46,6 +46,16 @@ public:
 
 
 // widget for paired users without prime
+class PrimeDefaultWidget : public QPushButton {
+  Q_OBJECT
+
+public:
+  explicit PrimeDefaultWidget(QWidget* parent = nullptr);
+
+signals:
+  void clicked();
+};
+
 class PrimeAdWidget : public QFrame {
   Q_OBJECT
 public:
@@ -54,6 +64,16 @@ public:
 
 
 // container widget
+class PrimeAccountTypeWidget : public QWidget {
+  Q_OBJECT
+
+public:
+  explicit PrimeAccountTypeWidget(QWidget* parent = nullptr);
+
+private:
+  QStackedWidget *stack;
+};
+
 class SetupWidget : public QFrame {
   Q_OBJECT
 

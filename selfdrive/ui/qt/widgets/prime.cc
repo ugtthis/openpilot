@@ -117,6 +117,45 @@ PairingPopup::PairingPopup(QWidget *parent) : DialogBase(parent) {
 }
 
 
+PrimeDefaultWidget::PrimeDefaultWidget(QWidget *parent) : QPushButton(parent) {
+  setObjectName("primeDefaultWidget");
+  setFixedHeight(244);
+
+  QHBoxLayout *mainLayout = new QHBoxLayout(this);
+  mainLayout->setContentsMargins(55, 50, 55, 50);
+  mainLayout->setSpacing(0);
+
+  QVBoxLayout *textLayout = new QVBoxLayout();
+
+  QLabel *notSubscribed = new QLabel(tr("NOT SUBSCRIBED"));
+  notSubscribed->setStyleSheet("font-size: 36px; font-weight: bold; color: #FFEB88;");
+
+  QLabel *wantToJoin = new QLabel(tr("Want to join?"));
+  wantToJoin->setStyleSheet("font-size: 60px; font-weight: bold; color: white;");
+
+  textLayout->addWidget(notSubscribed);
+  textLayout->addWidget(wantToJoin);
+
+  mainLayout->addLayout(textLayout);
+  mainLayout->addStretch(); // Pushes btnIcon to the right
+
+  QLabel *btnIcon = new QLabel("❯");
+  btnIcon->setStyleSheet("font-size: 60px; font-weight: bold; color: white;");
+  mainLayout->addWidget(btnIcon);
+
+  setStyleSheet(R"(
+    #primeDefaultWidget {
+      border: 2px solid #F5D847;
+      border-radius: 25px;
+      background-color: #333333;
+    }
+    #primeDefaultWidget:pressed {
+      background-color: #444444;
+    }
+  )");
+}
+
+
 PrimeSubscribedWidget::PrimeSubscribedWidget(QWidget *parent) : QFrame(parent) {
   setObjectName("primeWidget");
   QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -193,9 +232,27 @@ PrimeAdWidget::PrimeAdWidget(QWidget* parent) : QFrame(parent) {
 }
 
 
+PrimeAccountTypeWidget::PrimeAccountTypeWidget(QWidget* parent) : QWidget(parent) {
+  QVBoxLayout *main_layout = new QVBoxLayout(this);
+  main_layout->setContentsMargins(0, 0, 0, 0);
+  main_layout->setSpacing(0);
+
+  stack = new QStackedWidget;
+  stack->addWidget(new PrimeDefaultWidget);
+  stack->addWidget(new PrimeSubscribedWidget);
+  main_layout->addWidget(stack);
+
+  QObject::connect(uiState()->prime_state, &PrimeState::changed, [this](PrimeState::Type type) {
+    stack->setCurrentIndex(true ? 0 : 1);
+  });
+
+  setFixedHeight(244);
+}
+
+
 SetupWidget::SetupWidget(QWidget* parent) : QFrame(parent) {
   mainLayout = new QStackedWidget;
-  setFixedHeight(670);
+  setFixedHeight(650);
 
   // Unpaired, registration prompt layout
 

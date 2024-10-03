@@ -156,12 +156,15 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
 
     home_layout->addWidget(left_widget, 1);
 
-    // right: SetupWidget
+    // right: PrimeAccountTypeWidget, SetupWidget
     QWidget* right_widget = new QWidget(this);
     QVBoxLayout* right_column = new QVBoxLayout(right_widget);
     right_column->setContentsMargins(0, 0, 0, 0);
     right_widget->setFixedWidth(615);
     right_column->setSpacing(30);
+
+    PrimeAccountTypeWidget *prime_account_type_widget = new PrimeAccountTypeWidget;
+    right_column->addWidget(prime_account_type_widget);
 
     SetupWidget *setup_widget = new SetupWidget;
     QObject::connect(setup_widget, &SetupWidget::openSettings, this, &OffroadHome::openSettings);
