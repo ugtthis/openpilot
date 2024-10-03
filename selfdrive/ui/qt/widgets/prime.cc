@@ -194,28 +194,28 @@ SetupWidget::SetupWidget(QWidget* parent) : QFrame(parent) {
   QFrame* finishRegistration = new QFrame;
   finishRegistration->setObjectName("primeWidget");
   QVBoxLayout* finishRegistrationLayout = new QVBoxLayout(finishRegistration);
-  finishRegistrationLayout->setSpacing(38);
-  finishRegistrationLayout->setContentsMargins(64, 48, 64, 48);
+  finishRegistrationLayout->setSpacing(0);
+  finishRegistrationLayout->setContentsMargins(40, 60, 40, 40);
 
-  QLabel* registrationTitle = new QLabel(tr("Finish Setup"));
-  registrationTitle->setStyleSheet("font-size: 75px; font-weight: bold;");
+  QLabel* registrationTitle = new QLabel(tr("Last step to finish setup!"));
+  registrationTitle->setStyleSheet("font-size: 70px; font-weight: bold; color: #FFEB88; padding: 0 30px;");
+  registrationTitle->setFixedHeight(180);
+  registrationTitle->setWordWrap(true);
   finishRegistrationLayout->addWidget(registrationTitle);
 
   QLabel* registrationDescription = new QLabel(tr("Pair your device with comma connect (connect.comma.ai) and claim your comma prime offer."));
   registrationDescription->setWordWrap(true);
-  registrationDescription->setStyleSheet("font-size: 50px; font-weight: light;");
+  registrationDescription->setStyleSheet("font-size: 40px; font-weight: normal; color: white; padding: 0 30px;");
   finishRegistrationLayout->addWidget(registrationDescription);
-
-  finishRegistrationLayout->addStretch();
 
   QPushButton* pair = new QPushButton(tr("Pair device"));
   pair->setStyleSheet(R"(
     QPushButton {
-      font-size: 55px;
+      font-size: 50px;
       font-weight: 500;
-      border-radius: 10px;
+      border-radius: 25px;
       background-color: #465BEA;
-      padding: 64px;
+      padding: 33px;
     }
     QPushButton:pressed {
       background-color: #3049F4;
@@ -249,7 +249,7 @@ SetupWidget::SetupWidget(QWidget* parent) : QFrame(parent) {
 
   setStyleSheet(R"(
     #primeWidget {
-      border-radius: 10px;
+      border-radius: 25px;
       background-color: #333333;
     }
   )");
