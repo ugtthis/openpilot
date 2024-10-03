@@ -105,12 +105,11 @@ void HomeWindow::mouseDoubleClickEvent(QMouseEvent* e) {
 
 OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
   QVBoxLayout* main_layout = new QVBoxLayout(this);
-  main_layout->setContentsMargins(30, 30, 30, 30);
+  main_layout->setContentsMargins(30, 18, 30, 30);
 
   // top header
   QHBoxLayout* header_layout = new QHBoxLayout();
   header_layout->setContentsMargins(0, 0, 0, 0);
-  header_layout->setSpacing(16);
 
   update_notif = new QPushButton(tr("UPDATE"));
   update_notif->setVisible(false);
@@ -130,7 +129,7 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
   main_layout->addLayout(header_layout);
 
   // main content
-  main_layout->addSpacing(25);
+  main_layout->addSpacing(15);
   center_layout = new QStackedLayout();
 
   QWidget *home_widget = new QWidget(this);
@@ -195,12 +194,13 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     }
     OffroadHome > QPushButton {
       padding: 15px 30px;
-      border-radius: 5px;
+      border-radius: 25px;
       font-size: 40px;
       font-weight: 500;
     }
     OffroadHome > QLabel {
-      font-size: 55px;
+      font-size: 50px;
+      font-family: 'JetBrains Mono';
     }
   )");
 }
