@@ -32,7 +32,7 @@ qt_src = ["main.cc", "ui.cc", "qt/sidebar.cc", "qt/body.cc",
           "qt/offroad/software_settings.cc", "qt/offroad/onboarding.cc",
           "qt/offroad/driverview.cc", "qt/offroad/info_display_bar.cc",
           "qt/offroad/driving_mode_panel.cc", "qt/onroad/onroad_home.cc",
-          "qt/onroad/annotated_camera.cc", "qt/onroad/buttons.cc",
+          "qt/onroad/annotated_camera.cc", "qt/onroad/buttons.cc", "qt/onroad/model.cc",
           "qt/onroad/alerts.cc", "qt/onroad/driver_monitoring.cc", "qt/onroad/hud.cc"]
 
 # build translation files
