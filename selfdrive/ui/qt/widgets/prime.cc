@@ -117,7 +117,7 @@ PairingPopup::PairingPopup(QWidget *parent) : DialogBase(parent) {
 }
 
 
-PrimeUserWidget::PrimeUserWidget(QWidget *parent) : QFrame(parent) {
+PrimeSubscribedWidget::PrimeSubscribedWidget(QWidget *parent) : QFrame(parent) {
   setObjectName("primeWidget");
   QVBoxLayout *mainLayout = new QVBoxLayout(this);
   mainLayout->setContentsMargins(55, 50, 55, 50);

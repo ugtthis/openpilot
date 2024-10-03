@@ -37,11 +37,11 @@ public:
 
 
 // widget for paired users with prime
-class PrimeUserWidget : public QFrame {
+class PrimeSubscribedWidget : public QFrame {
   Q_OBJECT
 
 public:
-  explicit PrimeUserWidget(QWidget* parent = 0);
+  explicit PrimeSubscribedWidget(QWidget *parent = nullptr);
 };
 
 
