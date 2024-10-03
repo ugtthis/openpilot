@@ -71,7 +71,7 @@ void DrivingModeButton::updateState() {
 
   QString styleSheet = QString(R"(
     QPushButton {
-      border-radius: 25px;
+      border-radius: 17px;
       background: %1;
       padding: 0px;
     }
