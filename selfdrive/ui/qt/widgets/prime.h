@@ -78,3 +78,13 @@ public:
 signals:
   void clicked();
 };
+
+class PrimeStatusWidget : public QWidget {
+  Q_OBJECT
+
+public:
+  explicit PrimeStatusWidget(QWidget* parent = nullptr);
+
+private:
+  QStackedWidget *stack;
+};

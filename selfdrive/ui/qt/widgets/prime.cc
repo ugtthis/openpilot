@@ -318,3 +318,21 @@ PrimeUnsubscribedWidget::PrimeUnsubscribedWidget(QWidget *parent) : QPushButton(
     }
   )");
 }
+
+// Add this new implementation
+PrimeStatusWidget::PrimeStatusWidget(QWidget* parent) : QWidget(parent) {
+  QVBoxLayout *main_layout = new QVBoxLayout(this);
+  main_layout->setContentsMargins(0, 0, 0, 0);
+  main_layout->setSpacing(0);
+
+  stack = new QStackedWidget;
+  stack->addWidget(new PrimeUnsubscribedWidget);
+  stack->addWidget(new PrimeUserWidget);
+  main_layout->addWidget(stack);
+
+  QObject::connect(uiState()->prime_state, &PrimeState::changed, [this](PrimeState::Type type) {
+    stack->setCurrentIndex(true ? 0 : 1);
+  });
+
+  setFixedHeight(244);  // Match the height of PrimeUnsubscribedWidget
+}

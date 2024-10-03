@@ -139,27 +139,35 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     home_layout->setContentsMargins(0, 0, 0, 0);
     home_layout->setSpacing(25);
 
-    // left: PrimeAdWidget
+    // left: QStackedWidget with PrimeAdWidget and temporary UI
     QStackedWidget *left_widget = new QStackedWidget(this);
 
+    // Temporary UI
+    QWidget *temp_widget = new QWidget();
+    temp_widget->setStyleSheet("background-color: #333333; border-radius: 25px;");  // Set a background color
+    QVBoxLayout *temp_layout = new QVBoxLayout(temp_widget);
+    QLabel *temp_label = new QLabel("Mode buttons will go here");
+    temp_label->setStyleSheet("font-size: 50px; font-weight: bold; color: white;");
+    temp_label->setAlignment(Qt::AlignCenter);
+    temp_layout->addWidget(temp_label);
+
+    left_widget->addWidget(temp_widget);  // Index 0: Temporary UI
+
     PrimeAdWidget *prime_ad = new PrimeAdWidget();
-    left_widget->addWidget(prime_ad);
+    left_widget->addWidget(prime_ad);  // Index 1: PrimeAd
 
-
-
+    left_widget->setCurrentIndex(0);  // Show temporary UI by default
     home_layout->addWidget(left_widget, 1);
 
-    // Leave comment here until ExperimentalMode file is Removed
-
-    // right: PrimeUnsubscribedWidget, SetupWidget
+    // right: PrimeStatusWidget, SetupWidget
     QWidget* right_widget = new QWidget(this);
     QVBoxLayout* right_column = new QVBoxLayout(right_widget);
     right_column->setContentsMargins(0, 0, 0, 0);
     right_widget->setFixedWidth(615);
     right_column->setSpacing(25);
 
-    PrimeUnsubscribedWidget *prime_unsubscribed = new PrimeUnsubscribedWidget();
-    right_column->addWidget(prime_unsubscribed);
+    PrimeStatusWidget *prime_status = new PrimeStatusWidget;
+    right_column->addWidget(prime_status);
 
     SetupWidget *setup_widget = new SetupWidget;
     QObject::connect(setup_widget, &SetupWidget::openSettings, this, &OffroadHome::openSettings);
@@ -167,8 +175,9 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
 
     home_layout->addWidget(right_widget, 1);
 
-    connect(prime_unsubscribed, &QPushButton::clicked, [=]() {
-      prime_ad->setVisible(!prime_ad->isVisible());
+    // Toggle between temporary UI and PrimeAdWidget when PrimeUnsubscribedWidget is clicked
+    QObject::connect(prime_status->findChild<PrimeUnsubscribedWidget*>(), &QPushButton::clicked, [=]() {
+      left_widget->setCurrentIndex(left_widget->currentIndex() == 0 ? 1 : 0);
     });
   }
   center_layout->addWidget(home_widget);
