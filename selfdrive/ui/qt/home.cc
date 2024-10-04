@@ -211,13 +211,13 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
       background-color: black;
     }
     OffroadHome > QPushButton {
-      padding: 15px 30px;
+      padding: 15px 36px;
       border-radius: 20px;
-      font-size: 40px;
+      font-size: 36px;
       font-weight: 500;
     }
     OffroadHome > QLabel {
-      font-size: 50px;
+      font-size: 36px;
       font-family: 'JetBrains Mono';
     }
   )");
