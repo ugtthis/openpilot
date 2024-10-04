@@ -138,21 +138,30 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     home_layout->setContentsMargins(0, 0, 0, 0);
     home_layout->setSpacing(30);
 
-    // left: InfoDisplayBar and DrivingModePanel
-    QWidget *left_widget = new QWidget(this);
-    QVBoxLayout *left_layout = new QVBoxLayout(left_widget);
-    left_layout->setContentsMargins(0, 0, 0, 0);
-    left_layout->setSpacing(30); // Spacing between InfoDisplayBar and DrivingModePanel
+    // left: InfoDisplayBar, DrivingModePanel, and PrimeAdWidget
+    QStackedWidget *left_widget = new QStackedWidget(this);
+
+    // Default view (index 0)
+    QWidget *default_view = new QWidget(this);
+    QVBoxLayout *default_layout = new QVBoxLayout(default_view);
+    default_layout->setContentsMargins(0, 0, 0, 0);
+    default_layout->setSpacing(30); // Spacing between InfoDisplayBar and DrivingModePanel
 
     InfoDisplayBar *info_display_bar = new InfoDisplayBar(this);
-    left_layout->addWidget(info_display_bar);
+    default_layout->addWidget(info_display_bar);
 
     DrivingModePanel *driving_mode_panel = new DrivingModePanel(this);
-    left_layout->addWidget(static_cast<QWidget*>(driving_mode_panel));
+    default_layout->addWidget(static_cast<QWidget*>(driving_mode_panel));
 
     QObject::connect(driving_mode_panel, &DrivingModePanel::modeSelected, info_display_bar, &InfoDisplayBar::showModeMessage);
 
-    left_layout->addStretch();
+    default_layout->addStretch();
+
+    left_widget->addWidget(default_view);
+
+    // PrimeAdWidget (index 1)
+    PrimeAdWidget *prime_ad_widget = new PrimeAdWidget(this);
+    left_widget->addWidget(prime_ad_widget);
 
     home_layout->addWidget(left_widget, 1);
 
@@ -172,6 +181,11 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
     right_column->addStretch();
 
     home_layout->addWidget(right_widget, 1);
+
+    // Toggle between temporary UI and PrimeAdWidget when PrimeDefaultWidget is clicked
+    QObject::connect(prime_account_type_widget->findChild<PrimeDefaultWidget*>(), &QPushButton::clicked, [=]() {
+      left_widget->setCurrentIndex(left_widget->currentIndex() == 0 ? 1 : 0);
+    });
   }
   center_layout->addWidget(home_widget);
 
@@ -228,9 +242,9 @@ void OffroadHome::refresh() {
   int idx = center_layout->currentIndex();
   if (!updateAvailable && !alerts) {
     idx = 0;
-  } else if (updateAvailable && (!update_notif->isVisible() || (!alerts && idx == 2))) {
+  } else if (updateAvailable && (!alerts && idx == 2)) {
     idx = 1;
-  } else if (alerts && (!alert_notif->isVisible() || (!updateAvailable && idx == 1))) {
+  } else if (alerts && (!updateAvailable && idx == 1)) {
     idx = 2;
   }
   center_layout->setCurrentIndex(idx);
