@@ -133,8 +133,10 @@ PrimeDefaultWidget::PrimeDefaultWidget(QWidget *parent) : QPushButton(parent) {
   QLabel *wantToJoin = new QLabel(tr("Want to join?"));
   wantToJoin->setStyleSheet("font-size: 60px; font-weight: bold; color: white;");
 
+  textLayout->addStretch();
   textLayout->addWidget(notSubscribed);
   textLayout->addWidget(wantToJoin);
+  textLayout->addStretch();
 
   mainLayout->addLayout(textLayout);
   mainLayout->addStretch(); // Pushes btnIcon to the right
