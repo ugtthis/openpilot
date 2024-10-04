@@ -182,7 +182,7 @@ OffroadHome::OffroadHome(QWidget* parent) : QFrame(parent) {
 
     home_layout->addWidget(right_widget, 1);
 
-    // Toggle between temporary UI and PrimeAdWidget when PrimeDefaultWidget is clicked
+    // Display PrimeAdWidget when PrimeDefaultWidget is clicked
     QObject::connect(prime_account_type_widget->findChild<PrimeDefaultWidget*>(), &QPushButton::clicked, [=]() {
       left_widget->setCurrentIndex(left_widget->currentIndex() == 0 ? 1 : 0);
     });
