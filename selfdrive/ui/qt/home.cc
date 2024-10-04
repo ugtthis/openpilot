@@ -242,9 +242,9 @@ void OffroadHome::refresh() {
   int idx = center_layout->currentIndex();
   if (!updateAvailable && !alerts) {
     idx = 0;
-  } else if (updateAvailable && (!alerts && idx == 2)) {
+  } else if (updateAvailable && (!update_notif->isVisible() || (!alerts && idx == 2))) {
     idx = 1;
-  } else if (alerts && (!updateAvailable && idx == 1)) {
+  } else if (alerts && (!alert_notif->isVisible() || (!updateAvailable && idx == 1))) {
     idx = 2;
   }
   center_layout->setCurrentIndex(idx);
