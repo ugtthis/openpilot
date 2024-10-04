@@ -242,8 +242,8 @@ PrimeAccountTypeWidget::PrimeAccountTypeWidget(QWidget* parent) : QWidget(parent
   stack->addWidget(new PrimeSubscribedWidget);
   main_layout->addWidget(stack);
 
-  QObject::connect(uiState()->prime_state, &PrimeState::changed, [this](PrimeState::Type type) {
-    stack->setCurrentIndex(true ? 0 : 1);
+  QObject::connect(uiState()->prime_state, &PrimeState::changed, [this]() {
+    stack->setCurrentIndex(uiState()->prime_state->isSubscribed() ? 1 : 0);
   });
 
   setFixedHeight(244);
