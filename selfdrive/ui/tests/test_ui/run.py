@@ -224,6 +224,20 @@ class TestUI:
     os.environ["SCALE"] = "1"
     sys.modules["mouseinfo"] = False
 
+  def setup(self):
+    self.pm = PubMaster(list(DATA.keys()))
+    DATA['deviceState'].deviceState.networkType = log.DeviceState.NetworkType.wifi
+    DATA['deviceState'].deviceState.lastAthenaPingTime = 0
+    for _ in range(10):
+      self.pm.send('deviceState', DATA['deviceState'])
+      DATA['deviceState'].clear_write_flag()
+      time.sleep(0.05)
+    try:
+      self.ui = pywinctl.getWindowsWithTitle("ui")[0]
+    except Exception as e:
+      print(f"failed to find ui window, assuming that it's in the top left (for Xvfb) {e}")
+      self.ui = namedtuple("bb", ["left", "top", "width", "height"])(0,0,2160,1080)
+
   def screenshot(self, name):
     im = pyautogui.screenshot(SCREENSHOTS_DIR / f"{name}.png", region=(self.ui.left, self.ui.top, self.ui.width, self.ui.height))
     assert im.width == 2160
