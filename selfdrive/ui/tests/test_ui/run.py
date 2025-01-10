@@ -229,9 +229,8 @@ class TestUI:
     assert im.width == 2160
     assert im.height == 1080
 
-  def click(self, x, y, *args, draw_marker=False, **kwargs):
+  def click(self, x, y, *args, **kwargs):
     pyautogui.click(self.ui.left + x, self.ui.top + y, *args, **kwargs)
-    time.sleep(UI_DELAY)
 
   @with_processes(["ui"])
   def test_ui(self, name, setup_case):
