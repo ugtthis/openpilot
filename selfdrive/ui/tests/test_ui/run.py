@@ -128,14 +128,7 @@ def setup_keyboard(click, pm: PubMaster):
 
 def setup_keyboard_uppercase(click, pm: PubMaster):
   setup_keyboard(click, pm)
-  x, y = 200, 800  # Coordinates for shift key
-  click(x, y)
-
-  # Draw circle on the screenshot
-  img = Image.open(SCREENSHOTS_DIR / "keyboard_uppercase.png")
-  draw = ImageDraw.Draw(img)
-  draw.ellipse([x - 20, y - 20, x + 20, y + 20], outline='red', width=3)
-  img.save(SCREENSHOTS_DIR / "keyboard_uppercase.png")
+  click(200, 800)
 
 def setup_driver_camera(click, pm: PubMaster):
   setup_settings_device(click, pm)
@@ -251,6 +244,14 @@ class TestUI:
     self.setup()
     setup_case(self.click, self.pm)
     self.screenshot(name)
+
+    # Draw circle for keyboard uppercase
+    if name == "keyboard_uppercase":
+      x, y = 200, 800
+      img = Image.open(SCREENSHOTS_DIR / f"{name}.png")
+      draw = ImageDraw.Draw(img)
+      draw.ellipse([x - 20, y - 20, x + 20, y + 20], outline='red', width=3)
+      img.save(SCREENSHOTS_DIR / f"{name}.png")
 
 def create_screenshots():
   if TEST_OUTPUT_DIR.exists():
