@@ -8,6 +8,7 @@ import pywinctl
 import pyautogui
 import pickle
 import time
+from PIL import Image, ImageDraw
 
 from cereal import log
 from msgq.visionipc import VisionIpcServer, VisionStreamType
@@ -125,6 +126,10 @@ def setup_keyboard(click, pm: PubMaster):
   click(250, 965)
   click(1930, 228)
 
+def setup_keyboard_uppercase(click, pm: PubMaster):
+  setup_keyboard(click, pm)
+  click(200, 800)
+
 def setup_driver_camera(click, pm: PubMaster):
   setup_settings_device(click, pm)
   click(1950, 435)
@@ -197,7 +202,8 @@ CASES = {
   "body": setup_body,
   "offroad_alert": setup_offroad_alert,
   "update_available": setup_update_available,
-  "keyboard": setup_keyboard
+  "keyboard": setup_keyboard,
+  "keyboard_uppercase": setup_keyboard_uppercase
 }
 
 TEST_DIR = pathlib.Path(__file__).parent
@@ -232,13 +238,20 @@ class TestUI:
 
   def click(self, x, y, *args, **kwargs):
     pyautogui.click(self.ui.left + x, self.ui.top + y, *args, **kwargs)
-    time.sleep(UI_DELAY) # give enough time for the UI to react
 
   @with_processes(["ui"])
   def test_ui(self, name, setup_case):
     self.setup()
     setup_case(self.click, self.pm)
     self.screenshot(name)
+
+    # Draw circle for keyboard uppercase
+    if name == "keyboard_uppercase":
+      x, y = 200, 800
+      img = Image.open(SCREENSHOTS_DIR / f"{name}.png")
+      draw = ImageDraw.Draw(img)
+      draw.ellipse([x - 20, y - 20, x + 20, y + 20], outline='red', width=3)
+      img.save(SCREENSHOTS_DIR / f"{name}.png")
 
 def create_screenshots():
   if TEST_OUTPUT_DIR.exists():

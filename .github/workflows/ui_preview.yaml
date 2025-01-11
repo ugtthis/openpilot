@@ -7,19 +7,19 @@ on:
     types: [assigned, opened, synchronize, reopened, edited]
     branches:
       - 'master'
+      - 'add-missing-ui-view'
     paths:
       - 'selfdrive/ui/**'
   workflow_dispatch:
 
 env:
   UI_JOB_NAME: "Create UI Report"
-  REPORT_NAME: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && 'master' || github.event.number }}
-  SHA: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.sha || github.event.pull_request.head.sha }}
+  REPORT_NAME: ${{ github.event_name == 'pull_request_target' && github.event.number || (github.ref == 'refs/heads/master' && 'master' || '') }}
+  SHA: ${{ github.event.pull_request && github.event.pull_request.head.sha || github.sha }}
   BRANCH_NAME: "openpilot/pr-${{ github.event.number }}"
 
 jobs:
   preview:
-    if: github.repository == 'commaai/openpilot'
     name: preview
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -58,7 +58,7 @@ jobs:
       - name: Getting master ui
         uses: actions/checkout@v4
         with:
-          repository: commaai/ci-artifacts
+          repository: ugtthis/ci-artifacts
           ssh-key: ${{ secrets.CI_ARTIFACTS_DEPLOY_KEY }}
           path: ${{ github.workspace }}/master_ui
           ref: openpilot_master_ui
@@ -84,7 +84,7 @@ jobs:
         run: >-
           sudo apt-get install -y imagemagick
 
-          scenes="homescreen settings_device settings_software settings_toggles settings_developer offroad_alert update_available prime onroad onroad_disengaged onroad_override onroad_sidebar onroad_wide onroad_wide_sidebar onroad_alert_small onroad_alert_mid onroad_alert_full driver_camera body keyboard"
+          scenes="homescreen settings_device settings_software settings_toggles settings_developer offroad_alert update_available prime onroad onroad_disengaged onroad_override onroad_sidebar onroad_wide onroad_wide_sidebar onroad_alert_small onroad_alert_mid onroad_alert_full driver_camera body keyboard keyboard_uppercase"
           A=($scenes)
 
           DIFF=""
