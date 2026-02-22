@@ -359,7 +359,9 @@ class SettingsLayout(NavWidget):
 
   def _handle_mouse_release(self, mouse_pos: MousePos) -> None:
     if self._eyebrow_active:
-      pass  # taps during eyebrow mode are ignored (billy just vibes)
+      # Tap anywhere exits the full-screen mode (guard against the tap that opened it)
+      if rl.get_time() - self._eyebrow_start_time > 0.5:
+        self._stop_eyebrow_dance()
     elif self._dance_active:
       # Guard against the same release that triggered _start_dance
       if rl.get_time() - self._dance_start_time > 1.0 and self._figure is not None:
@@ -386,35 +388,32 @@ class SettingsLayout(NavWidget):
   # -------------------------------------------------------------------------
 
   def _render(self, rect: rl.Rectangle) -> None:
-    # Mark which button the figure/billy occupies BEFORE the scroller renders.
-    for i, btn in enumerate(self._btn_list):
-      if isinstance(btn, SettingsBigButton):
-        if self._eyebrow_active:
-          btn.set_occupied(self._eyebrow_billy is not None and i == 1)
-        else:
-          btn.set_occupied(self._dance_active and self._figure is not None and i == self._current_btn_idx)
-
-    # Render scroller (buttons are laid out and scissor-clipped inside)
-    self._scroller.render(rect)
-
-    # ---- Eyebrow Billy render ----
+    # ---- Full-screen Eyebrow Billy mode — skip scroller entirely ----
     if self._eyebrow_active and self._eyebrow_billy is not None:
+      rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height), rl.BLACK)
+
       now = rl.get_time()
       t   = rl.get_music_time_played(self._music) if self._music else now
 
-      billy_btn  = self._btn_list[1]
-      fade_in    = min(1.0, (now - self._eyebrow_start_time) / 0.4)
+      bands = None
+      if (self._analysis is not None and self._analysis.done
+          and self._analysis.band_frames is not None):
+        fi    = self._analysis.frame_at(t)
+        bands = self._analysis.band_frames[fi]
 
-      # Glow border pulsing with the beat
-      glow_alpha = int((70 + 185 * self._beat_flash) * max(0.25, self._hype))
-      glow_color = hsv_to_color(self._hue, 0.8 + 0.2 * self._hype, 1.0, glow_alpha)
-      rl.draw_rectangle_rounded_lines(billy_btn.rect, 0.2, 6, glow_color)
-      if self._beat_flash > 0.5 and self._hype > 0.5:
-        rl.draw_rectangle_rounded_lines(billy_btn.rect, 0.2, 6, glow_color)
-
-      self._eyebrow_billy.draw(billy_btn.rect, t, self._hue, self._beat_flash,
-                               self._energy, transition=fade_in, hype=self._hype)
+      fade_in = min(1.0, (now - self._eyebrow_start_time) / 0.6)
+      self._eyebrow_billy.draw(rect, t, self._hue, self._beat_flash, self._energy,
+                               bands=bands, transition=fade_in, hype=self._hype)
       return
+
+    # Mark which button the figure occupies BEFORE the scroller renders so
+    # each button's own _render sees the correct occupied state.
+    for i, btn in enumerate(self._btn_list):
+      if isinstance(btn, SettingsBigButton):
+        btn.set_occupied(self._dance_active and self._figure is not None and i == self._current_btn_idx)
+
+    # Render scroller (buttons are laid out and scissor-clipped inside)
+    self._scroller.render(rect)
 
     if not self._dance_active or self._figure is None:
       return
