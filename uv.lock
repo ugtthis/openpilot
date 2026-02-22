@@ -120,6 +120,15 @@ wheels = [
 ]
 
 [[package]]
+name = "btrack-beat-tracker"
+version = "1.0.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/23/a6/931e9082823b896c2434ce6d4637784feb15b5d180328d36143ed949bf53/btrack_beat_tracker-1.0.7.tar.gz", hash = "sha256:d06007e10445e129a1e69781d8b89312ffa45db43b6391f65218eb56b8b435c5", size = 141218, upload-time = "2025-12-31T16:24:11.618Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cc/fc/fab99a9ffd22d286b96226e7694a0a07db9489c7918aee81b1d6e0a398ab/btrack_beat_tracker-1.0.7-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:16855b55a45b963340431f5e851559d6191b23da7b2504b0d53aebc0b9b3cedf", size = 27220, upload-time = "2025-12-31T16:24:08.661Z" },
+]
+
+[[package]]
 name = "casadi"
 version = "3.7.2"
 source = { registry = "https://pypi.org/simple" }
@@ -744,6 +753,7 @@ dependencies = [
     { name = "aiohttp" },
     { name = "aiortc" },
     { name = "av" },
+    { name = "btrack-beat-tracker" },
     { name = "casadi" },
     { name = "cffi" },
     { name = "crcmod-plus" },
@@ -809,6 +819,7 @@ requires-dist = [
     { name = "aiohttp" },
     { name = "aiortc" },
     { name = "av" },
+    { name = "btrack-beat-tracker" },
     { name = "casadi", specifier = ">=3.6.6" },
     { name = "cffi" },
     { name = "codespell", marker = "extra == 'testing'" },
