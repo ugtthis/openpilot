@@ -234,18 +234,19 @@ class DancingFigure:
     # Ease-out cubic — snappy shrink then smooth settle
     ease = 1.0 - (1.0 - min(transition, 1.0)) ** 3
 
-    # ---- Base anatomical sizes ----
-    body_h    = h * 0.38
+    # ---- Base anatomical sizes (tuned to fit within the button rect) ----
+    # Vertical budget (rect.y → rect.y+h): hat + head + gap + body + legs ≈ 0.87 h
+    body_h    = h * 0.31
     body_w    = min(w * 0.14, body_h * 0.35)
-    head_r    = body_w * 1.05
-    arm_len   = w * 0.30
-    leg_len   = h * 0.28
+    head_r    = body_w * 0.85   # slightly smaller so hat fits above
+    arm_len   = w * 0.27
+    leg_len   = h * 0.23
     arm_thick = max(3.0, body_w * 0.28)
     leg_thick = max(4.0, body_w * 0.34)
     hat_cw    = body_w * 1.8
-    hat_ch    = body_w * 0.9
+    hat_ch    = body_w * 0.73   # shorter crown to leave room at top
     hat_bw    = body_w * 2.6
-    hat_bh    = body_w * 0.32
+    hat_bh    = body_w * 0.26
 
     hue = (base_hue + self.hue_offset) % 360
 
@@ -267,8 +268,11 @@ class DancingFigure:
     bounce = abs(math.sin(t * _DANCE_SPEED + self._phase)) * h * 0.025 * amp
 
     # ---- Body anchor ----
+    # body_top is positioned so hat+head fit above and legs fit below within rect.
+    # With the current anatomy: hat+head height ≈ 0.43 h, body ≈ 0.31 h, legs ≈ 0.23 h
+    # → body_top at 0.43 h leaves ~9 px pad at top and ~5 px at bottom.
     cx       = rect.x + w * 0.5 + sway
-    body_top = rect.y + h * 0.30 - bounce
+    body_top = rect.y + h * 0.43 - bounce
     body_bot = body_top + eff_bh
 
     # ---- Colors: near-gray before drop → vivid after ----
