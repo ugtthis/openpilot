@@ -10,6 +10,7 @@ dances to the music using sin/cos animation driven by playback time + beat event
 
 import math
 import os
+import random
 import subprocess
 
 import numpy as np
@@ -65,6 +66,7 @@ class AudioAnalysis:
     self.band_frames: np.ndarray | None = None  # shape (n_frames, N_BANDS)
     self.rms_frames: np.ndarray | None = None   # shape (n_frames,)
     self.n_frames: int = 0
+    self.beat_drop_time: float = 0.0            # time of the main energy surge
     self.done = False
     self._path = path
 
@@ -79,7 +81,35 @@ class AudioAnalysis:
     self.band_frames = bands
     self.rms_frames = rms
     self.n_frames = len(odf)
+    self.beat_drop_time = self._find_beat_drop(rms)
     self.done = True
+
+  def _find_beat_drop(self, rms: np.ndarray) -> float:
+    """Return the timestamp (seconds) of the main energy surge / beat drop."""
+    fps = SAMPLE_RATE // HOP_SIZE        # frames per second
+    win = max(1, fps)                    # 1-second windows
+    n_wins = len(rms) // win
+    if n_wins < 6:
+      return 0.0
+
+    sec_e = np.array([float(np.mean(rms[i * win:(i + 1) * win])) for i in range(n_wins)])
+    max_e = float(np.max(sec_e)) if np.max(sec_e) > 0 else 1.0
+
+    # Find the first second where:
+    #   - energy >= 35% of peak  (it's a loud section)
+    #   - energy >= 1.6x the preceding 3-second average  (sudden jump)
+    #   - we're at least 5 s into the track  (skip short intros)
+    for i in range(5, n_wins):
+      prev_avg = float(np.mean(sec_e[max(0, i - 3):i]))
+      if sec_e[i] >= 0.35 * max_e and (prev_avg < 1e-4 or sec_e[i] >= 1.6 * prev_avg):
+        return float(i)
+
+    # Fallback: first time energy crosses 35% of peak
+    for i in range(n_wins):
+      if sec_e[i] >= 0.35 * max_e:
+        return float(i)
+
+    return float(n_wins // 2)
 
   def _decode_mp3(self) -> np.ndarray | None:
     cmd = [
@@ -158,106 +188,190 @@ class AudioAnalysis:
 # Dancing stick figure
 # ---------------------------------------------------------------------------
 
-_DANCE_SPEED = 4.5
-_SWAY_SPEED  = 2.2
+_DANCE_SPEED   = 4.5
+_SWAY_SPEED    = 2.2
+_PARTICLE_LIFE = 0.55   # seconds a burst particle lives
 
 
 class DancingFigure:
   """
   Procedural stick figure that scales to fill any button rect.
 
-  The body is a tall skinny rounded rectangle; arms and legs extend
-  beyond the body into the unused space around it, giving the illusion
-  that the whole button "became" a dancing character.
+  Features:
+  - Morphing transition: button rect collapses into skinny body shape.
+  - Proper alternating limb gait (left arm ↔ right leg in phase).
+  - Squash & stretch on beat impact.
+  - Particle bursts on each beat.
+  - Tap-to-boost via trigger_boost().
   """
 
   def __init__(self, hue_offset: float = 0.0):
     self.hue_offset = hue_offset
     self._phase = hue_offset * 0.6
+    self._boost_time: float = -999.0
+    self._particles: list[dict] = []    # [{x0,y0,vx,vy,born,hue}, ...]
+    self._prev_beat_flash: float = 0.0
+
+  def trigger_boost(self) -> None:
+    """Tap the dancing figure to trigger a 0.5 s spin/amp burst."""
+    self._boost_time = rl.get_time()
 
   # ------------------------------------------------------------------
   def draw(self, rect: rl.Rectangle, t: float, base_hue: float,
-           beat_flash: float, energy: float) -> None:
-    """Draw the dancing figure scaled to rect."""
-    h = rect.height
-    w = rect.width
+           beat_flash: float, energy: float, transition: float = 1.0,
+           hype: float = 1.0) -> None:
+    """
+    Draw the dancing figure.
 
-    # Scale all anatomical sizes from rect dimensions so the figure
-    # always looks proportional regardless of button size.
-    body_h     = h * 0.38
-    body_w     = min(w * 0.14, body_h * 0.35)   # skinny!
-    head_r     = body_w * 1.05
-    arm_len    = w * 0.30
-    leg_len    = h * 0.28
-    arm_thick  = max(3.0, body_w * 0.28)
-    leg_thick  = max(4.0, body_w * 0.34)
-    hat_cw     = body_w * 1.8
-    hat_ch     = body_w * 0.9
-    hat_bw     = body_w * 2.6
-    hat_bh     = body_w * 0.32
+    transition: 0→1  button→figure morph (independent of hype).
+    hype:       0→1  animation energy + color vibrancy; 0.05 = barely
+                     moving/gray, 1.0 = full party.
+    """
+    h   = rect.height
+    w   = rect.width
+    now = rl.get_time()
+
+    # Ease-out cubic — snappy shrink then smooth settle
+    ease = 1.0 - (1.0 - min(transition, 1.0)) ** 3
+
+    # ---- Base anatomical sizes ----
+    body_h    = h * 0.38
+    body_w    = min(w * 0.14, body_h * 0.35)
+    head_r    = body_w * 1.05
+    arm_len   = w * 0.30
+    leg_len   = h * 0.28
+    arm_thick = max(3.0, body_w * 0.28)
+    leg_thick = max(4.0, body_w * 0.34)
+    hat_cw    = body_w * 1.8
+    hat_ch    = body_w * 0.9
+    hat_bw    = body_w * 2.6
+    hat_bh    = body_w * 0.32
 
     hue = (base_hue + self.hue_offset) % 360
 
-    # ---- Animation ----
-    amp      = 1.0 + beat_flash * 2.0 + energy * 0.6
-    sway     = math.sin(t * _SWAY_SPEED  + self._phase) * body_w * 0.5 * amp
-    bounce   = abs(math.sin(t * _DANCE_SPEED + self._phase)) * h * 0.025 * amp
-    arm_l    =  math.sin(t * _DANCE_SPEED + self._phase)            * 50 * amp
-    arm_r    =  math.sin(t * _DANCE_SPEED + self._phase + math.pi)  * 50 * amp
-    leg_l    =  math.sin(t * _DANCE_SPEED + self._phase)            * 40 * amp
-    leg_r    =  math.sin(t * _DANCE_SPEED + self._phase + math.pi)  * 40 * amp
-    hat_pop  = beat_flash * head_r * 0.6
+    # ---- Squash & stretch on beat ----
+    squash = beat_flash * 0.28 * hype
+    eff_bw = body_w * (1.0 + squash)          # wider on impact
+    eff_bh = body_h * (1.0 - squash * 0.5)   # shorter on impact
+    eff_hr = head_r * (1.0 + squash * 0.12)  # head puffs out
 
-    # ---- Anchor points ----
-    cx = rect.x + w * 0.5 + sway
-    # body fills roughly the middle-lower 40% of the rect; head+hat sit above
+    # ---- Tap-to-boost ----
+    boost = max(0.0, 1.0 - (now - self._boost_time) / 0.5)
+
+    # ---- Animation amplitude ----
+    amp    = ease * hype * (1.0 + beat_flash * 2.0 + energy * 0.6) + boost * 3.0
+    sway   = math.sin(t * _SWAY_SPEED + self._phase) * body_w * 0.5 * amp
+    if boost > 0.01:
+      # Rapid side-to-side spin during boost
+      sway += boost * math.sin(now * 40) * body_w * 1.5
+    bounce = abs(math.sin(t * _DANCE_SPEED + self._phase)) * h * 0.025 * amp
+
+    # ---- Body anchor ----
+    cx       = rect.x + w * 0.5 + sway
     body_top = rect.y + h * 0.30 - bounce
-    body_bot = body_top + body_h
-    head_cy  = body_top - head_r - h * 0.03
-    shoulder_y = body_top + body_h * 0.15
-    hip_y    = body_bot
+    body_bot = body_top + eff_bh
 
-    # ---- Colors ----
-    body_color = hsv_to_color(hue,              0.9, 1.0, 245)
-    limb_color = hsv_to_color((hue + 30)  % 360, 0.8, 1.0, 230)
-    hat_color  = hsv_to_color((hue + 180) % 360, 1.0, 0.95, 255)
-    skin_color = hsv_to_color((hue + 60)  % 360, 0.45, 1.0, 255)
+    # ---- Colors: near-gray before drop → vivid after ----
+    sat        = 0.15 + 0.85 * hype
+    body_color = hsv_to_color(hue,               sat,       1.0,  245)
+    limb_color = hsv_to_color((hue + 30)  % 360, sat * 0.9, 1.0,  230)
+    hat_color  = hsv_to_color((hue + 180) % 360, sat,       0.95, 255)
+    skin_color = hsv_to_color((hue + 60)  % 360, sat * 0.5, 1.0,  255)
     eye_color  = rl.Color(10, 10, 10, 255)
 
-    # ---- Draw (back to front) ----
+    # ---- Morphing body rect: full button → skinny torso ----
+    morph_x = rect.x + (cx - eff_bw / 2 - rect.x) * ease
+    morph_y = rect.y + (body_top          - rect.y) * ease
+    morph_w = rect.width  + (eff_bw - rect.width)   * ease
+    morph_h = rect.height + (eff_bh - rect.height)  * ease
+    morph_r = 0.2 + (0.45 - 0.2) * ease
 
-    # Legs first so they appear behind the body
-    self._draw_leg(cx, hip_y, leg_l, left=True,  len_=leg_len, thick=leg_thick, color=limb_color)
-    self._draw_leg(cx, hip_y, leg_r, left=False, len_=leg_len, thick=leg_thick, color=limb_color)
+    BG_R, BG_G, BG_B = 10, 10, 30
+    mc_r = int(BG_R + (body_color.r - BG_R) * ease)
+    mc_g = int(BG_G + (body_color.g - BG_G) * ease)
+    mc_b = int(BG_B + (body_color.b - BG_B) * ease)
+    rl.draw_rectangle_rounded(rl.Rectangle(morph_x, morph_y, morph_w, morph_h),
+                               morph_r, 8, rl.Color(mc_r, mc_g, mc_b, 255))
 
-    # Arms behind body too
-    self._draw_arm(cx, shoulder_y, arm_l, left=True,  len_=arm_len, thick=arm_thick, color=limb_color)
-    self._draw_arm(cx, shoulder_y, arm_r, left=False, len_=arm_len, thick=arm_thick, color=limb_color)
+    # ---- Limbs/head/hat fade in during second half of transition ----
+    limb_fade = max(0.0, ease * 2.0 - 1.0)
+    if limb_fade < 0.01:
+      self._prev_beat_flash = beat_flash
+      return
 
-    # Body (skinny rounded rect IS the torso/button)
-    body_rect = rl.Rectangle(cx - body_w / 2, body_top, body_w, body_h)
-    rl.draw_rectangle_rounded(body_rect, 0.45, 8, body_color)
+    def _fade(color: rl.Color) -> rl.Color:
+      return rl.Color(color.r, color.g, color.b, int(color.a * limb_fade))
+
+    # ---- Proper alternating gait ----
+    # Left arm forward  ↔  right leg forward (same phase)
+    # Right arm forward ↔  left leg forward  (opposite phase)
+    gait  = t * _DANCE_SPEED + self._phase
+    arm_l = math.sin(gait)           * 50 * amp
+    arm_r = math.sin(gait + math.pi) * 50 * amp
+    leg_l = math.sin(gait + math.pi) * 40 * amp   # opposite to left arm
+    leg_r = math.sin(gait)           * 40 * amp   # same as left arm
+
+    hat_pop    = beat_flash * eff_hr * 0.6 * limb_fade
+    shoulder_y = body_top + eff_bh * 0.15
+    head_cy    = body_top - eff_hr - h * 0.03
+    hip_y      = body_bot
+
+    # Legs (behind body)
+    self._draw_leg(cx, hip_y, leg_l, left=True,  len_=leg_len, thick=leg_thick, color=_fade(limb_color))
+    self._draw_leg(cx, hip_y, leg_r, left=False, len_=leg_len, thick=leg_thick, color=_fade(limb_color))
+
+    # Arms (behind body)
+    self._draw_arm(cx, shoulder_y, arm_l, left=True,  len_=arm_len, thick=arm_thick, color=_fade(limb_color))
+    self._draw_arm(cx, shoulder_y, arm_r, left=False, len_=arm_len, thick=arm_thick, color=_fade(limb_color))
 
     # Head
-    rl.draw_circle(int(cx), int(head_cy), head_r, skin_color)
+    rl.draw_circle(int(cx), int(head_cy), eff_hr, _fade(skin_color))
 
     # Eyes
-    eye_off = head_r * 0.30
-    rl.draw_circle(int(cx - eye_off), int(head_cy - head_r * 0.1), max(1, int(head_r * 0.18)), eye_color)
-    rl.draw_circle(int(cx + eye_off), int(head_cy - head_r * 0.1), max(1, int(head_r * 0.18)), eye_color)
+    eye_off = eff_hr * 0.30
+    rl.draw_circle(int(cx - eye_off), int(head_cy - eff_hr * 0.1), max(1, int(eff_hr * 0.18)), _fade(eye_color))
+    rl.draw_circle(int(cx + eye_off), int(head_cy - eff_hr * 0.1), max(1, int(eff_hr * 0.18)), _fade(eye_color))
 
     # Smile
     for di in range(-4, 5):
-      sx_ = cx + di * head_r * 0.11
-      sy_ = head_cy + head_r * 0.35 + abs(di) * head_r * 0.04
-      rl.draw_circle(int(sx_), int(sy_), max(1, int(head_r * 0.09)), eye_color)
+      rl.draw_circle(int(cx + di * eff_hr * 0.11),
+                     int(head_cy + eff_hr * 0.35 + abs(di) * eff_hr * 0.04),
+                     max(1, int(eff_hr * 0.09)), _fade(eye_color))
 
-    # Hat (crown + brim), pops up on beat
-    hat_y = head_cy - head_r - hat_ch - hat_pop
-    crown = rl.Rectangle(cx - hat_cw / 2, hat_y, hat_cw, hat_ch)
-    brim  = rl.Rectangle(cx - hat_bw / 2, hat_y + hat_ch - 1, hat_bw, hat_bh)
-    rl.draw_rectangle_rounded(crown, 0.15, 6, hat_color)
-    rl.draw_rectangle_rounded(brim,  0.5,  6, hat_color)
+    # Hat
+    hat_y = head_cy - eff_hr - hat_ch - hat_pop
+    rl.draw_rectangle_rounded(rl.Rectangle(cx - hat_cw / 2, hat_y, hat_cw, hat_ch), 0.15, 6, _fade(hat_color))
+    rl.draw_rectangle_rounded(rl.Rectangle(cx - hat_bw / 2, hat_y + hat_ch - 1, hat_bw, hat_bh), 0.5, 6, _fade(hat_color))
+
+    # ---- Particle bursts on beat ----
+    body_mid_y = body_top + eff_bh * 0.5
+    if beat_flash > 0.85 and self._prev_beat_flash <= 0.85 and hype > 0.3:
+      for _ in range(8):
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(50, 160) * hype
+        self._particles.append({
+          'x0': cx, 'y0': body_mid_y,
+          'vx': math.cos(angle) * speed,
+          'vy': math.sin(angle) * speed - 25,   # slight upward bias
+          'born': now,
+          'hue': (hue + random.uniform(-50, 50)) % 360,
+        })
+    self._prev_beat_flash = beat_flash
+
+    # Update & draw particles (analytical position from birth time — no dt needed)
+    alive = []
+    for p in self._particles:
+      age = now - p['born']
+      if age > _PARTICLE_LIFE:
+        continue
+      frac   = age / _PARTICLE_LIFE
+      px     = p['x0'] + p['vx'] * age
+      py     = p['y0'] + p['vy'] * age + 90 * age * age   # gravity
+      alpha  = int(255 * (1 - frac) * limb_fade)
+      radius = max(1, int(5 * (1 - frac) * hype))
+      rl.draw_circle(int(px), int(py), radius, hsv_to_color(p['hue'], 1.0, 1.0, alpha))
+      alive.append(p)
+    self._particles = alive
 
   # ------------------------------------------------------------------
   def _draw_arm(self, sx: float, sy: float, angle_deg: float, left: bool,
@@ -271,7 +385,7 @@ class DancingFigure:
   def _draw_leg(self, hx: float, hy: float, angle_deg: float, left: bool,
                 len_: float, thick: float, color: rl.Color) -> None:
     side  = -1 if left else 1
-    base  = 90.0 + side * -20.0   # left≈110°, right≈70°  (screen: 90°=down)
+    base  = 90.0 + side * -20.0
     total = math.radians(base + angle_deg * 0.55)
     ex = hx + math.cos(total) * len_
     ey = hy + math.sin(total) * len_

@@ -1,5 +1,6 @@
 import math
 import threading
+from collections.abc import Callable
 
 import pyray as rl
 
@@ -19,11 +20,60 @@ from openpilot.system.ui.widgets.nav_widget import NavWidget
 
 # How many beats between each infection
 BEATS_PER_INFECTION = 3
+# Seconds for a button to morph into the dancing figure
+TRANSITION_DURATION = 0.7
 
 
 class SettingsBigButton(BigButton):
+  """BigButton that can transform into a dancing stick figure."""
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self._figure: DancingFigure | None = None
+    self._infect_time: float = 0.0
+    self._get_dance_state: Callable | None = None
+
+  def start_dancing(self, figure: DancingFigure, get_state: Callable) -> None:
+    """Switch this button into dance mode. get_state() → (t, hue, beat_flash, energy)."""
+    self._figure = figure
+    self._infect_time = rl.get_time()
+    self._get_dance_state = get_state
+
+  def stop_dancing(self) -> None:
+    self._figure = None
+    self._get_dance_state = None
+
   def _get_label_font_size(self):
     return 64
+
+  def _handle_mouse_release(self, mouse_pos: MousePos) -> None:
+    if self._figure is not None:
+      # Tapping a dancing button triggers a boost spin instead of navigating
+      self._figure.trigger_boost()
+    else:
+      super()._handle_mouse_release(mouse_pos)
+
+  def _render(self, rect: rl.Rectangle):
+    # When dancing, the button draws ITSELF as the animated figure —
+    # no external overlay required.
+    if self._figure is None or self._get_dance_state is None:
+      return super()._render(rect)
+
+    t, hue, beat_flash, energy, hype = self._get_dance_state()
+    transition = min(1.0, (rl.get_time() - self._infect_time) / TRANSITION_DURATION)
+
+    self._figure.draw(rect, t, hue, beat_flash, energy, transition, hype)
+
+    # Rainbow border: fades in with transition AND hype (gray before drop, vivid after)
+    border_hue   = (hue + self._figure.hue_offset) % 360
+    border_sat   = 0.1 + 0.9 * hype
+    border_alpha = int((180 + 75 * beat_flash) * transition)
+    border_color = hsv_to_color(border_hue, border_sat, 1.0, border_alpha)
+    rl.draw_rectangle_rounded_lines(rect, 0.2, 6, border_color)
+    if beat_flash > 0.3 and transition > 0.8 and hype > 0.5:
+      rl.draw_rectangle_rounded_lines(rect, 0.2, 6, border_color)
+
+    return None
 
 
 class SettingsLayout(NavWidget):
@@ -57,9 +107,9 @@ class SettingsLayout(NavWidget):
     self._music_btn = SettingsBigButton("don't press...", "", "icons_mici/offroad_alerts/orange_warning.png", icon_size=(62, 62))
     self._music_btn.set_click_callback(self._start_dance)
 
-    # music_btn is FIRST (index 0) -- infection spreads right through the rest
+    # music_btn is FIRST (index 0) — infection spreads right
     self._btn_list: list[Widget] = [
-      self._music_btn,      # index 0 -- the trigger, shown first
+      self._music_btn,
       self._toggles_btn,
       self._network_btn,
       self._device_btn,
@@ -76,7 +126,7 @@ class SettingsLayout(NavWidget):
 
     # ---- Dance mode state ----
     self._dance_active = False
-    self._dance_start_time = 0.0          # guard against same-frame stop
+    self._dance_start_time = 0.0
     self._music: rl.Music | None = None
     self._audio_initialized = False
     self._analysis: AudioAnalysis | None = None
@@ -88,13 +138,27 @@ class SettingsLayout(NavWidget):
     self._beat_flash = 0.0
     self._energy = 0.0
     self._hue = 0.0
+    self._hype = 0.05         # 0=still, 1=full party — ramps up at beat drop
     self._energy_filter = FirstOrderFilter(0.0, 0.05, 1 / 60)
     self._beats_since_last_infect = 0
+    self._music_started = False
 
-    # index -> DancingFigure
+    # Tracks which button indices are currently dancing (for beat logic)
     self._dancers: dict[int, DancingFigure] = {}
-    # order in which buttons get infected (built on start)
     self._infect_queue: list[int] = []
+
+    # Infection spark arc state
+    self._infect_arc: tuple | None = None    # (from_idx, to_idx, born_time)
+    self._last_infected_idx: int | None = None
+
+  # -------------------------------------------------------------------------
+  # Shared state getter — passed into each button so it can query live values
+  # -------------------------------------------------------------------------
+
+  def _get_dance_state(self) -> tuple[float, float, float, float, float]:
+    """Returns (music_t, hue, beat_flash, energy, hype) for the current frame."""
+    t = rl.get_music_time_played(self._music) if self._music else rl.get_time()
+    return t, self._hue, self._beat_flash, self._energy, self._hype
 
   # -------------------------------------------------------------------------
   # Dance mode start / stop
@@ -111,6 +175,7 @@ class SettingsLayout(NavWidget):
     rl.init_audio_device()
     self._audio_initialized = True
     self._music = rl.load_music_stream(MUSIC_PATH)
+    self._music.looping = False
     rl.set_music_volume(self._music, 1.0)
     rl.play_music_stream(self._music)
 
@@ -121,18 +186,20 @@ class SettingsLayout(NavWidget):
     self._beat_flash = 0.0
     self._energy = 0.0
     self._hue = 0.0
+    self._hype = 0.05
     self._beats_since_last_infect = 0
+    self._music_started = False   # True once we've seen t > 0 from raylib
 
     # Analysis
     self._analysis = AudioAnalysis(MUSIC_PATH)
     self._analysis_thread = threading.Thread(target=self._analysis.run, daemon=True)
     self._analysis_thread.start()
 
-    # Infection: music_btn is index 0 (first), then spread right
+    # Infection queue: music_btn first, then the rest left→right
     self._dancers = {}
     self._infect_queue = list(range(len(self._btn_list)))
-
-    # Infect the trigger button immediately
+    self._infect_arc = None
+    self._last_infected_idx = None
     self._infect_next()
 
   def _stop_dance(self) -> None:
@@ -149,25 +216,48 @@ class SettingsLayout(NavWidget):
       rl.close_audio_device()
       self._audio_initialized = False
 
+    # Restore all buttons to their normal appearance
+    for idx in list(self._dancers.keys()):
+      btn = self._btn_list[idx]
+      if isinstance(btn, SettingsBigButton):
+        btn.stop_dancing()
+
     self._dancers = {}
     self._infect_queue = []
+    self._infect_arc = None
+    self._last_infected_idx = None
     self._analysis = None
 
+    # Smoothly return to the first button ("don't press...").
+    # scroll_to(pos) computes: new_offset = current_offset - pos, so passing
+    # the first button's current screen-x (negative when scrolled right)
+    # drives the panel back to the beginning.
+    self._scroller.scroll_to(self._btn_list[0].rect.x, smooth=True)
+
   def _infect_next(self) -> None:
-    """Give the next queued button a dancing figure."""
+    """Transform the next queued button into a dancing figure."""
     if not self._infect_queue:
       return
     idx = self._infect_queue.pop(0)
     hue_offset = idx * (360 / len(self._btn_list))
-    self._dancers[idx] = DancingFigure(hue_offset=hue_offset)
+    figure = DancingFigure(hue_offset=hue_offset)
+    self._dancers[idx] = figure
+
+    btn = self._btn_list[idx]
+    if isinstance(btn, SettingsBigButton):
+      btn.start_dancing(figure, self._get_dance_state)
+
+    # Spark arc from previous infected button → this one
+    if self._last_infected_idx is not None:
+      self._infect_arc = (self._last_infected_idx, idx, rl.get_time())
+    self._last_infected_idx = idx
     self._beats_since_last_infect = 0
 
-    # Auto-scroll scroller so the newly infected button is visible
-    btn = self._btn_list[idx]
+    # Auto-scroll so the newly infected button is visible
     self._scroller.scroll_to(btn.rect.x, smooth=True)
 
   # -------------------------------------------------------------------------
-  # State update
+  # State update (called every frame by Widget.render)
   # -------------------------------------------------------------------------
 
   def _update_state(self) -> None:
@@ -180,7 +270,7 @@ class SettingsLayout(NavWidget):
     dt = max(0.0, t - self._prev_time)
     self._prev_time = t
 
-    # Detect beats
+    # Beat detection
     self._on_beat = False
     if self._analysis is not None and self._analysis.done and self._analysis.beats:
       while (self._beat_idx < len(self._analysis.beats)
@@ -203,21 +293,38 @@ class SettingsLayout(NavWidget):
         self._infect_next()
 
     self._beat_flash = max(0.0, self._beat_flash - dt * 5.0)
-    self._hue = (self._hue + dt * 20.0) % 360.0
 
-    # Stop when song ends
-    if t > 0 and not rl.is_music_stream_playing(self._music):
+    # Hype: stays near 0 until the beat drop, then ramps to 1 in 0.5 s
+    if self._analysis is not None and self._analysis.done:
+      drop_t = self._analysis.beat_drop_time
+      if t < drop_t:
+        # Gentle build-up: 0.05 → 0.15 as we approach the drop
+        self._hype = 0.05 + 0.10 * min(1.0, t / drop_t) if drop_t > 0 else 0.05
+      else:
+        # Explosive ramp-up over 0.5 s, then stays at 1
+        self._hype = min(1.0, (t - drop_t) / 0.5)
+    # else: analysis still running, _hype stays at 0.05
+
+    # Hue rotates slowly before drop, fast after
+    self._hue = (self._hue + dt * 20.0 * max(0.1, self._hype)) % 360.0
+
+    # Track that music has actually started (raylib resets t→0 when song ends,
+    # so we can't use "t > 0" as the end-of-song guard).
+    if t > 0.5:
+      self._music_started = True
+
+    # Stop when song ends (only after it has started to avoid a false trigger
+    # on the first frame where both t==0 and is_playing may flicker).
+    if self._music_started and not rl.is_music_stream_playing(self._music):
       self._stop_dance()
 
   # -------------------------------------------------------------------------
-  # Input: tap to exit dance mode
+  # Input: tap to stop dance mode
   # -------------------------------------------------------------------------
 
   def _handle_mouse_release(self, mouse_pos: MousePos) -> None:
     if self._dance_active:
-      # Ignore the same tap that started the dance (both BigButton and SettingsLayout
-      # receive the same mouse release event; the 1-second guard prevents an
-      # immediate stop on the initiating tap).
+      # Guard: ignore the same release that triggered _start_dance
       if rl.get_time() - self._dance_start_time > 1.0:
         self._stop_dance()
     else:
@@ -241,43 +348,49 @@ class SettingsLayout(NavWidget):
   # -------------------------------------------------------------------------
 
   def _render(self, rect: rl.Rectangle) -> None:
+    # The scroller renders all buttons; infected buttons render themselves
+    # as dancing figures via SettingsBigButton._render override.
     self._scroller.render(rect)
 
-    if not self._dance_active or not self._dancers:
-      return
+    # ---- Infection spark arc ----
+    _ARC_DURATION = 0.5
+    if self._infect_arc is not None:
+      from_idx, to_idx, born = self._infect_arc
+      age = rl.get_time() - born
+      if age < _ARC_DURATION:
+        from_btn = self._btn_list[from_idx]
+        to_btn   = self._btn_list[to_idx]
+        fx = from_btn.rect.x + from_btn.rect.width  / 2
+        fy = from_btn.rect.y + from_btn.rect.height / 2
+        tx = to_btn.rect.x   + to_btn.rect.width    / 2
+        ty = to_btn.rect.y   + to_btn.rect.height   / 2
 
-    t = rl.get_music_time_played(self._music) if self._music else rl.get_time()
+        progress  = age / _ARC_DURATION
+        arc_hue   = (self._hue + 60) % 360
 
-    # Draw dancing figures on top of each infected button, clipped to the
-    # scroller viewport so figures don't bleed outside the settings panel
-    rl.begin_scissor_mode(int(rect.x), int(rect.y), int(rect.width), int(rect.height))
+        # Trail: several dots behind the traveling spark
+        for i in range(9):
+          trail_p   = max(0.0, progress - i * 0.06)
+          trail_x   = fx + (tx - fx) * trail_p
+          trail_y   = fy + (ty - fy) * trail_p
+          trail_a   = int(255 * (1 - i / 9) * (1 - progress * 0.4))
+          trail_r   = max(1, 8 - i)
+          rl.draw_circle(int(trail_x), int(trail_y), trail_r,
+                         hsv_to_color(arc_hue, 1.0, 1.0, trail_a))
 
-    for idx, figure in self._dancers.items():
-      btn = self._btn_list[idx]
-      btn_rect = btn.rect
+        # Leading spark
+        dot_x = fx + (tx - fx) * progress
+        dot_y = fy + (ty - fy) * progress
+        rl.draw_circle(int(dot_x), int(dot_y), 9,
+                       hsv_to_color(arc_hue, 0.3, 1.0, 255))
 
-      # Fully opaque background -- completely replaces the button so the
-      # dancing figure is all that's visible (no button text bleeding through)
-      rl.draw_rectangle_rounded(btn_rect, 0.2, 6, rl.Color(10, 10, 30, 255))
+        # Burst ring at destination on arrival
+        if progress > 0.82:
+          burst_frac = (progress - 0.82) / 0.18
+          burst_r    = int(30 * burst_frac)
+          burst_a    = int(255 * (1 - burst_frac))
+          rl.draw_circle_lines(int(tx), int(ty), max(1, burst_r),
+                               hsv_to_color(arc_hue, 1.0, 1.0, burst_a))
+      else:
+        self._infect_arc = None
 
-      # Rainbow border that pulses on beat.
-      # draw_rectangle_rounded_lines in raylib 5.x takes (rec, roundness, segments, color) -- no lineThick.
-      # For a thicker border on beats, draw the outline twice with slight inflation.
-      border_hue = (self._hue + figure.hue_offset) % 360
-      border_alpha = int(200 + 55 * self._beat_flash)
-      border_color = hsv_to_color(border_hue, 1.0, 1.0, border_alpha)
-      rl.draw_rectangle_rounded_lines(btn_rect, 0.2, 6, border_color)
-      if self._beat_flash > 0.3:
-        rl.draw_rectangle_rounded_lines(btn_rect, 0.2, 6, border_color)
-
-      # The stick figure
-      figure.draw(btn_rect, t, self._hue, self._beat_flash, self._energy)
-
-    rl.end_scissor_mode()
-
-    # Tap-to-exit hint, fades in after all buttons are infected
-    if not self._infect_queue:
-      font = gui_app.font()
-      alpha = int(100 + 60 * math.sin(rl.get_time() * 2))
-      hint_color = rl.Color(255, 255, 255, alpha)
-      rl.draw_text_ex(font, "tap to stop", rl.Vector2(rect.x + 8, rect.y + rect.height - 28), 22, 0, hint_color)
