@@ -394,3 +394,140 @@ class DancingFigure:
     ex = hx + math.cos(total) * len_
     ey = hy + math.sin(total) * len_
     rl.draw_line_ex(rl.Vector2(hx, hy), rl.Vector2(ex, ey), thick, color)
+
+
+# ---------------------------------------------------------------------------
+# Eyebrow Billy — same face as DancingFigure, big head, dancing eyebrows
+# ---------------------------------------------------------------------------
+
+_EYEBROW_SWAY_SPEED  = 2.8   # base eyebrow oscillation speed
+_EYEBROW_PARTICLE_LIFE = 0.55
+
+
+class EyebrowBilly:
+  """
+  Procedural face that fills a button rect.
+
+  Same face style as DancingFigure (round head, dot eyes, dot-smile) but
+  scaled up with no body/limbs/hat.  The star feature: two thick eyebrows
+  that dance to the beat — subtle before the drop, wild afterward.
+  """
+
+  def __init__(self) -> None:
+    self._prev_beat_flash: float = 0.0
+    self._particles: list[dict] = []
+
+  # ------------------------------------------------------------------
+  def draw(self, rect: rl.Rectangle, t: float, base_hue: float,
+           beat_flash: float, energy: float, transition: float = 1.0,
+           hype: float = 1.0) -> None:
+    h   = rect.height
+    w   = rect.width
+    now = rl.get_time()
+
+    ease = 1.0 - (1.0 - min(transition, 1.0)) ** 3
+
+    # ---- Head geometry: fill most of the button ----
+    head_r = min(w, h) * 0.38
+
+    # ---- Squash & stretch on beat ----
+    squash   = beat_flash * 0.22 * hype
+    eff_hr_x = head_r * (1.0 + squash)         # wider
+    eff_hr_y = head_r * (1.0 - squash * 0.55)  # shorter
+
+    # ---- Sway: gentle before drop, livelier after ----
+    sway   = math.sin(t * _EYEBROW_SWAY_SPEED) * w * 0.04 * ease * hype
+    bounce = abs(math.sin(t * _EYEBROW_SWAY_SPEED * 1.6)) * h * 0.025 * ease * hype
+
+    cx       = rect.x + w * 0.5 + sway
+    head_cy  = rect.y + h * 0.5 - bounce
+
+    # ---- Colors (same HSV scheme as DancingFigure) ----
+    hue        = base_hue % 360
+    sat        = 0.15 + 0.85 * hype
+    skin_color = hsv_to_color((hue + 60)  % 360, sat * 0.5, 1.0,  255)
+    eye_color  = rl.Color(10, 10, 10, 255)
+    brow_color = hsv_to_color((hue + 180) % 360, sat, 0.95, 255)
+
+    def _fade(color: rl.Color) -> rl.Color:
+      return rl.Color(color.r, color.g, color.b, int(color.a * ease))
+
+    # ---- Head (ellipse via scaled circle trick) ----
+    rl.draw_ellipse(int(cx), int(head_cy), eff_hr_x, eff_hr_y, _fade(skin_color))
+
+    # ---- Eyes (same as DancingFigure) ----
+    eye_off  = head_r * 0.30
+    eye_r    = max(1, int(head_r * 0.18))
+    eye_y    = head_cy - head_r * 0.1
+    rl.draw_circle(int(cx - eye_off), int(eye_y), eye_r, _fade(eye_color))
+    rl.draw_circle(int(cx + eye_off), int(eye_y), eye_r, _fade(eye_color))
+
+    # ---- Smile (same dot-circle loop as DancingFigure) ----
+    smile_scale = 1.0 + beat_flash * 0.25 * hype
+    for di in range(-4, 5):
+      rl.draw_circle(
+        int(cx + di * head_r * 0.11 * smile_scale),
+        int(head_cy + head_r * 0.35 + abs(di) * head_r * 0.04),
+        max(1, int(head_r * 0.09)), _fade(eye_color),
+      )
+
+    # ---- Eyebrows — the star of the show ----
+    brow_half_w = eye_off * 0.9          # half-width of each eyebrow stroke
+    brow_base_y = eye_y - head_r * 0.38  # resting height above eyes
+
+    # Animation speed/amplitude ramp with hype
+    brow_speed = _EYEBROW_SWAY_SPEED * (1.0 + hype * 2.5)
+    brow_amp   = head_r * (0.04 + 0.18 * hype)
+
+    # Beat spike: sharp upward kick, quick decay
+    spike = beat_flash * hype * head_r * 0.22
+
+    # Left/right phase offset grows with hype (0=symmetric, 1=fully independent)
+    phase_split = hype * math.pi * 0.55
+
+    brow_l_dy = math.sin(t * brow_speed)              * brow_amp - spike
+    brow_r_dy = math.sin(t * brow_speed + phase_split) * brow_amp - spike
+
+    # Thickness pulses on beat
+    brow_thick = max(3.0, head_r * 0.10 * (1.0 + beat_flash * 0.5 * hype))
+    brow_alpha = int(255 * ease)
+    bc = rl.Color(brow_color.r, brow_color.g, brow_color.b, brow_alpha)
+
+    # Left eyebrow: slight inward tilt (inner end slightly higher)
+    tilt = head_r * 0.06 * hype
+    lx0, ly0 = cx - eye_off - brow_half_w, brow_base_y + brow_l_dy + tilt
+    lx1, ly1 = cx - eye_off + brow_half_w, brow_base_y + brow_l_dy - tilt
+    rl.draw_line_ex(rl.Vector2(lx0, ly0), rl.Vector2(lx1, ly1), brow_thick, bc)
+
+    # Right eyebrow: mirror tilt
+    rx0, ry0 = cx + eye_off - brow_half_w, brow_base_y + brow_r_dy - tilt
+    rx1, ry1 = cx + eye_off + brow_half_w, brow_base_y + brow_r_dy + tilt
+    rl.draw_line_ex(rl.Vector2(rx0, ry0), rl.Vector2(rx1, ry1), brow_thick, bc)
+
+    # ---- Particle bursts on beat ----
+    if beat_flash > 0.85 and self._prev_beat_flash <= 0.85 and hype > 0.3:
+      for _ in range(10):
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(60, 180) * hype
+        self._particles.append({
+          'x0': cx, 'y0': head_cy,
+          'vx': math.cos(angle) * speed,
+          'vy': math.sin(angle) * speed - 30,
+          'born': now,
+          'hue': (hue + random.uniform(-60, 60)) % 360,
+        })
+    self._prev_beat_flash = beat_flash
+
+    alive = []
+    for p in self._particles:
+      age = now - p['born']
+      if age > _EYEBROW_PARTICLE_LIFE:
+        continue
+      frac   = age / _EYEBROW_PARTICLE_LIFE
+      px     = p['x0'] + p['vx'] * age
+      py     = p['y0'] + p['vy'] * age + 90 * age * age
+      alpha  = int(255 * (1 - frac) * ease)
+      radius = max(1, int(6 * (1 - frac) * hype))
+      rl.draw_circle(int(px), int(py), radius, hsv_to_color(p['hue'], 1.0, 1.0, alpha))
+      alive.append(p)
+    self._particles = alive

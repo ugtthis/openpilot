@@ -13,7 +13,7 @@ from openpilot.selfdrive.ui.mici.layouts.settings.network import NetworkLayoutMi
 from openpilot.selfdrive.ui.mici.layouts.settings.device import DeviceLayoutMici, PairBigButton
 from openpilot.selfdrive.ui.mici.layouts.settings.developer import DeveloperLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.firehose import FirehoseLayout
-from openpilot.selfdrive.ui.mici.layouts.music_visualizer import AudioAnalysis, DancingFigure, hsv_to_color, MUSIC_PATH
+from openpilot.selfdrive.ui.mici.layouts.music_visualizer import AudioAnalysis, DancingFigure, EyebrowBilly, hsv_to_color, MUSIC_PATH
 from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.nav_widget import NavWidget
@@ -93,9 +93,14 @@ class SettingsLayout(NavWidget):
                                        icon_size=(62, 62), is_dance_active=is_dancing)
     self._music_btn.set_click_callback(self._start_dance)
 
+    self._eyebrow_btn = SettingsBigButton("eyebrow", "", "icons_mici/offroad_alerts/orange_warning.png",
+                                         icon_size=(62, 62), is_dance_active=is_dancing)
+    self._eyebrow_btn.set_click_callback(self._start_eyebrow_dance)
+
     # music_btn is FIRST (index 0) — figure starts here and wraps around
     self._btn_list: list[Widget] = [
       self._music_btn,
+      self._eyebrow_btn,
       self._toggles_btn,
       self._network_btn,
       self._device_btn,
@@ -134,6 +139,12 @@ class SettingsLayout(NavWidget):
     self._prev_btn_idx    = 0      # button it last jumped FROM
     self._jump_start_time = -999.0 # -999 = not jumping
     self._beats_on_btn    = 0      # beats accumulated on current button
+
+    # Eyebrow Billy state
+    self._eyebrow_active = False
+    self._eyebrow_billy: EyebrowBilly | None = None
+    self._eyebrow_start_time = 0.0
+    # eyebrow button is at index 1 in _btn_list
 
   # -------------------------------------------------------------------------
   # Dance mode start / stop
@@ -212,6 +223,69 @@ class SettingsLayout(NavWidget):
     self._scroller.scroll_to(self._btn_list[next_idx].rect.x, smooth=True)
 
   # -------------------------------------------------------------------------
+  # Eyebrow Billy start / stop
+  # -------------------------------------------------------------------------
+
+  def _start_eyebrow_dance(self) -> None:
+    if self._dance_active or self._eyebrow_active:
+      return
+
+    self._eyebrow_active = True
+    self._dance_active   = True   # blocks button navigation for all SettingsBigButtons
+    self._eyebrow_start_time = rl.get_time()
+
+    # Audio (same pipeline as _start_dance)
+    rl.init_audio_device()
+    self._audio_initialized = True
+    self._music = rl.load_music_stream(MUSIC_PATH)
+    self._music.looping = False
+    rl.set_music_volume(self._music, 1.0)
+    rl.play_music_stream(self._music)
+
+    # Reset beat/energy/hype state
+    self._beat_idx     = 0
+    self._prev_time    = 0.0
+    self._on_beat      = False
+    self._beat_flash   = 0.0
+    self._energy       = 0.0
+    self._hue          = 0.0
+    self._hype         = 0.05
+    self._music_started = False
+
+    # Analysis (background thread)
+    self._analysis = AudioAnalysis(MUSIC_PATH)
+    self._analysis_thread = threading.Thread(target=self._analysis.run, daemon=True)
+    self._analysis_thread.start()
+
+    self._eyebrow_billy = EyebrowBilly()
+
+    # Scroll the eyebrow button (index 1) into view
+    self._scroller.scroll_to(self._btn_list[1].rect.x, smooth=True)
+
+  def _stop_eyebrow_dance(self) -> None:
+    if not self._eyebrow_active:
+      return
+
+    self._eyebrow_active = False
+    self._dance_active   = False
+    self._eyebrow_billy  = None
+    self._analysis       = None
+
+    for btn in self._btn_list:
+      if isinstance(btn, SettingsBigButton):
+        btn.set_occupied(False)
+
+    if self._music is not None:
+      rl.stop_music_stream(self._music)
+      rl.unload_music_stream(self._music)
+      self._music = None
+    if self._audio_initialized:
+      rl.close_audio_device()
+      self._audio_initialized = False
+
+    self._scroller.scroll_to(self._btn_list[0].rect.x, smooth=True)
+
+  # -------------------------------------------------------------------------
   # State update (called every frame by Widget.render)
   # -------------------------------------------------------------------------
 
@@ -256,11 +330,11 @@ class SettingsLayout(NavWidget):
     # Hue rotation (slow before drop, fast after)
     self._hue = (self._hue + dt * 20.0 * max(0.1, self._hype)) % 360.0
 
-    # Jump logic — only fires AFTER beat drop
+    # Jump logic — only fires for the stick figure (not eyebrow mode)
     now = rl.get_time()
     is_jumping = (now - self._jump_start_time) < JUMP_DURATION
 
-    if self._on_beat and not is_jumping:
+    if not self._eyebrow_active and self._on_beat and not is_jumping:
       self._beats_on_btn += 1
       if self._analysis is not None and self._analysis.done:
         drop_t = self._analysis.beat_drop_time
@@ -274,14 +348,19 @@ class SettingsLayout(NavWidget):
       self._music_started = True
 
     if self._music_started and not rl.is_music_stream_playing(self._music):
-      self._stop_dance()
+      if self._eyebrow_active:
+        self._stop_eyebrow_dance()
+      else:
+        self._stop_dance()
 
   # -------------------------------------------------------------------------
   # Input — tap to boost the character
   # -------------------------------------------------------------------------
 
   def _handle_mouse_release(self, mouse_pos: MousePos) -> None:
-    if self._dance_active:
+    if self._eyebrow_active:
+      pass  # taps during eyebrow mode are ignored (billy just vibes)
+    elif self._dance_active:
       # Guard against the same release that triggered _start_dance
       if rl.get_time() - self._dance_start_time > 1.0 and self._figure is not None:
         self._figure.trigger_boost()
@@ -299,6 +378,7 @@ class SettingsLayout(NavWidget):
   def hide_event(self) -> None:
     super().hide_event()
     self._scroller.hide_event()
+    self._stop_eyebrow_dance()
     self._stop_dance()
 
   # -------------------------------------------------------------------------
@@ -306,14 +386,35 @@ class SettingsLayout(NavWidget):
   # -------------------------------------------------------------------------
 
   def _render(self, rect: rl.Rectangle) -> None:
-    # Mark which button the figure occupies BEFORE the scroller renders so
-    # each button's own _render sees the correct occupied state.
+    # Mark which button the figure/billy occupies BEFORE the scroller renders.
     for i, btn in enumerate(self._btn_list):
       if isinstance(btn, SettingsBigButton):
-        btn.set_occupied(self._dance_active and self._figure is not None and i == self._current_btn_idx)
+        if self._eyebrow_active:
+          btn.set_occupied(self._eyebrow_billy is not None and i == 1)
+        else:
+          btn.set_occupied(self._dance_active and self._figure is not None and i == self._current_btn_idx)
 
     # Render scroller (buttons are laid out and scissor-clipped inside)
     self._scroller.render(rect)
+
+    # ---- Eyebrow Billy render ----
+    if self._eyebrow_active and self._eyebrow_billy is not None:
+      now = rl.get_time()
+      t   = rl.get_music_time_played(self._music) if self._music else now
+
+      billy_btn  = self._btn_list[1]
+      fade_in    = min(1.0, (now - self._eyebrow_start_time) / 0.4)
+
+      # Glow border pulsing with the beat
+      glow_alpha = int((70 + 185 * self._beat_flash) * max(0.25, self._hype))
+      glow_color = hsv_to_color(self._hue, 0.8 + 0.2 * self._hype, 1.0, glow_alpha)
+      rl.draw_rectangle_rounded_lines(billy_btn.rect, 0.2, 6, glow_color)
+      if self._beat_flash > 0.5 and self._hype > 0.5:
+        rl.draw_rectangle_rounded_lines(billy_btn.rect, 0.2, 6, glow_color)
+
+      self._eyebrow_billy.draw(billy_btn.rect, t, self._hue, self._beat_flash,
+                               self._energy, transition=fade_in, hype=self._hype)
+      return
 
     if not self._dance_active or self._figure is None:
       return
