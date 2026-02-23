@@ -124,6 +124,7 @@ class SettingsLayout(NavWidget):
     self._energy = 0.0
     self._hue = 0.0
     self._hype = 0.05        # 0=subtle gray, 1=full party
+    self._is_in_drop = False # True only after the detected beat drop
     self._energy_filter = FirstOrderFilter(0.0, 0.05, 1 / 60)
     self._music_started = False
 
@@ -159,6 +160,7 @@ class SettingsLayout(NavWidget):
     self._energy       = 0.0
     self._hue          = 0.0
     self._hype         = 0.05
+    self._is_in_drop   = False
     self._music_started = False
 
     # Analysis (background thread)
@@ -224,13 +226,22 @@ class SettingsLayout(NavWidget):
       self._beat_flash = 1.0
     self._beat_flash = max(0.0, self._beat_flash - dt * 5.0)
 
-    # Hype: barely moves before drop, rockets to 1 at drop
+    # Hype drives eyebrow animation energy (0=still, 1=full party).
+    # is_in_drop is the separate gating flag for the background light show.
     if self._analysis is not None and self._analysis.done:
       drop_t = self._analysis.beat_drop_time
-      if t < drop_t:
-        self._hype = (0.05 + 0.10 * min(1.0, t / drop_t)) if drop_t > 0 else 0.05
-      else:
+      self._is_in_drop = drop_t > 0 and t >= drop_t
+      if drop_t > 0 and t >= drop_t:
+        # At the drop: rocket to full energy over 0.5 s
         self._hype = min(1.0, (t - drop_t) / 0.5)
+      elif drop_t > 0:
+        # Pre-drop: eyebrows stay obviously active (0.55→0.70) and build gently.
+        # They jump to 1.0 at the drop for a clear "wow" moment.
+        self._hype = 0.55 + 0.15 * min(1.0, t / drop_t)
+      else:
+        # No drop detected: ramp to full quickly so eyebrows always animate.
+        # Background stays black because is_in_drop remains False.
+        self._hype = min(1.0, t / 0.5)
 
     # Hue rotation (slow before drop, fast after)
     self._hue = (self._hue + dt * 20.0 * max(0.1, self._hype)) % 360.0
@@ -297,7 +308,7 @@ class SettingsLayout(NavWidget):
 
       self._eyebrow_billy.draw(rect, t, self._hue, self._beat_flash, self._energy,
                                bands=bands, intro_frac=intro_frac, outro_frac=outro_frac,
-                               transition=1.0, hype=self._hype)
+                               transition=1.0, hype=self._hype, is_in_drop=self._is_in_drop)
       return
 
     self._scroller.render(rect)

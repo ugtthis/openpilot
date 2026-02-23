@@ -82,34 +82,59 @@ class AudioAnalysis:
     self.rms_frames = rms
     self.n_frames = len(odf)
     self.beat_drop_time = self._find_beat_drop(rms)
+    print(f"[AudioAnalysis] beat_drop_time={self.beat_drop_time:.1f}s  beats={len(self.beats)}")
     self.done = True
 
   def _find_beat_drop(self, rms: np.ndarray) -> float:
-    """Return the timestamp (seconds) of the main energy surge / beat drop."""
-    fps = SAMPLE_RATE // HOP_SIZE        # frames per second
-    win = max(1, fps)                    # 1-second windows
+    """Return the timestamp (seconds) of the main energy surge / beat drop.
+
+    Uses 0.5-second windows so the quiet breakdown section before the drop is
+    isolated clearly, making the post-quiet energy surge easy to detect.
+
+    Strategy:
+      1. Skip the first 2 s of audio (avoids false positives on attack transients).
+      2. Find the first 0.5 s window where energy is ≥35% of peak AND ≥1.3× the
+         1.5-second average immediately before it — the post-quiet surge pattern.
+      3. Fallback: earliest window crossing 35% of peak (minimum 1.0 s returned).
+
+    Always returns > 0 so that `drop_t > 0` in settings.py is reliably True.
+    """
+    fps    = SAMPLE_RATE // HOP_SIZE   # frames per second ≈ 86
+    win    = max(1, fps // 2)          # 0.5-second windows for finer resolution
     n_wins = len(rms) // win
+
     if n_wins < 6:
-      return 0.0
+      return 1.0  # clip too short — treat the whole thing as the drop
 
-    sec_e = np.array([float(np.mean(rms[i * win:(i + 1) * win])) for i in range(n_wins)])
-    max_e = float(np.max(sec_e)) if np.max(sec_e) > 0 else 1.0
+    half_e = np.array([float(np.mean(rms[i * win:(i + 1) * win])) for i in range(n_wins)])
+    max_e  = float(np.max(half_e)) if np.max(half_e) > 0 else 1.0
 
-    # Find the first second where:
-    #   - energy >= 35% of peak  (it's a loud section)
-    #   - energy >= 1.6x the preceding 3-second average  (sudden jump)
-    #   - we're at least 5 s into the track  (skip short intros)
-    for i in range(5, n_wins):
-      prev_avg = float(np.mean(sec_e[max(0, i - 3):i]))
-      if sec_e[i] >= 0.35 * max_e and (prev_avg < 1e-4 or sec_e[i] >= 1.6 * prev_avg):
-        return float(i)
+    # Step 1 — find the loud kick/surge (energy ≥35% of peak AND ≥1.3× recent avg).
+    # Skip the first 2 s to avoid false positives on attack transients.
+    surge_i = None
+    for i in range(4, n_wins):
+      prev_avg = float(np.mean(half_e[max(0, i - 3):i]))
+      if half_e[i] >= 0.35 * max_e and (prev_avg < 1e-4 or half_e[i] >= 1.3 * prev_avg):
+        surge_i = i
+        break
 
-    # Fallback: first time energy crosses 35% of peak
+    if surge_i is not None:
+      # Step 2 — walk backward from the surge to find where the singing/energy
+      # first fell away (the start of the quiet breakdown). That moment is when the
+      # "drop section" begins — before the kick but after the vocals end.
+      threshold = half_e[surge_i] * 0.65
+      for j in range(surge_i - 1, 3, -1):
+        if half_e[j] >= threshold:
+          # j is still loud — the quiet started at j+1
+          return max(1.0, float(j + 1) * 0.5)
+      return max(1.0, float(surge_i) * 0.5)
+
+    # Fallback: first window crossing 35% of peak. min 1.0 keeps drop_t > 0.
     for i in range(n_wins):
-      if sec_e[i] >= 0.35 * max_e:
-        return float(i)
+      if half_e[i] >= 0.35 * max_e:
+        return max(1.0, float(i) * 0.5)
 
-    return float(n_wins // 2)
+    return max(1.0, float(n_wins) * 0.5 / 2)
 
   def _decode_mp3(self) -> np.ndarray | None:
     cmd = [
@@ -469,7 +494,8 @@ class EyebrowBilly:
            beat_flash: float, energy: float,
            bands: np.ndarray | None = None,
            intro_frac: float = 1.0, outro_frac: float = 0.0,
-           transition: float = 1.0, hype: float = 1.0) -> None:
+           transition: float = 1.0, hype: float = 1.0,
+           is_in_drop: bool = False) -> None:
     w, h = rect.width, rect.height
     now  = rl.get_time()
 
@@ -493,20 +519,35 @@ class EyebrowBilly:
     if outro_frac >= 0.72:
       wink_scale = _ramp(outro_frac, 0.72, 0.82)        # overrides: eye opens back up
 
-    # Beat color wash — only fires after the drop, never during intro.
-    # hype pre-drop peaks at ~0.15; the 0.25 threshold + the doing_intro guard
-    # make it impossible to fire early even if analysis returns a bad drop time.
-    if eff_beat > 0.01 and hype > 0.25 and not doing_intro:
+    # ---- Background light show (drop only) ----
+    # Black during singing; activates when the drop is detected.
+    if is_in_drop and not doing_intro:
+      # Steady hue tint — color is always visible between beats
       rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height),
-                        hsv_to_color(hue, 1.0, 1.0, int(eff_beat * hype * 28)))
+                        hsv_to_color(hue, 1.0, 1.0, int(hype * 25)))
+      # Color swell on each beat — high saturation so it pulses, not strobes
+      if eff_beat > 0.01:
+        rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height),
+                          hsv_to_color(hue, 0.85, 1.0, int(eff_beat * hype * 65)))
 
     # Dots appear instantly at explosion start then stay fully opaque
-    dot_a = int(255 * min(1.0, intro_frac / 0.12)) if doing_intro else a
+    dot_a = int(255 * min(1.0, intro_frac / 0.08)) if doing_intro else a
 
-    # Intro: circles roam on black so give them the rotating hue — looks like a
-    # colour show before the face forms. After the drop they flash on beat hits.
-    dot_sat  = 0.65 if doing_intro else hype * eff_beat * 0.75
-    face_col = hsv_to_color(hue, dot_sat, 1.0, dot_a)
+    # Dot colour during intro: red (dome colour) → white → hue during assembly
+    if doing_intro:
+      if intro_frac < 0.22:
+        # Hot red straight out of the dome, bleaching to white
+        white_t  = _ramp(intro_frac, 0.04, 0.22)
+        tint_g   = int(white_t * 255)
+        face_col = rl.Color(255, tint_g, tint_g, dot_a)
+      else:
+        # White floating; colour fades in only when assembling the face
+        dot_sat  = _ramp(intro_frac, 0.68, 0.99) * 0.85
+        face_col = hsv_to_color(hue, dot_sat, 1.0, dot_a)
+    else:
+      face_col = hsv_to_color(hue, hype * eff_beat * 0.75, 1.0, a)
+
+    eye_col = face_col
 
     # ---- Face layout (target positions) ----
     bounce  = 0.0 if doing_intro else abs(math.sin(t * 1.9)) * h * 0.009 * hype
@@ -516,11 +557,15 @@ class EyebrowBilly:
     dot_r   = max(8,  int(h * 0.028))
     dot_gap = max(18, int(h * 0.062))
 
-    # Dots throb on beat (suppressed during outro)
-    pulse_r = max(dot_r, int(dot_r * (1.0 + eff_beat * 0.40)))
+    # During explosion, dots are oversized and shrink to normal — gives impact
+    if doing_intro and intro_frac < 0.28:
+      explode_scale = 1.0 + 2.5 * (1.0 - _ramp(intro_frac, 0.0, 0.28))
+      pulse_r = max(dot_r, int(dot_r * explode_scale))
+    else:
+      pulse_r = max(dot_r, int(dot_r * (1.0 + eff_beat * 0.40)))
 
     # ---- Intro position resolver ----
-    max_scat = max(w, h) * 0.55
+    max_scat = max(w, h) * 0.78  # wider scatter = more dramatic explosion
 
     def _intro_pos(idx: int, tx: float, ty: float) -> tuple[float, float]:
       angle  = self._scat_angle[idx]
@@ -533,10 +578,10 @@ class EyebrowBilly:
       ox = self._btn_lx + self._btn_w * (letter + 0.5) / 7.0
       oy = self._btn_cy
 
-      # Explosion radius grows during phase 1, stays at max through phase 2
+      # Explosion radius — cubic ease-out so circles pop out with a sharp initial kick
       if intro_frac < 0.25:
         r_t    = intro_frac / 0.25
-        r_ease = 1.0 - (1.0 - r_t) ** 2   # ease-out: fast start, settling
+        r_ease = 1.0 - (1.0 - r_t) ** 3   # cubic = snappier than quadratic
         r = max_scat * speed * r_ease
       else:
         r = max_scat * speed
@@ -556,6 +601,29 @@ class EyebrowBilly:
         sy += (ty - sy) * ease_c
 
       return sx, sy
+
+    # ---- Explosion VFX (drawn before dots so they sit behind) ----
+    if doing_intro:
+      # Red dome burst — a hot flash that bleaches outward from the button
+      if intro_frac < 0.22:
+        flash_t = intro_frac / 0.22
+        flash_r = int(h * 0.50 * (1.0 - flash_t ** 0.30))
+        flash_a = int(240 * (1.0 - flash_t))
+        if flash_r > 0:
+          rl.draw_circle(int(self._btn_cx), int(self._btn_cy), flash_r,
+                         rl.Color(255, 55, 20, flash_a))
+
+      # Shockwave ring expanding to the screen edges
+      ring_age = intro_frac - 0.03
+      if 0 < ring_age < 0.52:
+        life   = ring_age / 0.52
+        ring_r = int(max(w, h) * 0.95 * life)
+        ring_a = int(210 * (1.0 - life))
+        if ring_r > 1:
+          rl.draw_circle_lines(int(self._btn_cx), int(self._btn_cy), ring_r,
+                               rl.Color(255, 80, 30, ring_a))
+          rl.draw_circle_lines(int(self._btn_cx), int(self._btn_cy), ring_r - 3,
+                               rl.Color(255, 200, 100, ring_a // 2))
 
     # ---- Dot-matrix eyes ----
     # Right eye (index 1) winks: its row offsets are scaled by wink_scale so
