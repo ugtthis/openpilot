@@ -493,9 +493,20 @@ class EyebrowBilly:
     if outro_frac >= 0.72:
       wink_scale = _ramp(outro_frac, 0.72, 0.82)        # overrides: eye opens back up
 
+    # Beat color wash — only fires after the drop, never during intro.
+    # hype pre-drop peaks at ~0.15; the 0.25 threshold + the doing_intro guard
+    # make it impossible to fire early even if analysis returns a bad drop time.
+    if eff_beat > 0.01 and hype > 0.25 and not doing_intro:
+      rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height),
+                        hsv_to_color(hue, 1.0, 1.0, int(eff_beat * hype * 28)))
+
     # Dots appear instantly at explosion start then stay fully opaque
     dot_a = int(255 * min(1.0, intro_frac / 0.12)) if doing_intro else a
-    white = rl.Color(255, 255, 255, dot_a)
+
+    # Intro: circles roam on black so give them the rotating hue — looks like a
+    # colour show before the face forms. After the drop they flash on beat hits.
+    dot_sat  = 0.65 if doing_intro else hype * eff_beat * 0.75
+    face_col = hsv_to_color(hue, dot_sat, 1.0, dot_a)
 
     # ---- Face layout (target positions) ----
     bounce  = 0.0 if doing_intro else abs(math.sin(t * 1.9)) * h * 0.009 * hype
@@ -555,7 +566,7 @@ class EyebrowBilly:
         effective_dr = dr * wink_scale if ei == 1 else dr
         tx, ty = ecx + dc * dot_gap, eye_y + effective_dr * dot_gap
         px, py = _intro_pos(dot_idx, tx, ty) if doing_intro else (tx, ty)
-        rl.draw_circle(int(px), int(py), pulse_r, white)
+        rl.draw_circle(int(px), int(py), pulse_r, face_col)
         dot_idx += 1
 
     # ---- Small V mouth ----
@@ -567,7 +578,7 @@ class EyebrowBilly:
     for (dc, dr) in _MOUTH_DOTS:
       tx, ty = mouth_cx + dc * mouth_gap * spread, mouth_y + dr * mouth_gap
       px, py = _intro_pos(dot_idx, tx, ty) if doing_intro else (tx, ty)
-      rl.draw_circle(int(px), int(py), mouth_dot_r, white)
+      rl.draw_circle(int(px), int(py), mouth_dot_r, face_col)
       dot_idx += 1
 
     # ---- Waveform eyebrows — only after intro is complete ----
@@ -609,9 +620,9 @@ class EyebrowBilly:
           py = brow_baseline - amp * edge_env - spike * edge_env
           pts.append(rl.Vector2(px, py))
 
-          bar_h = max(2, int(brow_baseline - py))
-          rl.draw_rectangle(int(px - bar_w / 2), int(py), bar_w, bar_h,
-                            rl.Color(brow_col.r, brow_col.g, brow_col.b, int(a * 0.35)))
+          bar_h   = max(2, int(brow_baseline - py))
+          bar_col = hsv_to_color((hue + 160) % 360, sat, 0.9, int(a * 0.38))
+          rl.draw_rectangle(int(px - bar_w / 2), int(py), bar_w, bar_h, bar_col)
 
         for j in range(len(pts) - 1):
           # Glow halo drawn first so the sharp line sits on top
