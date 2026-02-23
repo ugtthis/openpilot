@@ -414,9 +414,14 @@ _MOUTH_DOTS: list[tuple[float, float]] = [
   (-1.0, 0.0), (0.0, 0.7), (1.0, 0.0),
 ]
 
-_N_WAVE_PTS    = 16    # polyline sample points per eyebrow
-_BROW_SWAY_SPD = 2.6   # fallback sine speed when analysis not ready
+_N_WAVE_PTS      = 16   # polyline sample points per eyebrow
+_BROW_SWAY_SPD   = 2.6  # fallback sine speed when analysis not ready
 _BILLY_PTCL_LIFE = 0.6
+
+
+def _ramp(x: float, lo: float, hi: float) -> float:
+  """Linearly maps x from [lo, hi] → [0.0, 1.0], clamped at both ends."""
+  return max(0.0, min(1.0, (x - lo) / (hi - lo)))
 
 
 class EyebrowBilly:
@@ -478,27 +483,15 @@ class EyebrowBilly:
     doing_intro = intro_frac < 0.99
 
     # ---- Outro calming + wink ----
-    # calm: 1.0 → 0.0 over the first 25 % of the outro window
-    calm      = max(0.0, 1.0 - outro_frac * 4.0)
-    eff_beat  = beat_flash * calm          # suppress flash & spike during outro
-    brow_calm = max(0.0, 1.0 - outro_frac * 6.0)  # eyebrows quiet faster
+    # Beat flash and eyebrows fade to zero early so the wink lands on a calm face.
+    eff_beat  = beat_flash * (1.0 - _ramp(outro_frac, 0.00, 0.25))
+    brow_calm =               1.0 - _ramp(outro_frac, 0.00, 0.17)
 
     # Wink right eye (idx 1).  Timeline inside the 4-s outro window:
-    #   0.00–0.40  open     (no change)
-    #   0.40–0.50  closing  (0.4 s)
-    #   0.50–0.72  closed   (0.88 s hold)
-    #   0.72–0.82  opening  (0.4 s)
-    #   0.82–1.00  open     (face relaxed before song ends)
-    if outro_frac < 0.40:
-      wink_scale = 1.0
-    elif outro_frac < 0.50:
-      wink_scale = 1.0 - (outro_frac - 0.40) / 0.10
-    elif outro_frac < 0.72:
-      wink_scale = 0.0
-    elif outro_frac < 0.82:
-      wink_scale = (outro_frac - 0.72) / 0.10
-    else:
-      wink_scale = 1.0
+    #   0.00–0.40  open  →  0.40–0.50  close (0.4 s)  →  hold  →  0.72–0.82  open (0.4 s)
+    wink_scale = 1.0 - _ramp(outro_frac, 0.40, 0.50)   # starts closing at 40 %
+    if outro_frac >= 0.72:
+      wink_scale = _ramp(outro_frac, 0.72, 0.82)        # overrides: eye opens back up
 
     # Dots appear instantly at explosion start then stay fully opaque
     dot_a = int(255 * min(1.0, intro_frac / 0.12)) if doing_intro else a
