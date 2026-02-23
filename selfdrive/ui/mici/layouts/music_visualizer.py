@@ -513,19 +513,20 @@ class EyebrowBilly:
     # ---- Warp-speed beams — animated streaks shooting outward during intro ----
     # Each beam is a short moving segment that travels from center → edge at its own
     # speed and phase, so the whole field looks like it's constantly rushing outward.
-    _N_WARP = 280
+    _N_WARP = 500
     wrng = random.Random(555)
     # Evenly spaced angles + tiny jitter for full 360° density
-    self._warp_angle  = [(wi * 2 * math.pi / _N_WARP + wrng.uniform(-0.015, 0.015))
+    self._warp_angle  = [(wi * 2 * math.pi / _N_WARP + wrng.uniform(-0.010, 0.010))
                          for wi in range(_N_WARP)]
-    self._warp_speed  = [wrng.uniform(0.20, 0.75)   for _ in range(_N_WARP)]  # ray-lengths / sec
-    self._warp_phase  = [wrng.random()               for _ in range(_N_WARP)]  # staggered start pos
-    self._warp_blen   = [wrng.uniform(0.12, 0.32)   for _ in range(_N_WARP)]  # streak length (0-1)
-    self._warp_width  = [wrng.uniform(0.5,  2.8)    for _ in range(_N_WARP)]
-    self._warp_bright = [wrng.uniform(0.55, 1.00)   for _ in range(_N_WARP)]
+    self._warp_speed  = [wrng.uniform(0.18, 0.80)   for _ in range(_N_WARP)]
+    self._warp_phase  = [wrng.random()               for _ in range(_N_WARP)]
+    # Wider length range — short slivers to long streaks all co-existing
+    self._warp_blen   = [wrng.uniform(0.08, 0.45)   for _ in range(_N_WARP)]
+    self._warp_width  = [wrng.uniform(0.4,  2.8)    for _ in range(_N_WARP)]
+    self._warp_bright = [wrng.uniform(0.50, 1.00)   for _ in range(_N_WARP)]
     # Palette: 50% green, 30% cyan, 15% blue, 5% near-white
-    _warp_buckets = ([(100, 150)] * 140 + [(150, 205)] * 84 +
-                     [(205, 255)] * 42 + [(155, 175)] * 14)
+    _warp_buckets = ([(100, 150)] * 250 + [(150, 205)] * 150 +
+                     [(205, 255)] * 75  + [(155, 175)] * 25)
     self._warp_hue = [wrng.uniform(*_warp_buckets[wi % len(_warp_buckets)])
                       for wi in range(_N_WARP)]
 
@@ -663,25 +664,44 @@ class EyebrowBilly:
 
     # ---- Warp-speed streaks (deepest layer, full intro duration) ----
     if doing_intro:
-      warp_in  = _ramp(intro_frac, 0.03, 0.15)
-      warp_out = 1.0 - _ramp(intro_frac, 0.78, 1.00)
-      warp_env = warp_in * warp_out
-      if warp_env > 0.01:
-        max_reach = max(w, h) * 1.20   # beams fly past screen edges
+      warp_in   = _ramp(intro_frac, 0.03, 0.15)
+      # Black-hole collapse: an outer boundary shrinks inward, cutting beams off
+      # from the outside in — like a closing iris consuming the light.
+      # Beams stay full-length; only their visible extent is clamped.
+      collapse  = _ramp(intro_frac, 0.50, 1.1)
+      # Global outer boundary — very aggressive power curve so it barely moves
+      # early then suddenly yanks everything inward.
+      outer_cap = 1.0 - collapse ** 0.22
+      warp_out  = max(0.0, 1.0 - collapse * 1.8)  # alpha cuts fast at the end
+      warp_env  = warp_in * warp_out
+      white_t   = _ramp(intro_frac, 0.38, 0.52)
+      if warp_env > 0.01 or (doing_intro and collapse > 0 and outer_cap > 0.01):
+        max_reach = max(w, h) * 1.20
 
         for wi in range(len(self._warp_angle)):
           sa = self._warp_angle[wi]
 
-          # pos: 0 = at center, 1 = at screen edge — advances with time
           pos  = (t * self._warp_speed[wi] + self._warp_phase[wi]) % 1.0
-          blen = self._warp_blen[wi]
+          # Large per-beam pull delay — beams retract at wildly different times.
+          # _warp_bright (0.55–1.0) and _warp_speed (0.20–0.75) both contribute
+          # so adjacent beams behave completely independently.
+          beam_delay    = (self._warp_bright[wi] - 0.775) * 0.55   # -0.30 … +0.30
+          beam_delay   += (self._warp_speed[wi]  - 0.475) * 0.35   # extra spread from speed
+          beam_collapse = max(0.0, min(1.0, collapse + beam_delay))
+          # Very low exponent = dramatic snap: boundary barely moves then lurches violently
+          beam_cap     = 1.0 - beam_collapse ** 0.15
+          # Beam length collapses hard — some become tiny slivers, some stay long
+          blen = self._warp_blen[wi] * (1.0 - beam_collapse ** 0.5 * 0.90)
 
-          p_head = pos                       # leading edge of the streak
-          p_tail = max(0.0, pos - blen)      # trailing edge
+          # Clamp to this beam's personal boundary
+          p_head = min(pos,                  beam_cap)
+          p_tail = min(max(0.0, pos - blen), beam_cap)
+          if p_head <= p_tail:
+            continue
 
-          # Alpha envelope: fade in as it leaves center, fade out as it nears edge
-          fade_in  = min(1.0, p_head / 0.15)        # materialises over first 15% of ray
-          fade_out = 1.0 - max(0.0, (p_head - 0.75) / 0.25)  # dissolves last 25%
+          # Alpha envelope: fade in near center, soft fade at edge
+          fade_in  = min(1.0, p_head / 0.15)
+          fade_out = 1.0 - max(0.0, (p_head - 0.75) / 0.25)
           alpha = int(warp_env * self._warp_bright[wi] * fade_in * fade_out * 230)
           if alpha < 5:
             continue
@@ -693,15 +713,18 @@ class EyebrowBilly:
           ex = screen_cx + sa_cos * p_head * max_reach
           ey = screen_cy + sa_sin * p_head * max_reach
 
-          h_warp = self._warp_hue[wi]
-          lw     = self._warp_width[wi]
+          h_warp  = self._warp_hue[wi]
+          lw      = self._warp_width[wi]
+          # Saturation fades to 0 (white) as the warp bleaches out before vanishing
+          sat_col = 0.85 * (1.0 - white_t)
+          sat_glo = 0.40 * (1.0 - white_t)
 
           # Soft glow aura around the streak
           rl.draw_line_ex(rl.Vector2(sx, sy), rl.Vector2(ex, ey),
-                          lw * 5.0, hsv_to_color(h_warp, 0.4, 1.0, int(alpha * 0.12)))
-          # Main coloured streak
+                          lw * 5.0, hsv_to_color(h_warp, sat_glo, 1.0, int(alpha * 0.12)))
+          # Main streak — bleaches toward white
           rl.draw_line_ex(rl.Vector2(sx, sy), rl.Vector2(ex, ey),
-                          lw, hsv_to_color(h_warp, 0.85, 1.0, alpha))
+                          lw, hsv_to_color(h_warp, sat_col, 1.0, alpha))
           # Bright white leading tip — the "head" of the shooting streak
           tip_sx = screen_cx + sa_cos * max(0.0, p_head - blen * 0.2) * max_reach
           tip_sy = screen_cy + sa_sin * max(0.0, p_head - blen * 0.2) * max_reach
