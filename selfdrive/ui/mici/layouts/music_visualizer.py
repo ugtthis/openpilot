@@ -54,6 +54,49 @@ def hsv_to_color(h: float, s: float, v: float, a: int = 255) -> rl.Color:
   return rl.Color(int((r + m) * 255), int((g + m) * 255), int((b + m) * 255), a)
 
 
+def circle_hue(v: float) -> float:
+  """Hue palette for intro circles — purple/magenta/violet with cyan/blue accents.
+
+  Complements the green/cyan warp beams for a contrasting neon light-show feel.
+    purple      255-300  (35 %)
+    magenta     300-345  (35 %)
+    blue        210-255  (20 %)
+    cyan accent 165-210  (10 %)
+  """
+  bands = [(255, 300, 0.35), (300, 345, 0.35), (210, 255, 0.20), (165, 210, 0.10)]
+  v = max(0.0, min(1.0, v % 1.0))
+  acc = 0.0
+  for lo, hi, w in bands:
+    if v < acc + w:
+      return lo + (hi - lo) * (v - acc) / w
+    acc += w
+  return bands[-1][1]
+
+
+def edm_hue(v: float) -> float:
+  """Map a 0-1 value to an EDM/neon light-show hue (degrees).
+
+  Covers only the cool, electric side of the wheel:
+    lime-green → cyan → blue → purple → hot-pink/magenta.
+  Warm reds, oranges and yellows are intentionally excluded.
+  """
+  # Four neon bands with proportional weights:
+  #   lime     100-140  (10 %)
+  #   cyan     165-210  (25 %)
+  #   blue     210-255  (30 %)
+  #   purple   255-300  (20 %)
+  #   magenta  300-335  (15 %)
+  bands = [(100, 140, 0.10), (165, 210, 0.25), (210, 255, 0.30),
+           (255, 300, 0.20), (300, 335, 0.15)]
+  v = max(0.0, min(1.0, v % 1.0))
+  acc = 0.0
+  for lo, hi, w in bands:
+    if v < acc + w:
+      return lo + (hi - lo) * (v - acc) / w
+    acc += w
+  return bands[-1][1]
+
+
 # ---------------------------------------------------------------------------
 # Beat analysis (runs in background thread)
 # ---------------------------------------------------------------------------
@@ -485,9 +528,79 @@ class EyebrowBilly:
     self._scat_speed  = [rng.uniform(0.55, 1.40)        for _ in range(n_total)]
     self._scat_dfreq  = [rng.uniform(0.8,  2.8)         for _ in range(n_total)]
     self._scat_dphase = [rng.uniform(0.0, 2 * math.pi)  for _ in range(n_total)]
+    # Per-dot oval scale: each circle orbits a differently-sized ellipse so
+    # they spread at different depths across the frame — no synchronized ring.
+    self._scat_rx     = [rng.uniform(0.15, 0.42)        for _ in range(n_total)]
+    self._scat_ry     = [rng.uniform(0.12, 0.38)        for _ in range(n_total)]
     # Each dot originates from a letter in "eyebrow" (7 letters)
     n_letters = 7
     self._dot_letter  = [i * n_letters // n_total for i in range(n_total)]
+
+    # ---- Firework sparks — shoot out on explosion, arc with gravity, fade away ----
+    _N_SPARKS = 220
+    srng = random.Random(99)
+    # Each spark: angle, speed (0-1 scale), hue, launch delay (fraction of intro),
+    # gravity factor (positive = pulled down, negative = floats up briefly)
+    self._spark_angle   = [srng.uniform(0.0, 2 * math.pi) for _ in range(_N_SPARKS)]
+    self._spark_speed   = [srng.uniform(0.30, 1.00)        for _ in range(_N_SPARKS)]
+    self._spark_hue     = [edm_hue(srng.random())           for _ in range(_N_SPARKS)]
+    self._spark_delay   = [srng.uniform(0.0, 0.12)         for _ in range(_N_SPARKS)]  # staggered waves
+    self._spark_gravity = [srng.uniform(0.2, 1.0)          for _ in range(_N_SPARKS)]  # arc strength
+    self._spark_size    = [srng.uniform(2.0, 7.0)          for _ in range(_N_SPARKS)]
+
+    # ---- Shrapnel layer — fast, tight, erratic burst on top of main firework ----
+    # Travels 2x faster, lives half as long, nearly no gravity — feels like hot debris.
+    _N_SHRAP = 300
+    xrng = random.Random(777)
+    self._shrap_angle   = [xrng.uniform(0.0, 2 * math.pi) for _ in range(_N_SHRAP)]
+    self._shrap_speed   = [xrng.uniform(0.60, 1.50)        for _ in range(_N_SHRAP)]  # faster than sparks
+    self._shrap_hue     = [edm_hue(xrng.random())           for _ in range(_N_SHRAP)]
+    self._shrap_delay   = [xrng.uniform(0.00, 0.08)         for _ in range(_N_SHRAP)]  # tighter wave
+    self._shrap_gravity = [xrng.uniform(-0.1, 0.25)         for _ in range(_N_SHRAP)]  # mostly straight
+    self._shrap_size    = [xrng.uniform(1.0, 3.5)           for _ in range(_N_SHRAP)]  # tiny shards
+
+    # ---- Warp-speed beams — animated streaks shooting outward during intro ----
+    # Each beam is a short moving segment that travels from center → edge at its own
+    # speed and phase, so the whole field looks like it's constantly rushing outward.
+    _N_WARP = 280
+    wrng = random.Random(555)
+    # Evenly spaced angles + tiny jitter for full 360° density
+    self._warp_angle  = [(wi * 2 * math.pi / _N_WARP + wrng.uniform(-0.015, 0.015))
+                         for wi in range(_N_WARP)]
+    self._warp_speed  = [wrng.uniform(0.20, 0.75)   for _ in range(_N_WARP)]  # ray-lengths / sec
+    self._warp_phase  = [wrng.random()               for _ in range(_N_WARP)]  # staggered start pos
+    self._warp_blen   = [wrng.uniform(0.12, 0.32)   for _ in range(_N_WARP)]  # streak length (0-1)
+    self._warp_width  = [wrng.uniform(0.5,  2.8)    for _ in range(_N_WARP)]
+    self._warp_bright = [wrng.uniform(0.55, 1.00)   for _ in range(_N_WARP)]
+    # Palette: 50% green, 30% cyan, 15% blue, 5% near-white
+    _warp_buckets = ([(100, 150)] * 140 + [(150, 205)] * 84 +
+                     [(205, 255)] * 42 + [(155, 175)] * 14)
+    self._warp_hue = [wrng.uniform(*_warp_buckets[wi % len(_warp_buckets)])
+                      for wi in range(_N_WARP)]
+
+    # ---- Ephemeral chaos circles — purely decorative, wander and fade ----
+    _N_CHAOS = 40
+    crng = random.Random(42)
+    self._chaos_angle  = [crng.uniform(0.0, 2 * math.pi) for _ in range(_N_CHAOS)]
+    self._chaos_rx     = [crng.uniform(0.10, 0.65)        for _ in range(_N_CHAOS)]  # wide: some off-frame
+    self._chaos_ry     = [crng.uniform(0.08, 0.55)        for _ in range(_N_CHAOS)]
+    self._chaos_dfreq  = [crng.uniform(0.5,  3.5)         for _ in range(_N_CHAOS)]
+    self._chaos_dphase = [crng.uniform(0.0, 2 * math.pi)  for _ in range(_N_CHAOS)]
+    self._chaos_fphase = [crng.uniform(0.0, 2 * math.pi)  for _ in range(_N_CHAOS)]
+    self._chaos_size   = [crng.uniform(3.0, 14.0)          for _ in range(_N_CHAOS)]
+    # Evenly spaced through the circle palette (purple/magenta/violet) so chaos
+    # circles contrast against the green/cyan warp beams.
+    self._chaos_hue    = [circle_hue(ci / _N_CHAOS + crng.uniform(-0.03, 0.03))
+                          for ci in range(_N_CHAOS)]
+    # Drift speed in degrees-per-SECOND (not per intro_frac) so colors visibly
+    # cycle in real time — large range ensures circles rapidly diverge.
+    self._chaos_hspeed = [crng.uniform(80.0, 280.0)       for _ in range(_N_CHAOS)]
+
+    # ---- Per face-dot fire hue — contagion colors during intro ----
+    # Circle palette: purple/magenta/violet — complementary contrast to warp beams.
+    self._dot_fire_hue   = [circle_hue(i / n_total + rng.uniform(-0.04, 0.04))
+                            for i in range(n_total)]
+    self._dot_hspeed     = [rng.uniform(70.0, 240.0)      for _ in range(n_total)]
 
   # ------------------------------------------------------------------
   def draw(self, rect: rl.Rectangle, t: float, base_hue: float,
@@ -537,17 +650,9 @@ class EyebrowBilly:
     # Dots appear instantly at explosion start then stay fully opaque
     dot_a = int(255 * min(1.0, intro_frac / 0.08)) if doing_intro else a
 
-    # Dot colour during intro: red (dome colour) → white → hue during assembly
+    # TMP: white test — dots are pure white the whole intro
     if doing_intro:
-      if intro_frac < 0.22:
-        # Hot red straight out of the dome, bleaching to white
-        white_t  = _ramp(intro_frac, 0.04, 0.22)
-        tint_g   = int(white_t * 255)
-        face_col = rl.Color(255, tint_g, tint_g, dot_a)
-      else:
-        # White floating; colour fades in only when assembling the face
-        dot_sat  = _ramp(intro_frac, 0.68, 0.99) * 0.85
-        face_col = hsv_to_color(hue, dot_sat, 1.0, dot_a)
+      face_col = rl.Color(255, 255, 255, dot_a)
     else:
       face_col = hsv_to_color(hue, hype * eff_beat * 0.75, 1.0, a)
 
@@ -567,33 +672,47 @@ class EyebrowBilly:
       pulse_r = max(dot_r, int(dot_r * (1.0 + eff_beat * 0.40)))
 
     # ---- Intro position resolver ----
-    max_scat = max(w, h) * 0.78  # wider scatter = more dramatic explosion
+    # Horizontal oval sized to the screen — fills the rectangular frame evenly.
+    # rx/ry scale with actual screen dimensions so coverage matches aspect ratio.
+    r_explode  = max(w, h) * 0.78   # burst radius — circles fly off screen
+    screen_cx  = rect.x + w * 0.5
+    screen_cy  = rect.y + h * 0.5
 
     def _intro_pos(idx: int, tx: float, ty: float) -> tuple[float, float]:
       angle  = self._scat_angle[idx]
       speed  = self._scat_speed[idx]
       dfreq  = self._scat_dfreq[idx]
       dphase = self._scat_dphase[idx]
-      letter = self._dot_letter[idx]
+      # Each circle has its own orbit size — no two trace the same ellipse
+      crx    = w * self._scat_rx[idx]
+      cry    = h * self._scat_ry[idx]
 
-      # Each dot originates from its letter's horizontal position in the button
-      ox = self._btn_lx + self._btn_w * (letter + 0.5) / 7.0
-      oy = self._btn_cy
+      # All dots explode from screen center so the burst is perfectly centered
+      ox = screen_cx
+      oy = screen_cy
 
-      # Explosion radius — cubic ease-out so circles pop out with a sharp initial kick
+      # Wide angular drift — each circle meanders independently like a firefly
+      drift = math.sin(intro_frac * math.pi * 2.0 * dfreq + dphase) * 0.80
+      eff_a = angle + drift
+
       if intro_frac < 0.25:
+        # Explosion from center — cubic ease-out, can go off screen
         r_t    = intro_frac / 0.25
-        r_ease = 1.0 - (1.0 - r_t) ** 3   # cubic = snappier than quadratic
-        r = max_scat * speed * r_ease
+        r_ease = 1.0 - (1.0 - r_t) ** 3
+        sx = ox + math.cos(eff_a) * r_explode * speed * r_ease
+        sy = oy + math.sin(eff_a) * r_explode * speed * r_ease * 0.55
+      elif intro_frac < 0.45:
+        # Pull-back: migrate from explosion to each circle's own orbit
+        pull_t = ((intro_frac - 0.25) / 0.20) ** 2   # ease-in
+        fx = screen_cx + math.cos(eff_a) * crx
+        fy = screen_cy + math.sin(eff_a) * cry
+        bx = ox + math.cos(eff_a) * r_explode * speed
+        by = oy + math.sin(eff_a) * r_explode * speed * 0.55
+        sx, sy = bx + (fx - bx) * pull_t, by + (fy - by) * pull_t
       else:
-        r = max_scat * speed
-
-      # Slow angular drift during float phase
-      drift  = math.sin(intro_frac * math.pi * 2.0 * dfreq + dphase) * 0.38
-      eff_a  = angle + drift
-      # Flatten vertically — letters were arranged horizontally in the button
-      sx = ox + math.cos(eff_a) * r
-      sy = oy + math.sin(eff_a) * r * 0.46
+        # Firefly wander — every circle at its own depth, covering the full frame
+        sx = screen_cx + math.cos(eff_a) * crx
+        sy = screen_cy + math.sin(eff_a) * cry
 
       # Phase 3: smooth coalesce toward target face position
       if intro_frac >= 0.70:
@@ -604,28 +723,179 @@ class EyebrowBilly:
 
       return sx, sy
 
-    # ---- Explosion VFX (drawn before dots so they sit behind) ----
+    # ---- Warp-speed streaks (deepest layer, full intro duration) ----
     if doing_intro:
-      # Red dome burst — a hot flash that bleaches outward from the button
-      if intro_frac < 0.22:
-        flash_t = intro_frac / 0.22
-        flash_r = int(h * 0.50 * (1.0 - flash_t ** 0.30))
-        flash_a = int(240 * (1.0 - flash_t))
-        if flash_r > 0:
-          rl.draw_circle(int(self._btn_cx), int(self._btn_cy), flash_r,
-                         rl.Color(255, 55, 20, flash_a))
+      warp_in  = _ramp(intro_frac, 0.03, 0.15)
+      warp_out = 1.0 - _ramp(intro_frac, 0.78, 1.00)
+      warp_env = warp_in * warp_out
+      if warp_env > 0.01:
+        max_reach = max(w, h) * 1.20   # beams fly past screen edges
 
-      # Shockwave ring expanding to the screen edges
-      ring_age = intro_frac - 0.03
-      if 0 < ring_age < 0.52:
-        life   = ring_age / 0.52
-        ring_r = int(max(w, h) * 0.95 * life)
-        ring_a = int(210 * (1.0 - life))
-        if ring_r > 1:
-          rl.draw_circle_lines(int(self._btn_cx), int(self._btn_cy), ring_r,
-                               rl.Color(255, 80, 30, ring_a))
-          rl.draw_circle_lines(int(self._btn_cx), int(self._btn_cy), ring_r - 3,
-                               rl.Color(255, 200, 100, ring_a // 2))
+        for wi in range(len(self._warp_angle)):
+          sa = self._warp_angle[wi]
+
+          # pos: 0 = at center, 1 = at screen edge — advances with time
+          pos  = (t * self._warp_speed[wi] + self._warp_phase[wi]) % 1.0
+          blen = self._warp_blen[wi]
+
+          p_head = pos                       # leading edge of the streak
+          p_tail = max(0.0, pos - blen)      # trailing edge
+
+          # Alpha envelope: fade in as it leaves center, fade out as it nears edge
+          fade_in  = min(1.0, p_head / 0.15)        # materialises over first 15% of ray
+          fade_out = 1.0 - max(0.0, (p_head - 0.75) / 0.25)  # dissolves last 25%
+          alpha = int(warp_env * self._warp_bright[wi] * fade_in * fade_out * 230)
+          if alpha < 5:
+            continue
+
+          sa_cos = math.cos(sa)
+          sa_sin = math.sin(sa)
+          sx = screen_cx + sa_cos * p_tail * max_reach
+          sy = screen_cy + sa_sin * p_tail * max_reach
+          ex = screen_cx + sa_cos * p_head * max_reach
+          ey = screen_cy + sa_sin * p_head * max_reach
+
+          h_warp = self._warp_hue[wi]
+          lw     = self._warp_width[wi]
+
+          # Soft glow aura around the streak
+          rl.draw_line_ex(rl.Vector2(sx, sy), rl.Vector2(ex, ey),
+                          lw * 5.0, hsv_to_color(h_warp, 0.4, 1.0, int(alpha * 0.12)))
+          # Main coloured streak
+          rl.draw_line_ex(rl.Vector2(sx, sy), rl.Vector2(ex, ey),
+                          lw, hsv_to_color(h_warp, 0.85, 1.0, alpha))
+          # Bright white leading tip — the "head" of the shooting streak
+          tip_sx = screen_cx + sa_cos * max(0.0, p_head - blen * 0.2) * max_reach
+          tip_sy = screen_cy + sa_sin * max(0.0, p_head - blen * 0.2) * max_reach
+          rl.draw_line_ex(rl.Vector2(tip_sx, tip_sy), rl.Vector2(ex, ey),
+                          max(0.6, lw * 0.5), rl.Color(255, 255, 255, int(alpha * 0.65)))
+
+    # ---- Firework explosion (drawn first so sparks sit behind wandering dots) ----
+    if doing_intro and intro_frac < 0.45:
+      bx, by     = screen_cx, screen_cy
+      burst_dist = max(w, h) * 0.90   # how far sparks can travel
+
+      # Instant white-hot core flash at the button origin
+      if intro_frac < 0.15:
+        ft     = intro_frac / 0.15
+        core_r = int(h * 0.40 * (1.0 - ft ** 0.20))
+        core_a = int(255 * (1.0 - ft))
+        if core_r > 0:
+          rl.draw_circle(int(bx), int(by), core_r, rl.Color(255, 255, 255, core_a))
+
+      # 120 individual sparks — each is a glowing dot + short tail line
+      for si in range(len(self._spark_angle)):
+        age = intro_frac - self._spark_delay[si]
+        if age <= 0 or age > 0.35:
+          continue
+        life = age / 0.35               # 0 → 1 over spark lifetime
+        alpha = int(255 * (1.0 - life) ** 1.8)
+        if alpha < 6:
+          continue
+
+        # Travel outward; gravity curves the arc downward
+        dist  = burst_dist * self._spark_speed[si] * life
+        grav  = burst_dist * self._spark_gravity[si] * life * life * 0.35
+        sa    = self._spark_angle[si]
+        px    = bx + math.cos(sa) * dist
+        py    = by + math.sin(sa) * dist + grav   # gravity pulls down
+
+        # Tail: short line segment behind the spark head
+        tail_dist = max(4.0, dist * 0.12)
+        tx = px - math.cos(sa) * tail_dist
+        ty = py - math.sin(sa) * tail_dist - grav * 0.12
+
+        sr = int(self._spark_size[si])
+        rl.draw_line_ex(rl.Vector2(tx, ty), rl.Vector2(px, py), 1.5,
+                        rl.Color(255, 255, 255, alpha // 4))
+        rl.draw_circle(int(px), int(py), sr,
+                       rl.Color(255, 255, 255, int(alpha * 0.55)))
+        rl.draw_circle_lines(int(px), int(py), sr,
+                             rl.Color(200, 200, 200, int(alpha * 0.85)))
+        rl.draw_circle_lines(int(px), int(py), sr + 3,
+                             rl.Color(255, 255, 255, int(alpha * 0.18)))
+
+      # Shrapnel — tiny fast shards firing over the main burst, sharper falloff
+      for xi in range(len(self._shrap_angle)):
+        age = intro_frac - self._shrap_delay[xi]
+        if age <= 0 or age > 0.18:   # lives only half as long as main sparks
+          continue
+        life  = age / 0.18
+        alpha = int(255 * (1.0 - life) ** 2.5)   # sharper fade = more explosive pop
+        if alpha < 8:
+          continue
+
+        dist = burst_dist * self._shrap_speed[xi] * life * 1.8   # travels further faster
+        grav = burst_dist * self._shrap_gravity[xi] * life * life * 0.15
+        sa   = self._shrap_angle[xi]
+        px   = bx + math.cos(sa) * dist
+        py   = by + math.sin(sa) * dist + grav
+
+        # Long bright streak — shrapnel looks like a shooting shard, not a blob
+        streak_len = max(6.0, dist * 0.22)
+        tx = px - math.cos(sa) * streak_len
+        ty = py - math.sin(sa) * streak_len
+
+        sr = max(1, int(self._shrap_size[xi]))
+        rl.draw_line_ex(rl.Vector2(tx, ty), rl.Vector2(px, py), 1.0,
+                        rl.Color(255, 255, 255, int(alpha * 0.65)))
+        rl.draw_circle(int(px), int(py), sr,
+                       rl.Color(255, 255, 255, int(alpha * 0.60)))
+        rl.draw_circle_lines(int(px), int(py), sr + 2,
+                             rl.Color(220, 220, 220, int(alpha * 0.20)))
+
+    # ---- Beat-sync helpers for intro circles ----
+    # Hi-hat / clap energy lives in the two highest spectral bands (indices 6-7 per side).
+    # We average both sides so mono claps still register.
+    if bands is not None and len(bands) >= 16:
+      hihat = float(bands[6] + bands[7] + bands[14] + bands[15]) / 4.0
+    else:
+      hihat = beat_flash * 0.6
+
+    # Quantise time into discrete beat slots (~3/sec ≈ 8th-note hi-hat at 90 BPM).
+    # Each slot gets a FIXED hue — circles hold colour between hits, then snap.
+    # The golden-ratio step (0.618) guarantees each new slot lands at a
+    # maximally-different position in the circle_hue palette.
+    beat_slot  = int(t * 3.2)
+    slot_frac  = (beat_slot * 0.618) % 1.0   # noqa: F841 — kept for when color mode is re-enabled
+
+    # Flash intensity: spikes on hi-hat, decays between hits
+    hihat_flash = max(beat_flash * 0.6, hihat)
+
+    # ---- Ephemeral chaos circles (intro only, wildfire colors) ----
+    if doing_intro and intro_frac > 0.28:
+      chaos_life = _ramp(intro_frac, 0.28, 0.46)
+      chaos_die  = 1.0 - _ramp(intro_frac, 0.80, 1.00)
+      chaos_env  = chaos_life * chaos_die
+      for ci in range(len(self._chaos_angle)):
+        drift  = math.sin(intro_frac * math.pi * 2.0 * self._chaos_dfreq[ci] + self._chaos_dphase[ci]) * 1.2
+        eff_a  = self._chaos_angle[ci] + drift
+        cx_pos = screen_cx + math.cos(eff_a) * (w * self._chaos_rx[ci])
+        cy_pos = screen_cy + math.sin(eff_a) * (h * self._chaos_ry[ci])
+        fire_hue = 0.0   # TMP: white test
+
+        # Steady breathing — gentle, not spazzy
+        breath = 0.80 + 0.20 * math.sin(t * self._chaos_dfreq[ci] * 2.5 + self._chaos_fphase[ci])
+        # Sharp spike on hi-hat
+        flash_boost = 1.0 + hihat_flash * 2.0
+        alpha = int(min(255, chaos_env * breath * 255 * flash_boost))
+        if alpha > 5:
+          cr       = int(self._chaos_size[ci])
+          flash_v  = 1.0
+          flash_s  = 0.0   # TMP: white
+
+          rl.draw_circle(int(cx_pos), int(cy_pos), cr,
+                         hsv_to_color(fire_hue, flash_s, flash_v, int(alpha * 0.80)))
+          rl.draw_circle_lines(int(cx_pos), int(cy_pos), cr,
+                               hsv_to_color(fire_hue, 1.0, 0.25, int(alpha * 0.95)))
+          rl.draw_circle_lines(int(cx_pos), int(cy_pos), cr + 2,
+                               hsv_to_color(fire_hue, 0.7, 1.0, int(alpha * 0.40)))
+          rl.draw_circle_lines(int(cx_pos), int(cy_pos), cr + 4,
+                               hsv_to_color(fire_hue, 0.5, 1.0, int(alpha * 0.18)))
+          if hihat_flash > 0.30:   # shockwave ring on hi-hat hit
+            rl.draw_circle_lines(int(cx_pos), int(cy_pos),
+                                 cr + int(14 * hihat_flash),
+                                 hsv_to_color(fire_hue, 0.2, 1.0, int(alpha * hihat_flash * 0.22)))
 
     # ---- Dot-matrix eyes ----
     # Right eye (index 1) winks: its row offsets are scaled by wink_scale so
@@ -636,7 +906,21 @@ class EyebrowBilly:
         effective_dr = dr * wink_scale if ei == 1 else dr
         tx, ty = ecx + dc * dot_gap, eye_y + effective_dr * dot_gap
         px, py = _intro_pos(dot_idx, tx, ty) if doing_intro else (tx, ty)
-        rl.draw_circle(int(px), int(py), pulse_r, face_col)
+        if doing_intro and intro_frac > 0.10:
+          fire_hue  = 0.0   # TMP: white test
+          flash_v   = 1.0
+          flash_s   = 0.0   # TMP: white
+          dot_a     = int(min(255, a * 0.85 * (1.0 + hihat_flash * 1.8)))
+          rl.draw_circle(int(px), int(py), pulse_r,
+                         hsv_to_color(fire_hue, flash_s, flash_v, dot_a))
+          rl.draw_circle_lines(int(px), int(py), pulse_r,
+                               hsv_to_color(fire_hue, 1.0, 0.25, int(min(255, a * 0.95))))
+          rl.draw_circle_lines(int(px), int(py), pulse_r + 2,
+                               hsv_to_color(fire_hue, 0.7, 1.0, int(a * (0.38 + hihat_flash * 0.30))))
+          rl.draw_circle_lines(int(px), int(py), pulse_r + 4,
+                               hsv_to_color(fire_hue, 0.4, 1.0, int(a * (0.15 + hihat_flash * 0.15))))
+        else:
+          rl.draw_circle(int(px), int(py), pulse_r, face_col)
         dot_idx += 1
 
     # ---- Small V mouth ----
@@ -649,7 +933,21 @@ class EyebrowBilly:
     for (dc, dr) in _MOUTH_DOTS:
       tx, ty = mouth_cx + dc * mouth_gap * spread, mouth_y + dr * mouth_gap
       px, py = _intro_pos(dot_idx, tx, ty) if doing_intro else (tx, ty)
-      rl.draw_circle(int(px), int(py), mouth_dot_r, face_col)
+      if doing_intro and intro_frac > 0.10:
+        fire_hue  = 0.0   # TMP: white test
+        flash_v   = 1.0
+        flash_s   = 0.0   # TMP: white
+        dot_a     = int(min(255, a * 0.85 * (1.0 + hihat_flash * 1.8)))
+        rl.draw_circle(int(px), int(py), mouth_dot_r,
+                       hsv_to_color(fire_hue, flash_s, flash_v, dot_a))
+        rl.draw_circle_lines(int(px), int(py), mouth_dot_r,
+                             hsv_to_color(fire_hue, 1.0, 0.25, int(min(255, a * 0.95))))
+        rl.draw_circle_lines(int(px), int(py), mouth_dot_r + 2,
+                             hsv_to_color(fire_hue, 0.7, 1.0, int(a * (0.38 + hihat_flash * 0.30))))
+        rl.draw_circle_lines(int(px), int(py), mouth_dot_r + 4,
+                             hsv_to_color(fire_hue, 0.4, 1.0, int(a * (0.15 + hihat_flash * 0.15))))
+      else:
+        rl.draw_circle(int(px), int(py), mouth_dot_r, face_col)
       dot_idx += 1
 
     # ---- Waveform eyebrows — only after intro is complete ----
