@@ -463,7 +463,7 @@ class EyebrowBilly:
   def draw(self, rect: rl.Rectangle, t: float, base_hue: float,
            beat_flash: float, energy: float,
            bands: np.ndarray | None = None,
-           intro_frac: float = 1.0,
+           intro_frac: float = 1.0, outro_frac: float = 0.0,
            transition: float = 1.0, hype: float = 1.0) -> None:
     w, h = rect.width, rect.height
     now  = rl.get_time()
@@ -476,6 +476,30 @@ class EyebrowBilly:
     brow_col = hsv_to_color(hue, sat, 1.0, a)
 
     doing_intro = intro_frac < 0.99
+
+    # ---- Outro calming + wink ----
+    # calm: 1.0 → 0.0 over the first 25 % of the outro window
+    calm      = max(0.0, 1.0 - outro_frac * 4.0)
+    eff_beat  = beat_flash * calm          # suppress flash & spike during outro
+    brow_calm = max(0.0, 1.0 - outro_frac * 6.0)  # eyebrows quiet faster
+
+    # Wink right eye (idx 1).  Timeline inside the 4-s outro window:
+    #   0.00–0.40  open     (no change)
+    #   0.40–0.50  closing  (0.4 s)
+    #   0.50–0.72  closed   (0.88 s hold)
+    #   0.72–0.82  opening  (0.4 s)
+    #   0.82–1.00  open     (face relaxed before song ends)
+    if outro_frac < 0.40:
+      wink_scale = 1.0
+    elif outro_frac < 0.50:
+      wink_scale = 1.0 - (outro_frac - 0.40) / 0.10
+    elif outro_frac < 0.72:
+      wink_scale = 0.0
+    elif outro_frac < 0.82:
+      wink_scale = (outro_frac - 0.72) / 0.10
+    else:
+      wink_scale = 1.0
+
     # Dots appear instantly at explosion start then stay fully opaque
     dot_a = int(255 * min(1.0, intro_frac / 0.12)) if doing_intro else a
     white = rl.Color(255, 255, 255, dot_a)
@@ -488,8 +512,8 @@ class EyebrowBilly:
     dot_r   = max(8,  int(h * 0.028))
     dot_gap = max(18, int(h * 0.062))
 
-    # Dots throb on beat even while scattered
-    pulse_r = max(dot_r, int(dot_r * (1.0 + beat_flash * 0.40)))
+    # Dots throb on beat (suppressed during outro)
+    pulse_r = max(dot_r, int(dot_r * (1.0 + eff_beat * 0.40)))
 
     # ---- Intro position resolver ----
     max_scat = max(w, h) * 0.55
@@ -530,10 +554,13 @@ class EyebrowBilly:
       return sx, sy
 
     # ---- Dot-matrix eyes ----
+    # Right eye (index 1) winks: its row offsets are scaled by wink_scale so
+    # all dots converge to a single horizontal line when wink_scale → 0.
     dot_idx = 0
-    for ecx in (eye_lx, eye_rx):
+    for ei, ecx in enumerate((eye_lx, eye_rx)):
       for (dc, dr) in _EYE_DOTS:
-        tx, ty = ecx + dc * dot_gap, eye_y + dr * dot_gap
+        effective_dr = dr * wink_scale if ei == 1 else dr
+        tx, ty = ecx + dc * dot_gap, eye_y + effective_dr * dot_gap
         px, py = _intro_pos(dot_idx, tx, ty) if doing_intro else (tx, ty)
         rl.draw_circle(int(px), int(py), pulse_r, white)
         dot_idx += 1
@@ -543,7 +570,7 @@ class EyebrowBilly:
     mouth_dot_r = max(5,  int(dot_r  * 0.65))
     mouth_cx    = rect.x + w * 0.50
     mouth_y     = rect.y + h * 0.63
-    spread      = 1.0 if doing_intro else 1.0 + beat_flash * 0.12 * hype
+    spread      = 1.0 if doing_intro else 1.0 + eff_beat * 0.12 * hype
     for (dc, dr) in _MOUTH_DOTS:
       tx, ty = mouth_cx + dc * mouth_gap * spread, mouth_y + dr * mouth_gap
       px, py = _intro_pos(dot_idx, tx, ty) if doing_intro else (tx, ty)
@@ -551,12 +578,13 @@ class EyebrowBilly:
       dot_idx += 1
 
     # ---- Waveform eyebrows — only after intro is complete ----
-    if not doing_intro:
+    # brow_calm reaches 0 early in the outro so eyebrows go quiet well before the wink
+    if not doing_intro and brow_calm > 0.01:
       brow_baseline = eye_y - dot_gap * 2.3
       brow_half_w   = dot_gap * 2.8
-      max_amp       = dot_gap * 3.8
-      spike         = beat_flash * hype * dot_gap * 2.8
-      line_thick    = max(4.0, dot_r * 0.58 * (1.0 + beat_flash * 0.7 * hype))
+      max_amp       = dot_gap * 3.8 * brow_calm
+      spike         = eff_beat * hype * dot_gap * 2.8 * brow_calm
+      line_thick    = max(4.0, dot_r * 0.58 * (1.0 + eff_beat * 0.7 * hype)) * brow_calm
       bar_w         = max(3, int(brow_half_w * 2 / _N_WAVE_PTS * 0.55))
 
       for side, ecx in enumerate((eye_lx, eye_rx)):
@@ -576,7 +604,7 @@ class EyebrowBilly:
                    float(bands[b1 + offset]) * lerp_t) * max_amp * hype
           else:
             phase = t * _BROW_SWAY_SPD + frac * math.pi * 2.2 + (math.pi * 0.55 if side else 0)
-            amp   = (0.18 + 0.38 * abs(math.sin(phase))) * dot_gap * ease * hype
+            amp   = (0.18 + 0.38 * abs(math.sin(phase))) * dot_gap * ease * hype * brow_calm
 
           py = brow_baseline - amp * edge_env - spike * edge_env
           pts.append(rl.Vector2(px, py))
@@ -588,9 +616,9 @@ class EyebrowBilly:
         for j in range(len(pts) - 1):
           rl.draw_line_ex(pts[j], pts[j + 1], line_thick, brow_col)
 
-    # ---- Particle bursts — kick only ----
+    # ---- Particle bursts — kick only, not during outro ----
     is_kick = bands is not None and len(bands) >= 1 and float(bands[0]) > 0.60
-    if beat_flash > 0.85 and self._prev_beat_flash <= 0.85 and is_kick:
+    if beat_flash > 0.85 and self._prev_beat_flash <= 0.85 and is_kick and outro_frac < 0.15:
       for ecx in (eye_lx, eye_rx):
         for _ in range(7):
           angle = random.uniform(0, 2 * math.pi)

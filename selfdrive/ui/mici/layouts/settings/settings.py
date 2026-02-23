@@ -405,8 +405,17 @@ class SettingsLayout(NavWidget):
       # The assembled face then sits still until the drop fires the eyebrows.
       intro_frac = float(min(1.0, (now - self._eyebrow_start_time) / 6.0))
 
+      # Outro: calm effects + wink over the last 4 s of the song.
+      _OUTRO_SECS = 4.0
+      song_len = rl.get_music_time_length(self._music) if self._music else 0.0
+      if song_len > _OUTRO_SECS:
+        time_left  = max(0.0, song_len - t)
+        outro_frac = float(max(0.0, 1.0 - time_left / _OUTRO_SECS))
+      else:
+        outro_frac = 0.0
+
       self._eyebrow_billy.draw(rect, t, self._hue, self._beat_flash, self._energy,
-                               bands=bands, intro_frac=intro_frac,
+                               bands=bands, intro_frac=intro_frac, outro_frac=outro_frac,
                                transition=1.0, hype=self._hype)
       return
 
