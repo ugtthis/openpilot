@@ -5,7 +5,6 @@ from collections.abc import Callable
 import pyray as rl
 
 from openpilot.common.filter_simple import FirstOrderFilter
-from openpilot.common.params import Params
 from openpilot.system.ui.widgets.scroller import Scroller
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton
 from openpilot.selfdrive.ui.mici.layouts.settings.toggles import TogglesLayoutMici
@@ -13,51 +12,30 @@ from openpilot.selfdrive.ui.mici.layouts.settings.network import NetworkLayoutMi
 from openpilot.selfdrive.ui.mici.layouts.settings.device import DeviceLayoutMici, PairBigButton
 from openpilot.selfdrive.ui.mici.layouts.settings.developer import DeveloperLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.firehose import FirehoseLayout
-from openpilot.selfdrive.ui.mici.layouts.music_visualizer import AudioAnalysis, DancingFigure, EyebrowBilly, hsv_to_color, MUSIC_PATH
-from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos
+from openpilot.selfdrive.ui.mici.layouts.music_visualizer import AudioAnalysis, EyebrowBilly, MUSIC_PATH
+from openpilot.system.ui.lib.application import gui_app, MousePos
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.nav_widget import NavWidget
 
-# Jump arc duration (seconds)
-JUMP_DURATION = 0.35
-# Beats to stay on a button before jumping (pre-drop and post-drop)
-BEATS_PER_JUMP_CHILL = 8   # before / just after drop
-BEATS_PER_JUMP_HYPE  = 2   # fully hyped (hype > 0.8)
-
 
 class SettingsBigButton(BigButton):
-  """BigButton that yields control to SettingsLayout during dance mode."""
+  """BigButton that blocks its own tap handler while eyebrow mode is active."""
 
   def __init__(self, *args, is_dance_active: Callable[[], bool] | None = None, **kwargs):
     super().__init__(*args, **kwargs)
     self._is_dance_active: Callable[[], bool] = is_dance_active or (lambda: False)
-    self._occupied = False   # True when the dancing character is standing on this button
-
-  def set_occupied(self, occupied: bool) -> None:
-    self._occupied = occupied
 
   def _get_label_font_size(self) -> int:
     return 64
 
   def _handle_mouse_release(self, mouse_pos: MousePos) -> None:
-    # Block navigation during dance — SettingsLayout handles the tap
     if not self._is_dance_active():
       super()._handle_mouse_release(mouse_pos)
-
-  def _render(self, _) -> None:
-    if self._occupied:
-      # Keep the bounce filter ticking so there's no state jump on transition
-      self._scale_filter.update(1.0)
-      # Blank dark background — figure is drawn on top by SettingsLayout
-      rl.draw_rectangle_rounded(self._rect, 0.4, 7, rl.Color(10, 10, 30, 255))
-    else:
-      super()._render(_)
 
 
 class SettingsLayout(NavWidget):
   def __init__(self):
     super().__init__()
-    self._params = Params()
 
     # Shared closure so every button can query live dance state
     is_dancing: Callable[[], bool] = lambda: self._dance_active
@@ -89,17 +67,11 @@ class SettingsLayout(NavWidget):
                                           icon_size=(52, 62), is_dance_active=is_dancing)
     self._firehose_btn.set_click_callback(lambda: gui_app.push_widget(firehose_panel))
 
-    self._music_btn = SettingsBigButton("don't press...", "", "icons_mici/offroad_alerts/orange_warning.png",
-                                       icon_size=(62, 62), is_dance_active=is_dancing)
-    self._music_btn.set_click_callback(self._start_dance)
-
     self._eyebrow_btn = SettingsBigButton("eyebrow", "", "icons_mici/offroad_alerts/orange_warning.png",
                                          icon_size=(62, 62), is_dance_active=is_dancing)
     self._eyebrow_btn.set_click_callback(self._start_eyebrow_dance)
 
-    # music_btn is FIRST (index 0) — figure starts here and wraps around
     self._btn_list: list[Widget] = [
-      self._music_btn,
       self._eyebrow_btn,
       self._toggles_btn,
       self._network_btn,
@@ -111,17 +83,14 @@ class SettingsLayout(NavWidget):
 
     self._scroller = Scroller(list(self._btn_list))
     self.set_back_callback(gui_app.pop_widget)
-    self._font_medium = gui_app.font(FontWeight.MEDIUM)
 
-    # ---- Dance mode state ----
-    self._dance_active = False
-    self._dance_start_time = 0.0
+    # ---- Shared audio / beat-tracking state ----
+    self._dance_active = False      # True while eyebrow mode is running (blocks button nav)
     self._music: rl.Music | None = None
     self._audio_initialized = False
     self._analysis: AudioAnalysis | None = None
     self._analysis_thread: threading.Thread | None = None
 
-    # Beat / energy tracking
     self._beat_idx = 0
     self._prev_time = 0.0
     self._on_beat = False
@@ -132,95 +101,10 @@ class SettingsLayout(NavWidget):
     self._energy_filter = FirstOrderFilter(0.0, 0.05, 1 / 60)
     self._music_started = False
 
-    # Single character state
-    self._figure: DancingFigure | None = None
-    self._figure_start_time = 0.0  # for fade-in
-    self._current_btn_idx = 0      # button the figure currently occupies (or is jumping TO)
-    self._prev_btn_idx    = 0      # button it last jumped FROM
-    self._jump_start_time = -999.0 # -999 = not jumping
-    self._beats_on_btn    = 0      # beats accumulated on current button
-
-    # Eyebrow Billy state
+    # ---- Eyebrow Billy state ----
     self._eyebrow_active = False
     self._eyebrow_billy: EyebrowBilly | None = None
     self._eyebrow_start_time = 0.0
-    # eyebrow button is at index 1 in _btn_list
-
-  # -------------------------------------------------------------------------
-  # Dance mode start / stop
-  # -------------------------------------------------------------------------
-
-  def _start_dance(self) -> None:
-    if self._dance_active:
-      return
-
-    self._dance_active = True
-    self._dance_start_time = rl.get_time()
-
-    # Audio
-    rl.init_audio_device()
-    self._audio_initialized = True
-    self._music = rl.load_music_stream(MUSIC_PATH)
-    self._music.looping = False
-    rl.set_music_volume(self._music, 1.0)
-    rl.play_music_stream(self._music)
-
-    # Reset beat state
-    self._beat_idx = 0
-    self._prev_time = 0.0
-    self._on_beat = False
-    self._beat_flash = 0.0
-    self._energy = 0.0
-    self._hue = 0.0
-    self._hype = 0.05
-    self._music_started = False
-
-    # Analysis (background thread)
-    self._analysis = AudioAnalysis(MUSIC_PATH)
-    self._analysis_thread = threading.Thread(target=self._analysis.run, daemon=True)
-    self._analysis_thread.start()
-
-    # Place the single figure on button 0
-    self._figure = DancingFigure(hue_offset=0.0)
-    self._figure_start_time = rl.get_time()
-    self._current_btn_idx = 0
-    self._prev_btn_idx    = 0
-    self._jump_start_time = -999.0
-    self._beats_on_btn    = 0
-
-  def _stop_dance(self) -> None:
-    if not self._dance_active:
-      return
-
-    self._dance_active = False
-    self._figure = None
-    self._analysis = None
-
-    # Restore all buttons to normal appearance
-    for btn in self._btn_list:
-      if isinstance(btn, SettingsBigButton):
-        btn.set_occupied(False)
-
-    if self._music is not None:
-      rl.stop_music_stream(self._music)
-      rl.unload_music_stream(self._music)
-      self._music = None
-    if self._audio_initialized:
-      rl.close_audio_device()
-      self._audio_initialized = False
-
-    # Scroll back so the "don't press..." button is in view
-    self._scroller.scroll_to(self._btn_list[0].rect.x, smooth=True)
-
-  def _start_jump(self) -> None:
-    """Launch the character to the next button (wraps around)."""
-    next_idx = (self._current_btn_idx + 1) % len(self._btn_list)
-    self._prev_btn_idx    = self._current_btn_idx
-    self._current_btn_idx = next_idx
-    self._jump_start_time = rl.get_time()
-    self._beats_on_btn    = 0
-    # Scroll to keep the landing button visible
-    self._scroller.scroll_to(self._btn_list[next_idx].rect.x, smooth=True)
 
   # -------------------------------------------------------------------------
   # Eyebrow Billy start / stop
@@ -234,7 +118,6 @@ class SettingsLayout(NavWidget):
     self._dance_active   = True   # blocks button navigation for all SettingsBigButtons
     self._eyebrow_start_time = rl.get_time()
 
-    # Audio (same pipeline as _start_dance)
     rl.init_audio_device()
     self._audio_initialized = True
     self._music = rl.load_music_stream(MUSIC_PATH)
@@ -258,9 +141,7 @@ class SettingsLayout(NavWidget):
     self._analysis_thread.start()
 
     self._eyebrow_billy = EyebrowBilly(origin_rect=self._eyebrow_btn.rect)
-
-    # Scroll the eyebrow button (index 1) into view
-    self._scroller.scroll_to(self._btn_list[1].rect.x, smooth=True)
+    self._scroller.scroll_to(self._eyebrow_btn.rect.x, smooth=True)
 
   def _stop_eyebrow_dance(self) -> None:
     if not self._eyebrow_active:
@@ -270,10 +151,6 @@ class SettingsLayout(NavWidget):
     self._dance_active   = False
     self._eyebrow_billy  = None
     self._analysis       = None
-
-    for btn in self._btn_list:
-      if isinstance(btn, SettingsBigButton):
-        btn.set_occupied(False)
 
     if self._music is not None:
       rl.stop_music_stream(self._music)
@@ -330,31 +207,15 @@ class SettingsLayout(NavWidget):
     # Hue rotation (slow before drop, fast after)
     self._hue = (self._hue + dt * 20.0 * max(0.1, self._hype)) % 360.0
 
-    # Jump logic — only fires for the stick figure (not eyebrow mode)
-    now = rl.get_time()
-    is_jumping = (now - self._jump_start_time) < JUMP_DURATION
-
-    if not self._eyebrow_active and self._on_beat and not is_jumping:
-      self._beats_on_btn += 1
-      if self._analysis is not None and self._analysis.done:
-        drop_t = self._analysis.beat_drop_time
-        if t >= drop_t:
-          beats_needed = BEATS_PER_JUMP_HYPE if self._hype > 0.8 else BEATS_PER_JUMP_CHILL
-          if self._beats_on_btn >= beats_needed:
-            self._start_jump()
-
     # Latch "music started" flag (raylib resets get_music_time_played to 0 at song end)
     if t > 0.5:
       self._music_started = True
 
     if self._music_started and not rl.is_music_stream_playing(self._music):
-      if self._eyebrow_active:
-        self._stop_eyebrow_dance()
-      else:
-        self._stop_dance()
+      self._stop_eyebrow_dance()
 
   # -------------------------------------------------------------------------
-  # Input — tap to boost the character
+  # Input
   # -------------------------------------------------------------------------
 
   def _handle_mouse_release(self, mouse_pos: MousePos) -> None:
@@ -362,10 +223,6 @@ class SettingsLayout(NavWidget):
       # Tap anywhere exits the full-screen mode (guard against the tap that opened it)
       if rl.get_time() - self._eyebrow_start_time > 0.5:
         self._stop_eyebrow_dance()
-    elif self._dance_active:
-      # Guard against the same release that triggered _start_dance
-      if rl.get_time() - self._dance_start_time > 1.0 and self._figure is not None:
-        self._figure.trigger_boost()
     else:
       super()._handle_mouse_release(mouse_pos)
 
@@ -381,7 +238,6 @@ class SettingsLayout(NavWidget):
     super().hide_event()
     self._scroller.hide_event()
     self._stop_eyebrow_dance()
-    self._stop_dance()
 
   # -------------------------------------------------------------------------
   # Render
@@ -416,70 +272,4 @@ class SettingsLayout(NavWidget):
                                transition=1.0, hype=self._hype)
       return
 
-    # Mark which button the figure occupies BEFORE the scroller renders so
-    # each button's own _render sees the correct occupied state.
-    for i, btn in enumerate(self._btn_list):
-      if isinstance(btn, SettingsBigButton):
-        btn.set_occupied(self._dance_active and self._figure is not None and i == self._current_btn_idx)
-
-    # Render scroller (buttons are laid out and scissor-clipped inside)
     self._scroller.render(rect)
-
-    if not self._dance_active or self._figure is None:
-      return
-
-    now = rl.get_time()
-    t   = rl.get_music_time_played(self._music) if self._music else now
-
-    # ---- Compute figure position ----
-    jump_age  = now - self._jump_start_time
-    is_jumping = 0 < self._jump_start_time and jump_age < JUMP_DURATION
-
-    if is_jumping:
-      from_btn = self._btn_list[self._prev_btn_idx]
-      to_btn   = self._btn_list[self._current_btn_idx]
-      jump_t   = jump_age / JUMP_DURATION
-
-      # Smooth-step horizontal, full-sine arc vertical
-      ease_t   = jump_t * jump_t * (3.0 - 2.0 * jump_t)
-      from_cx  = from_btn.rect.x + from_btn.rect.width  * 0.5
-      to_cx    = to_btn.rect.x   + to_btn.rect.width    * 0.5
-      from_cy  = from_btn.rect.y + from_btn.rect.height * 0.5
-      to_cy    = to_btn.rect.y   + to_btn.rect.height   * 0.5
-      cx       = from_cx + (to_cx - from_cx) * ease_t
-      arc_h    = from_btn.rect.height * 0.65
-      cy       = from_cy + (to_cy - from_cy) * ease_t - math.sin(jump_t * math.pi) * arc_h
-
-      fw       = from_btn.rect.width
-      fh       = from_btn.rect.height
-      fig_rect = rl.Rectangle(cx - fw * 0.5, cy - fh * 0.5, fw, fh)
-    else:
-      btn      = self._btn_list[self._current_btn_idx]
-      fig_rect = btn.rect
-
-    # ---- Glow border on the destination button ----
-    dest_btn = self._btn_list[self._current_btn_idx]
-    # Fade the glow in as the figure approaches during a jump
-    glow_presence = min(1.0, jump_age / JUMP_DURATION) if is_jumping else 1.0
-    glow_alpha    = int((70 + 185 * self._beat_flash) * max(0.25, self._hype) * glow_presence)
-    glow_color    = hsv_to_color(self._hue, 0.8 + 0.2 * self._hype, 1.0, glow_alpha)
-    rl.draw_rectangle_rounded_lines(dest_btn.rect, 0.2, 6, glow_color)
-    if self._beat_flash > 0.5 and self._hype > 0.5:
-      rl.draw_rectangle_rounded_lines(dest_btn.rect, 0.2, 6, glow_color)
-
-    # ---- Draw the figure ----
-    # Use transition for a quick fade-in on first appearance; 1.0 thereafter
-    fade_in = min(1.0, (now - self._figure_start_time) / 0.4)
-    self._figure.draw(fig_rect, t, self._hue, self._beat_flash, self._energy,
-                      transition=fade_in, hype=self._hype)
-
-    # ---- Landing burst: ring expands where the figure just landed ----
-    land_age = now - (self._jump_start_time + JUMP_DURATION)
-    if 0 < land_age < 0.3:
-      burst_frac = land_age / 0.3
-      burst_r    = int(dest_btn.rect.height * 0.45 * burst_frac)
-      burst_a    = int(220 * (1.0 - burst_frac) * self._hype)
-      bx = int(dest_btn.rect.x + dest_btn.rect.width  * 0.5)
-      by = int(dest_btn.rect.y + dest_btn.rect.height * 0.5)
-      rl.draw_circle_lines(bx, by, max(1, burst_r),
-                           hsv_to_color(self._hue, 1.0, 1.0, burst_a))

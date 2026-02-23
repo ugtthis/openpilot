@@ -1,11 +1,11 @@
 """
-Music beat analysis and dancing figure primitives for the MICI settings screen.
+Music beat analysis and visual primitives for the MICI settings screen.
 
 AudioAnalysis: decodes the MP3 via ffmpeg, computes beat timestamps and per-frame
 spectral energy using numpy FFT.
 
-DancingFigure: draws a procedural stick figure (hat, head, body, arms, legs) that
-dances to the music using sin/cos animation driven by playback time + beat events.
+EyebrowBilly: full-screen dot-matrix robot face with waveform eyebrows, a letter-
+explosion intro animation, and an outro wink — all driven by AudioAnalysis data.
 """
 
 import math
