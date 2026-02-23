@@ -6,7 +6,7 @@ import pyray as rl
 
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.system.ui.widgets.scroller import Scroller
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, PRESSED_SCALE
 from openpilot.selfdrive.ui.mici.layouts.settings.toggles import TogglesLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.network import NetworkLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.device import DeviceLayoutMici, PairBigButton
@@ -31,6 +31,33 @@ class SettingsBigButton(BigButton):
   def _handle_mouse_release(self, mouse_pos: MousePos) -> None:
     if not self._is_dance_active():
       super()._handle_mouse_release(mouse_pos)
+
+
+class EyebrowBigButton(SettingsBigButton):
+  """The red dome PNG is the entire button — centered, bounces on press."""
+
+  _DOME_RATIO = 0.75  # dome diameter relative to button height
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    # Compact square-ish slot so the dome doesn't float in a wide empty rectangle.
+    h = self._rect.height
+    self.set_rect(rl.Rectangle(0, 0, h * 1.3, h))
+
+  def _load_images(self):
+    super()._load_images()
+    self._txt_dome = gui_app.texture("icons_mici/red_dome_button.png", 256, 256)
+
+  def _render(self, _: rl.Rectangle) -> None:
+    scale = self._scale_filter.update(PRESSED_SCALE if self.is_pressed else 1.0)
+    size  = self._rect.height * self._DOME_RATIO * scale
+    tint  = rl.Color(180, 180, 180, 255) if self.is_pressed else rl.WHITE
+    rl.draw_texture_ex(
+      self._txt_dome,
+      rl.Vector2(self._rect.x + (self._rect.width  - size) / 2,
+                 self._rect.y + (self._rect.height - size) / 2),
+      0.0, size / self._txt_dome.width, tint,
+    )
 
 
 class SettingsLayout(NavWidget):
@@ -67,8 +94,7 @@ class SettingsLayout(NavWidget):
                                           icon_size=(52, 62), is_dance_active=is_dancing)
     self._firehose_btn.set_click_callback(lambda: gui_app.push_widget(firehose_panel))
 
-    self._eyebrow_btn = SettingsBigButton("eyebrow", "", "icons_mici/offroad_alerts/orange_warning.png",
-                                         icon_size=(62, 62), is_dance_active=is_dancing)
+    self._eyebrow_btn = EyebrowBigButton("", is_dance_active=is_dancing)
     self._eyebrow_btn.set_click_callback(self._start_eyebrow_dance)
 
     self._btn_list: list[Widget] = [
