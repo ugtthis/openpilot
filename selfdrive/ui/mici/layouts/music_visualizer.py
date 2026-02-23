@@ -434,9 +434,9 @@ _EYE_DOTS: list[tuple[float, float]] = [
   (-1,  1.5), ( 0,  1.5), ( 1,  1.5),
 ]
 
-# Mouth: 3 small dots in a gentle V
+# Mouth: 4 small dots in a gentle V
 _MOUTH_DOTS: list[tuple[float, float]] = [
-  (-1.0, 0.0), (0.0, 0.7), (1.0, 0.0),
+  (-1.0, 0.0), (-0.5, 0.7), (0.5, 0.7), (1.0, 0.0),
 ]
 
 _N_WAVE_PTS      = 48   # polyline sample points per eyebrow — more = smoother curve
