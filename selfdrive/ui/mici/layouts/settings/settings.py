@@ -193,6 +193,8 @@ class SettingsLayout(NavWidget):
   # -------------------------------------------------------------------------
 
   def _update_state(self) -> None:
+    super()._update_state()
+
     if not self._dance_active or self._music is None:
       return
 
