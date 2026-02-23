@@ -54,49 +54,6 @@ def hsv_to_color(h: float, s: float, v: float, a: int = 255) -> rl.Color:
   return rl.Color(int((r + m) * 255), int((g + m) * 255), int((b + m) * 255), a)
 
 
-def circle_hue(v: float) -> float:
-  """Hue palette for intro circles — purple/magenta/violet with cyan/blue accents.
-
-  Complements the green/cyan warp beams for a contrasting neon light-show feel.
-    purple      255-300  (35 %)
-    magenta     300-345  (35 %)
-    blue        210-255  (20 %)
-    cyan accent 165-210  (10 %)
-  """
-  bands = [(255, 300, 0.35), (300, 345, 0.35), (210, 255, 0.20), (165, 210, 0.10)]
-  v = max(0.0, min(1.0, v % 1.0))
-  acc = 0.0
-  for lo, hi, w in bands:
-    if v < acc + w:
-      return lo + (hi - lo) * (v - acc) / w
-    acc += w
-  return bands[-1][1]
-
-
-def edm_hue(v: float) -> float:
-  """Map a 0-1 value to an EDM/neon light-show hue (degrees).
-
-  Covers only the cool, electric side of the wheel:
-    lime-green → cyan → blue → purple → hot-pink/magenta.
-  Warm reds, oranges and yellows are intentionally excluded.
-  """
-  # Four neon bands with proportional weights:
-  #   lime     100-140  (10 %)
-  #   cyan     165-210  (25 %)
-  #   blue     210-255  (30 %)
-  #   purple   255-300  (20 %)
-  #   magenta  300-335  (15 %)
-  bands = [(100, 140, 0.10), (165, 210, 0.25), (210, 255, 0.30),
-           (255, 300, 0.20), (300, 335, 0.15)]
-  v = max(0.0, min(1.0, v % 1.0))
-  acc = 0.0
-  for lo, hi, w in bands:
-    if v < acc + w:
-      return lo + (hi - lo) * (v - acc) / w
-    acc += w
-  return bands[-1][1]
-
-
 # ---------------------------------------------------------------------------
 # Beat analysis (runs in background thread)
 # ---------------------------------------------------------------------------
@@ -532,10 +489,6 @@ class EyebrowBilly:
     # they spread at different depths across the frame — no synchronized ring.
     self._scat_rx     = [rng.uniform(0.15, 0.42)        for _ in range(n_total)]
     self._scat_ry     = [rng.uniform(0.12, 0.38)        for _ in range(n_total)]
-    # Each dot originates from a letter in "eyebrow" (7 letters)
-    n_letters = 7
-    self._dot_letter  = [i * n_letters // n_total for i in range(n_total)]
-
     # ---- Firework sparks — shoot out on explosion, arc with gravity, fade away ----
     _N_SPARKS = 220
     srng = random.Random(99)
@@ -543,7 +496,6 @@ class EyebrowBilly:
     # gravity factor (positive = pulled down, negative = floats up briefly)
     self._spark_angle   = [srng.uniform(0.0, 2 * math.pi) for _ in range(_N_SPARKS)]
     self._spark_speed   = [srng.uniform(0.30, 1.00)        for _ in range(_N_SPARKS)]
-    self._spark_hue     = [edm_hue(srng.random())           for _ in range(_N_SPARKS)]
     self._spark_delay   = [srng.uniform(0.0, 0.12)         for _ in range(_N_SPARKS)]  # staggered waves
     self._spark_gravity = [srng.uniform(0.2, 1.0)          for _ in range(_N_SPARKS)]  # arc strength
     self._spark_size    = [srng.uniform(2.0, 7.0)          for _ in range(_N_SPARKS)]
@@ -554,7 +506,6 @@ class EyebrowBilly:
     xrng = random.Random(777)
     self._shrap_angle   = [xrng.uniform(0.0, 2 * math.pi) for _ in range(_N_SHRAP)]
     self._shrap_speed   = [xrng.uniform(0.60, 1.50)        for _ in range(_N_SHRAP)]  # faster than sparks
-    self._shrap_hue     = [edm_hue(xrng.random())           for _ in range(_N_SHRAP)]
     self._shrap_delay   = [xrng.uniform(0.00, 0.08)         for _ in range(_N_SHRAP)]  # tighter wave
     self._shrap_gravity = [xrng.uniform(-0.1, 0.25)         for _ in range(_N_SHRAP)]  # mostly straight
     self._shrap_size    = [xrng.uniform(1.0, 3.5)           for _ in range(_N_SHRAP)]  # tiny shards
@@ -588,19 +539,6 @@ class EyebrowBilly:
     self._chaos_dphase = [crng.uniform(0.0, 2 * math.pi)  for _ in range(_N_CHAOS)]
     self._chaos_fphase = [crng.uniform(0.0, 2 * math.pi)  for _ in range(_N_CHAOS)]
     self._chaos_size   = [crng.uniform(3.0, 14.0)          for _ in range(_N_CHAOS)]
-    # Evenly spaced through the circle palette (purple/magenta/violet) so chaos
-    # circles contrast against the green/cyan warp beams.
-    self._chaos_hue    = [circle_hue(ci / _N_CHAOS + crng.uniform(-0.03, 0.03))
-                          for ci in range(_N_CHAOS)]
-    # Drift speed in degrees-per-SECOND (not per intro_frac) so colors visibly
-    # cycle in real time — large range ensures circles rapidly diverge.
-    self._chaos_hspeed = [crng.uniform(80.0, 280.0)       for _ in range(_N_CHAOS)]
-
-    # ---- Per face-dot fire hue — contagion colors during intro ----
-    # Circle palette: purple/magenta/violet — complementary contrast to warp beams.
-    self._dot_fire_hue   = [circle_hue(i / n_total + rng.uniform(-0.04, 0.04))
-                            for i in range(n_total)]
-    self._dot_hspeed     = [rng.uniform(70.0, 240.0)      for _ in range(n_total)]
 
   # ------------------------------------------------------------------
   def draw(self, rect: rl.Rectangle, t: float, base_hue: float,
@@ -650,7 +588,7 @@ class EyebrowBilly:
     # Dots appear instantly at explosion start then stay fully opaque
     dot_a = int(255 * min(1.0, intro_frac / 0.08)) if doing_intro else a
 
-    # TMP: white test — dots are pure white the whole intro
+    # Intro dots are white — matches the sparks and chaos circles
     if doing_intro:
       face_col = rl.Color(255, 255, 255, dot_a)
     else:
@@ -844,22 +782,11 @@ class EyebrowBilly:
         rl.draw_circle_lines(int(px), int(py), sr + 2,
                              rl.Color(220, 220, 220, int(alpha * 0.20)))
 
-    # ---- Beat-sync helpers for intro circles ----
-    # Hi-hat / clap energy lives in the two highest spectral bands (indices 6-7 per side).
-    # We average both sides so mono claps still register.
+    # Hi-hat / clap energy from the two highest spectral bands — drives circle flash.
     if bands is not None and len(bands) >= 16:
       hihat = float(bands[6] + bands[7] + bands[14] + bands[15]) / 4.0
     else:
       hihat = beat_flash * 0.6
-
-    # Quantise time into discrete beat slots (~3/sec ≈ 8th-note hi-hat at 90 BPM).
-    # Each slot gets a FIXED hue — circles hold colour between hits, then snap.
-    # The golden-ratio step (0.618) guarantees each new slot lands at a
-    # maximally-different position in the circle_hue palette.
-    beat_slot  = int(t * 3.2)
-    slot_frac  = (beat_slot * 0.618) % 1.0   # noqa: F841 — kept for when color mode is re-enabled
-
-    # Flash intensity: spikes on hi-hat, decays between hits
     hihat_flash = max(beat_flash * 0.6, hihat)
 
     # ---- Ephemeral chaos circles (intro only, wildfire colors) ----
@@ -872,30 +799,18 @@ class EyebrowBilly:
         eff_a  = self._chaos_angle[ci] + drift
         cx_pos = screen_cx + math.cos(eff_a) * (w * self._chaos_rx[ci])
         cy_pos = screen_cy + math.sin(eff_a) * (h * self._chaos_ry[ci])
-        fire_hue = 0.0   # TMP: white test
-
-        # Steady breathing — gentle, not spazzy
-        breath = 0.80 + 0.20 * math.sin(t * self._chaos_dfreq[ci] * 2.5 + self._chaos_fphase[ci])
-        # Sharp spike on hi-hat
+        breath      = 0.80 + 0.20 * math.sin(t * self._chaos_dfreq[ci] * 2.5 + self._chaos_fphase[ci])
         flash_boost = 1.0 + hihat_flash * 2.0
         alpha = int(min(255, chaos_env * breath * 255 * flash_boost))
         if alpha > 5:
-          cr       = int(self._chaos_size[ci])
-          flash_v  = 1.0
-          flash_s  = 0.0   # TMP: white
-
-          rl.draw_circle(int(cx_pos), int(cy_pos), cr,
-                         hsv_to_color(fire_hue, flash_s, flash_v, int(alpha * 0.80)))
-          rl.draw_circle_lines(int(cx_pos), int(cy_pos), cr,
-                               hsv_to_color(fire_hue, 1.0, 0.25, int(alpha * 0.95)))
-          rl.draw_circle_lines(int(cx_pos), int(cy_pos), cr + 2,
-                               hsv_to_color(fire_hue, 0.7, 1.0, int(alpha * 0.40)))
-          rl.draw_circle_lines(int(cx_pos), int(cy_pos), cr + 4,
-                               hsv_to_color(fire_hue, 0.5, 1.0, int(alpha * 0.18)))
-          if hihat_flash > 0.30:   # shockwave ring on hi-hat hit
-            rl.draw_circle_lines(int(cx_pos), int(cy_pos),
-                                 cr + int(14 * hihat_flash),
-                                 hsv_to_color(fire_hue, 0.2, 1.0, int(alpha * hihat_flash * 0.22)))
+          cr = int(self._chaos_size[ci])
+          rl.draw_circle(int(cx_pos), int(cy_pos), cr,      rl.Color(255, 255, 255, int(alpha * 0.80)))
+          rl.draw_circle_lines(int(cx_pos), int(cy_pos), cr,      rl.Color(200, 200, 200, int(alpha * 0.95)))
+          rl.draw_circle_lines(int(cx_pos), int(cy_pos), cr + 2,  rl.Color(255, 255, 255, int(alpha * 0.40)))
+          rl.draw_circle_lines(int(cx_pos), int(cy_pos), cr + 4,  rl.Color(255, 255, 255, int(alpha * 0.18)))
+          if hihat_flash > 0.30:
+            rl.draw_circle_lines(int(cx_pos), int(cy_pos), cr + int(14 * hihat_flash),
+                                 rl.Color(255, 255, 255, int(alpha * hihat_flash * 0.22)))
 
     # ---- Dot-matrix eyes ----
     # Right eye (index 1) winks: its row offsets are scaled by wink_scale so
@@ -907,18 +822,11 @@ class EyebrowBilly:
         tx, ty = ecx + dc * dot_gap, eye_y + effective_dr * dot_gap
         px, py = _intro_pos(dot_idx, tx, ty) if doing_intro else (tx, ty)
         if doing_intro and intro_frac > 0.10:
-          fire_hue  = 0.0   # TMP: white test
-          flash_v   = 1.0
-          flash_s   = 0.0   # TMP: white
-          dot_a     = int(min(255, a * 0.85 * (1.0 + hihat_flash * 1.8)))
-          rl.draw_circle(int(px), int(py), pulse_r,
-                         hsv_to_color(fire_hue, flash_s, flash_v, dot_a))
-          rl.draw_circle_lines(int(px), int(py), pulse_r,
-                               hsv_to_color(fire_hue, 1.0, 0.25, int(min(255, a * 0.95))))
-          rl.draw_circle_lines(int(px), int(py), pulse_r + 2,
-                               hsv_to_color(fire_hue, 0.7, 1.0, int(a * (0.38 + hihat_flash * 0.30))))
-          rl.draw_circle_lines(int(px), int(py), pulse_r + 4,
-                               hsv_to_color(fire_hue, 0.4, 1.0, int(a * (0.15 + hihat_flash * 0.15))))
+          dot_a = int(min(255, a * 0.85 * (1.0 + hihat_flash * 1.8)))
+          rl.draw_circle(int(px), int(py), pulse_r,     rl.Color(255, 255, 255, dot_a))
+          rl.draw_circle_lines(int(px), int(py), pulse_r,     rl.Color(200, 200, 200, int(min(255, a * 0.95))))
+          rl.draw_circle_lines(int(px), int(py), pulse_r + 2, rl.Color(255, 255, 255, int(a * (0.38 + hihat_flash * 0.30))))
+          rl.draw_circle_lines(int(px), int(py), pulse_r + 4, rl.Color(255, 255, 255, int(a * (0.15 + hihat_flash * 0.15))))
         else:
           rl.draw_circle(int(px), int(py), pulse_r, face_col)
         dot_idx += 1
@@ -934,18 +842,11 @@ class EyebrowBilly:
       tx, ty = mouth_cx + dc * mouth_gap * spread, mouth_y + dr * mouth_gap
       px, py = _intro_pos(dot_idx, tx, ty) if doing_intro else (tx, ty)
       if doing_intro and intro_frac > 0.10:
-        fire_hue  = 0.0   # TMP: white test
-        flash_v   = 1.0
-        flash_s   = 0.0   # TMP: white
-        dot_a     = int(min(255, a * 0.85 * (1.0 + hihat_flash * 1.8)))
-        rl.draw_circle(int(px), int(py), mouth_dot_r,
-                       hsv_to_color(fire_hue, flash_s, flash_v, dot_a))
-        rl.draw_circle_lines(int(px), int(py), mouth_dot_r,
-                             hsv_to_color(fire_hue, 1.0, 0.25, int(min(255, a * 0.95))))
-        rl.draw_circle_lines(int(px), int(py), mouth_dot_r + 2,
-                             hsv_to_color(fire_hue, 0.7, 1.0, int(a * (0.38 + hihat_flash * 0.30))))
-        rl.draw_circle_lines(int(px), int(py), mouth_dot_r + 4,
-                             hsv_to_color(fire_hue, 0.4, 1.0, int(a * (0.15 + hihat_flash * 0.15))))
+        dot_a = int(min(255, a * 0.85 * (1.0 + hihat_flash * 1.8)))
+        rl.draw_circle(int(px), int(py), mouth_dot_r,     rl.Color(255, 255, 255, dot_a))
+        rl.draw_circle_lines(int(px), int(py), mouth_dot_r,     rl.Color(200, 200, 200, int(min(255, a * 0.95))))
+        rl.draw_circle_lines(int(px), int(py), mouth_dot_r + 2, rl.Color(255, 255, 255, int(a * (0.38 + hihat_flash * 0.30))))
+        rl.draw_circle_lines(int(px), int(py), mouth_dot_r + 4, rl.Color(255, 255, 255, int(a * (0.15 + hihat_flash * 0.15))))
       else:
         rl.draw_circle(int(px), int(py), mouth_dot_r, face_col)
       dot_idx += 1
