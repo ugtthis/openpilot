@@ -414,7 +414,7 @@ _MOUTH_DOTS: list[tuple[float, float]] = [
   (-1.0, 0.0), (0.0, 0.7), (1.0, 0.0),
 ]
 
-_N_WAVE_PTS      = 16   # polyline sample points per eyebrow
+_N_WAVE_PTS      = 48   # polyline sample points per eyebrow — more = smoother curve
 _BROW_SWAY_SPD   = 2.6  # fallback sine speed when analysis not ready
 _BILLY_PTCL_LIFE = 0.6
 
@@ -580,21 +580,28 @@ class EyebrowBilly:
       line_thick    = max(4.0, dot_r * 0.58 * (1.0 + eff_beat * 0.7 * hype)) * brow_calm
       bar_w         = max(3, int(brow_half_w * 2 / _N_WAVE_PTS * 0.55))
 
+      # Cap only the beat spike so it never pushes the peak above the top
+      # clearance — max_amp (which drives bar heights) is left untouched.
+      top_clearance = rect.y + h * 0.06
+      available     = brow_baseline - top_clearance
+      spike = min(spike, max(0.0, available - max_amp * hype))
+
       for side, ecx in enumerate((eye_lx, eye_rx)):
         pts: list[rl.Vector2] = []
         for i in range(_N_WAVE_PTS):
           frac     = i / (_N_WAVE_PTS - 1)
           px       = ecx - brow_half_w + brow_half_w * 2.0 * frac
-          edge_env = math.sin(frac * math.pi)
+          edge_env = math.sin(frac * math.pi) ** 1.4  # steeper taper toward tips
 
           if bands is not None and len(bands) >= 16:
-            band_frac = frac * 7.0
-            b0        = min(int(band_frac), 7)
-            b1        = min(b0 + 1, 7)
-            lerp_t    = band_frac - b0
-            offset    = 8 if side else 0
-            amp = (float(bands[b0 + offset]) * (1 - lerp_t) +
-                   float(bands[b1 + offset]) * lerp_t) * max_amp * hype
+            band_frac  = frac * 7.0
+            b0         = min(int(band_frac), 7)
+            b1         = min(b0 + 1, 7)
+            t_lin      = band_frac - b0
+            t_cos      = 0.5 - 0.5 * math.cos(t_lin * math.pi)  # smoother than linear
+            offset     = 8 if side else 0
+            amp = (float(bands[b0 + offset]) * (1 - t_cos) +
+                   float(bands[b1 + offset]) * t_cos) * max_amp * hype
           else:
             phase = t * _BROW_SWAY_SPD + frac * math.pi * 2.2 + (math.pi * 0.55 if side else 0)
             amp   = (0.18 + 0.38 * abs(math.sin(phase))) * dot_gap * ease * hype * brow_calm
@@ -607,6 +614,11 @@ class EyebrowBilly:
                             rl.Color(brow_col.r, brow_col.g, brow_col.b, int(a * 0.35)))
 
         for j in range(len(pts) - 1):
+          # Glow halo drawn first so the sharp line sits on top
+          rl.draw_line_ex(pts[j], pts[j + 1], line_thick * 4.0,
+                          rl.Color(brow_col.r, brow_col.g, brow_col.b, int(a * 0.10)))
+          rl.draw_line_ex(pts[j], pts[j + 1], line_thick * 1.8,
+                          rl.Color(brow_col.r, brow_col.g, brow_col.b, int(a * 0.30)))
           rl.draw_line_ex(pts[j], pts[j + 1], line_thick, brow_col)
 
     # ---- Particle bursts — kick only, not during outro ----
