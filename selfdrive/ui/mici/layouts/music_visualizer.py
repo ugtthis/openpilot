@@ -414,7 +414,7 @@ _MOUTH_DOTS: list[tuple[float, float]] = [
   (-1.0, 0.0), (0.0, 0.7), (1.0, 0.0),
 ]
 
-_N_BROW_DOTS   = 8     # dots per eyebrow waveform
+_N_WAVE_PTS    = 16    # polyline sample points per eyebrow
 _BROW_SWAY_SPD = 2.6   # fallback sine speed when analysis not ready
 _BILLY_PTCL_LIFE = 0.6
 
@@ -477,33 +477,60 @@ class EyebrowBilly:
                      int(mouth_y  + dr * mouth_gap),
                      mouth_dot_r, white)
 
-    # ---- Waveform eyebrows ----
-    # Each eyebrow is _N_BROW_DOTS dots whose Y positions are driven by
-    # the 16 spectral bands: left eyebrow ← bands 0-7, right ← bands 8-15.
-    brow_base_y = eye_y - dot_gap * 2.8
-    brow_half_w = dot_gap * 2.5              # half-width of one eyebrow
-    spike       = beat_flash * hype * dot_gap * 2.0   # sharp upward kick on beat
-    brow_dot_r  = max(5, int(dot_r * 0.9 * (1.0 + beat_flash * 0.45 * hype)))
+    # ---- Waveform eyebrows — thick polyline + EQ bars ----
+    # Left eyebrow uses spectral bands 0-7 (bass→mid), right uses 8-15 (mid→treble).
+    # _N_WAVE_PTS points are interpolated from the 8 bands per side for a smooth curve.
+    brow_baseline = eye_y - dot_gap * 2.3    # resting Y (just clears the eye grid top)
+    brow_half_w   = dot_gap * 2.8            # half-width of each eyebrow
+    max_amp       = dot_gap * 3.8            # max vertical excursion (at hype=1)
+    spike         = beat_flash * hype * dot_gap * 2.8   # sharp upward kick on beat
+    line_thick    = max(4.0, dot_r * 0.58 * (1.0 + beat_flash * 0.7 * hype))
+    bar_w         = max(3, int(brow_half_w * 2 / _N_WAVE_PTS * 0.55))
 
     for side, ecx in enumerate((eye_lx, eye_rx)):
-      for i in range(_N_BROW_DOTS):
-        frac = i / (_N_BROW_DOTS - 1)
+      pts: list[rl.Vector2] = []
+      for i in range(_N_WAVE_PTS):
+        frac = i / (_N_WAVE_PTS - 1)          # 0 → 1 across the eyebrow
         px   = ecx - brow_half_w + brow_half_w * 2.0 * frac
 
+        # Edge taper: ends of the eyebrow are anchored closer to baseline
+        # so the waveform reads as a coherent eyebrow shape, not floating dots
+        edge_env = math.sin(frac * math.pi)   # 0 at edges, 1 at centre
+
         if bands is not None and len(bands) >= 16:
-          band_idx = i + (8 if side == 1 else 0)
-          # bands are normalized 0-1; scale up with hype
-          amp = float(bands[band_idx]) * dot_gap * 3.0 * hype
+          # Interpolate 8 bands → _N_WAVE_PTS values for a smooth waveform
+          band_frac   = frac * 7.0
+          b0          = min(int(band_frac), 7)
+          b1          = min(b0 + 1, 7)
+          lerp_t      = band_frac - b0
+          offset      = 8 if side else 0
+          amp = (float(bands[b0 + offset]) * (1 - lerp_t) +
+                 float(bands[b1 + offset]) * lerp_t) * max_amp * hype
         else:
-          # Sine-wave fallback while analysis is running
-          phase = t * _BROW_SWAY_SPD + i * 0.65 + (math.pi * 0.5 if side == 1 else 0)
-          amp   = math.sin(phase) * dot_gap * 0.7 * ease * hype
+          # Sine fallback while analysis thread is still running
+          phase = t * _BROW_SWAY_SPD + frac * math.pi * 2.2 + (math.pi * 0.55 if side else 0)
+          amp   = (0.18 + 0.38 * abs(math.sin(phase))) * dot_gap * ease * hype
 
-        py = brow_base_y - amp - spike
-        rl.draw_circle(int(px), int(py), brow_dot_r, brow_col)
+        py = brow_baseline - amp * edge_env - spike * edge_env
+        pts.append(rl.Vector2(px, py))
 
-    # ---- Particle bursts on beat ----
-    if beat_flash > 0.85 and self._prev_beat_flash <= 0.85 and hype > 0.3:
+        # EQ bar: thin filled rect from baseline down to the waveform point,
+        # giving the "spectrum analyser" column look beneath the waveform line
+        bar_h = max(2, int(brow_baseline - py))
+        rl.draw_rectangle(int(px - bar_w / 2), int(py),
+                          bar_w, bar_h,
+                          rl.Color(brow_col.r, brow_col.g, brow_col.b, int(a * 0.35)))
+
+      # Thick waveform polyline connecting all sample points
+      for j in range(len(pts) - 1):
+        rl.draw_line_ex(pts[j], pts[j + 1], line_thick, brow_col)
+
+    # ---- Particle bursts — kick only ----
+    # Band 0 is the lowest spectral bin (sub-bass / kick drum).
+    # Only fire when it spikes above 0.6, so sparks mark real kick hits
+    # both before and inside the drop — nothing else triggers them.
+    is_kick = bands is not None and len(bands) >= 1 and float(bands[0]) > 0.60
+    if beat_flash > 0.85 and self._prev_beat_flash <= 0.85 and is_kick:
       for ecx in (eye_lx, eye_rx):
         for _ in range(7):
           angle = random.uniform(0, 2 * math.pi)
