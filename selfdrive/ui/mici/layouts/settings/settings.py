@@ -257,7 +257,7 @@ class SettingsLayout(NavWidget):
     self._analysis_thread = threading.Thread(target=self._analysis.run, daemon=True)
     self._analysis_thread.start()
 
-    self._eyebrow_billy = EyebrowBilly()
+    self._eyebrow_billy = EyebrowBilly(origin_rect=self._eyebrow_btn.rect)
 
     # Scroll the eyebrow button (index 1) into view
     self._scroller.scroll_to(self._btn_list[1].rect.x, smooth=True)
@@ -401,9 +401,13 @@ class SettingsLayout(NavWidget):
         fi    = self._analysis.frame_at(t)
         bands = self._analysis.band_frames[fi]
 
-      fade_in = min(1.0, (now - self._eyebrow_start_time) / 0.6)
+      # Face assembles in 6 s flat — always done well before the beat drop.
+      # The assembled face then sits still until the drop fires the eyebrows.
+      intro_frac = float(min(1.0, (now - self._eyebrow_start_time) / 6.0))
+
       self._eyebrow_billy.draw(rect, t, self._hue, self._beat_flash, self._energy,
-                               bands=bands, transition=fade_in, hype=self._hype)
+                               bands=bands, intro_frac=intro_frac,
+                               transition=1.0, hype=self._hype)
       return
 
     # Mark which button the figure occupies BEFORE the scroller renders so

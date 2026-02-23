@@ -421,114 +421,174 @@ _BILLY_PTCL_LIFE = 0.6
 
 class EyebrowBilly:
   """
-  Full-screen dot-matrix robot face.
+  Full-screen dot-matrix robot face with a letter-explosion intro.
 
-  Eyes:     16-dot rounded-rectangle blobs (white, like comma body).
-  Mouth:    3 small dots in a V.
-  Eyebrows: 8-dot waveform per side, driven by spectral band data so they
-            undulate with the music.  Pre-drop: barely move.  Post-drop: wild.
+  Intro (intro_frac 0 → 1, driven by song time / beat-drop time):
+    Phase 1  0.00 → 0.25  35 face-dots blast outward from the "eyebrow"
+                           button, grouped by letter (e-y-e-b-r-o-w).
+    Phase 2  0.25 → 0.70  dots drift/float chaotically.
+    Phase 3  0.70 → 1.00  dots smoothly snap to their face positions.
+
+  After drop (intro_frac ≥ 1): normal face + waveform eyebrows.
   """
 
-  def __init__(self) -> None:
+  def __init__(self, origin_rect: "rl.Rectangle | None" = None) -> None:
     self._prev_beat_flash: float = 0.0
     self._particles: list[dict] = []
+
+    # Button origin — where the explosion starts from
+    if origin_rect is not None:
+      self._btn_lx = float(origin_rect.x)
+      self._btn_cx = float(origin_rect.x + origin_rect.width  * 0.5)
+      self._btn_cy = float(origin_rect.y + origin_rect.height * 0.5)
+      self._btn_w  = float(origin_rect.width)
+    else:
+      self._btn_lx = 0.0
+      self._btn_cx = 0.0
+      self._btn_cy = 0.0
+      self._btn_w  = 402.0
+
+    # Per-dot scatter params — fixed seed so the explosion is repeatable
+    n_total = len(_EYE_DOTS) * 2 + len(_MOUTH_DOTS)
+    rng = random.Random(1337)
+    self._scat_angle  = [rng.uniform(0.0, 2 * math.pi) for _ in range(n_total)]
+    self._scat_speed  = [rng.uniform(0.55, 1.40)        for _ in range(n_total)]
+    self._scat_dfreq  = [rng.uniform(0.8,  2.8)         for _ in range(n_total)]
+    self._scat_dphase = [rng.uniform(0.0, 2 * math.pi)  for _ in range(n_total)]
+    # Each dot originates from a letter in "eyebrow" (7 letters)
+    n_letters = 7
+    self._dot_letter  = [i * n_letters // n_total for i in range(n_total)]
 
   # ------------------------------------------------------------------
   def draw(self, rect: rl.Rectangle, t: float, base_hue: float,
            beat_flash: float, energy: float,
            bands: np.ndarray | None = None,
+           intro_frac: float = 1.0,
            transition: float = 1.0, hype: float = 1.0) -> None:
     w, h = rect.width, rect.height
     now  = rl.get_time()
 
     ease = 1.0 - (1.0 - min(transition, 1.0)) ** 3
+    a    = int(255 * ease)
 
-    hue = base_hue % 360
-    sat = 0.15 + 0.85 * hype
-    a   = int(255 * ease)
-    white     = rl.Color(255, 255, 255, a)
-    brow_col  = hsv_to_color(hue, sat, 1.0, a)
+    hue      = base_hue % 360
+    sat      = 0.15 + 0.85 * hype
+    brow_col = hsv_to_color(hue, sat, 1.0, a)
 
-    # Tiny vertical bounce (barely noticeable before drop, gentle after)
-    bounce = abs(math.sin(t * 1.9)) * h * 0.009 * ease * hype
+    doing_intro = intro_frac < 0.99
+    # Dots appear instantly at explosion start then stay fully opaque
+    dot_a = int(255 * min(1.0, intro_frac / 0.12)) if doing_intro else a
+    white = rl.Color(255, 255, 255, dot_a)
 
-    # Face anchor points
+    # ---- Face layout (target positions) ----
+    bounce  = 0.0 if doing_intro else abs(math.sin(t * 1.9)) * h * 0.009 * hype
     eye_y   = rect.y + h * 0.44 - bounce
     eye_lx  = rect.x + w * 0.32
     eye_rx  = rect.x + w * 0.68
-
-    # Dot size / spacing — scale with screen height
     dot_r   = max(8,  int(h * 0.028))
     dot_gap = max(18, int(h * 0.062))
 
+    # Dots throb on beat even while scattered
+    pulse_r = max(dot_r, int(dot_r * (1.0 + beat_flash * 0.40)))
+
+    # ---- Intro position resolver ----
+    max_scat = max(w, h) * 0.55
+
+    def _intro_pos(idx: int, tx: float, ty: float) -> tuple[float, float]:
+      angle  = self._scat_angle[idx]
+      speed  = self._scat_speed[idx]
+      dfreq  = self._scat_dfreq[idx]
+      dphase = self._scat_dphase[idx]
+      letter = self._dot_letter[idx]
+
+      # Each dot originates from its letter's horizontal position in the button
+      ox = self._btn_lx + self._btn_w * (letter + 0.5) / 7.0
+      oy = self._btn_cy
+
+      # Explosion radius grows during phase 1, stays at max through phase 2
+      if intro_frac < 0.25:
+        r_t    = intro_frac / 0.25
+        r_ease = 1.0 - (1.0 - r_t) ** 2   # ease-out: fast start, settling
+        r = max_scat * speed * r_ease
+      else:
+        r = max_scat * speed
+
+      # Slow angular drift during float phase
+      drift  = math.sin(intro_frac * math.pi * 2.0 * dfreq + dphase) * 0.38
+      eff_a  = angle + drift
+      # Flatten vertically — letters were arranged horizontally in the button
+      sx = ox + math.cos(eff_a) * r
+      sy = oy + math.sin(eff_a) * r * 0.46
+
+      # Phase 3: smooth coalesce toward target face position
+      if intro_frac >= 0.70:
+        t_c    = (intro_frac - 0.70) / 0.30
+        ease_c = t_c * t_c * (3.0 - 2.0 * t_c)   # smooth-step
+        sx += (tx - sx) * ease_c
+        sy += (ty - sy) * ease_c
+
+      return sx, sy
+
     # ---- Dot-matrix eyes ----
+    dot_idx = 0
     for ecx in (eye_lx, eye_rx):
       for (dc, dr) in _EYE_DOTS:
-        rl.draw_circle(int(ecx + dc * dot_gap), int(eye_y + dr * dot_gap), dot_r, white)
+        tx, ty = ecx + dc * dot_gap, eye_y + dr * dot_gap
+        px, py = _intro_pos(dot_idx, tx, ty) if doing_intro else (tx, ty)
+        rl.draw_circle(int(px), int(py), pulse_r, white)
+        dot_idx += 1
 
     # ---- Small V mouth ----
     mouth_gap   = max(12, int(dot_gap * 0.75))
     mouth_dot_r = max(5,  int(dot_r  * 0.65))
     mouth_cx    = rect.x + w * 0.50
     mouth_y     = rect.y + h * 0.63
-    spread      = 1.0 + beat_flash * 0.12 * hype   # widens slightly on beat
+    spread      = 1.0 if doing_intro else 1.0 + beat_flash * 0.12 * hype
     for (dc, dr) in _MOUTH_DOTS:
-      rl.draw_circle(int(mouth_cx + dc * mouth_gap * spread),
-                     int(mouth_y  + dr * mouth_gap),
-                     mouth_dot_r, white)
+      tx, ty = mouth_cx + dc * mouth_gap * spread, mouth_y + dr * mouth_gap
+      px, py = _intro_pos(dot_idx, tx, ty) if doing_intro else (tx, ty)
+      rl.draw_circle(int(px), int(py), mouth_dot_r, white)
+      dot_idx += 1
 
-    # ---- Waveform eyebrows — thick polyline + EQ bars ----
-    # Left eyebrow uses spectral bands 0-7 (bass→mid), right uses 8-15 (mid→treble).
-    # _N_WAVE_PTS points are interpolated from the 8 bands per side for a smooth curve.
-    brow_baseline = eye_y - dot_gap * 2.3    # resting Y (just clears the eye grid top)
-    brow_half_w   = dot_gap * 2.8            # half-width of each eyebrow
-    max_amp       = dot_gap * 3.8            # max vertical excursion (at hype=1)
-    spike         = beat_flash * hype * dot_gap * 2.8   # sharp upward kick on beat
-    line_thick    = max(4.0, dot_r * 0.58 * (1.0 + beat_flash * 0.7 * hype))
-    bar_w         = max(3, int(brow_half_w * 2 / _N_WAVE_PTS * 0.55))
+    # ---- Waveform eyebrows — only after intro is complete ----
+    if not doing_intro:
+      brow_baseline = eye_y - dot_gap * 2.3
+      brow_half_w   = dot_gap * 2.8
+      max_amp       = dot_gap * 3.8
+      spike         = beat_flash * hype * dot_gap * 2.8
+      line_thick    = max(4.0, dot_r * 0.58 * (1.0 + beat_flash * 0.7 * hype))
+      bar_w         = max(3, int(brow_half_w * 2 / _N_WAVE_PTS * 0.55))
 
-    for side, ecx in enumerate((eye_lx, eye_rx)):
-      pts: list[rl.Vector2] = []
-      for i in range(_N_WAVE_PTS):
-        frac = i / (_N_WAVE_PTS - 1)          # 0 → 1 across the eyebrow
-        px   = ecx - brow_half_w + brow_half_w * 2.0 * frac
+      for side, ecx in enumerate((eye_lx, eye_rx)):
+        pts: list[rl.Vector2] = []
+        for i in range(_N_WAVE_PTS):
+          frac     = i / (_N_WAVE_PTS - 1)
+          px       = ecx - brow_half_w + brow_half_w * 2.0 * frac
+          edge_env = math.sin(frac * math.pi)
 
-        # Edge taper: ends of the eyebrow are anchored closer to baseline
-        # so the waveform reads as a coherent eyebrow shape, not floating dots
-        edge_env = math.sin(frac * math.pi)   # 0 at edges, 1 at centre
+          if bands is not None and len(bands) >= 16:
+            band_frac = frac * 7.0
+            b0        = min(int(band_frac), 7)
+            b1        = min(b0 + 1, 7)
+            lerp_t    = band_frac - b0
+            offset    = 8 if side else 0
+            amp = (float(bands[b0 + offset]) * (1 - lerp_t) +
+                   float(bands[b1 + offset]) * lerp_t) * max_amp * hype
+          else:
+            phase = t * _BROW_SWAY_SPD + frac * math.pi * 2.2 + (math.pi * 0.55 if side else 0)
+            amp   = (0.18 + 0.38 * abs(math.sin(phase))) * dot_gap * ease * hype
 
-        if bands is not None and len(bands) >= 16:
-          # Interpolate 8 bands → _N_WAVE_PTS values for a smooth waveform
-          band_frac   = frac * 7.0
-          b0          = min(int(band_frac), 7)
-          b1          = min(b0 + 1, 7)
-          lerp_t      = band_frac - b0
-          offset      = 8 if side else 0
-          amp = (float(bands[b0 + offset]) * (1 - lerp_t) +
-                 float(bands[b1 + offset]) * lerp_t) * max_amp * hype
-        else:
-          # Sine fallback while analysis thread is still running
-          phase = t * _BROW_SWAY_SPD + frac * math.pi * 2.2 + (math.pi * 0.55 if side else 0)
-          amp   = (0.18 + 0.38 * abs(math.sin(phase))) * dot_gap * ease * hype
+          py = brow_baseline - amp * edge_env - spike * edge_env
+          pts.append(rl.Vector2(px, py))
 
-        py = brow_baseline - amp * edge_env - spike * edge_env
-        pts.append(rl.Vector2(px, py))
+          bar_h = max(2, int(brow_baseline - py))
+          rl.draw_rectangle(int(px - bar_w / 2), int(py), bar_w, bar_h,
+                            rl.Color(brow_col.r, brow_col.g, brow_col.b, int(a * 0.35)))
 
-        # EQ bar: thin filled rect from baseline down to the waveform point,
-        # giving the "spectrum analyser" column look beneath the waveform line
-        bar_h = max(2, int(brow_baseline - py))
-        rl.draw_rectangle(int(px - bar_w / 2), int(py),
-                          bar_w, bar_h,
-                          rl.Color(brow_col.r, brow_col.g, brow_col.b, int(a * 0.35)))
-
-      # Thick waveform polyline connecting all sample points
-      for j in range(len(pts) - 1):
-        rl.draw_line_ex(pts[j], pts[j + 1], line_thick, brow_col)
+        for j in range(len(pts) - 1):
+          rl.draw_line_ex(pts[j], pts[j + 1], line_thick, brow_col)
 
     # ---- Particle bursts — kick only ----
-    # Band 0 is the lowest spectral bin (sub-bass / kick drum).
-    # Only fire when it spikes above 0.6, so sparks mark real kick hits
-    # both before and inside the drop — nothing else triggers them.
     is_kick = bands is not None and len(bands) >= 1 and float(bands[0]) > 0.60
     if beat_flash > 0.85 and self._prev_beat_flash <= 0.85 and is_kick:
       for ecx in (eye_lx, eye_rx):
