@@ -502,7 +502,9 @@ class EyebrowBilly:
     ease = 1.0 - (1.0 - min(transition, 1.0)) ** 3
     a    = int(255 * ease)
 
-    hue      = base_hue % 360
+    # Remap the rotating hue to a concert-light palette — green → cyan → blue → purple.
+    # This avoids muddy warm yellows/reds and keeps the feel of the reference image.
+    hue  = 120.0 + (base_hue % 360) / 360.0 * 200.0   # sweeps 120°(green)→320°(magenta)
     sat      = 0.15 + 0.85 * hype
     brow_col = hsv_to_color(hue, sat, 1.0, a)
 
@@ -511,24 +513,26 @@ class EyebrowBilly:
     # ---- Outro calming + wink ----
     # Beat flash and eyebrows fade to zero early so the wink lands on a calm face.
     eff_beat  = beat_flash * (1.0 - _ramp(outro_frac, 0.00, 0.25))
-    brow_calm =               1.0 - _ramp(outro_frac, 0.00, 0.17)
+    brow_calm =               1.0 - _ramp(outro_frac, 0.28, 0.39)
 
-    # Wink right eye (idx 1).  Timeline inside the 4-s outro window:
-    #   0.00–0.40  open  →  0.40–0.50  close (0.4 s)  →  hold  →  0.72–0.82  open (0.4 s)
+    # Wink right eye (idx 1).  Timeline inside the 3-s outro window:
+    #   0.00–0.40  open  →  0.40–0.47  close (0.21 s)  →  hold  →  0.65–0.75  open (0.3 s)
     wink_scale = 1.0 - _ramp(outro_frac, 0.40, 0.50)   # starts closing at 40 %
-    if outro_frac >= 0.72:
-      wink_scale = _ramp(outro_frac, 0.72, 0.82)        # overrides: eye opens back up
+    if outro_frac >= 0.65:
+      wink_scale = _ramp(outro_frac, 0.65, 0.78)        # overrides: eye opens back up
 
-    # ---- Background light show (drop only) ----
-    # Black during singing; activates when the drop is detected.
-    if is_in_drop and not doing_intro:
-      # Steady hue tint — color is always visible between beats
+    # ---- Background light show ----
+    # Starts when the face fully forms; fades to black as the outro begins so
+    # the wink happens on a clean black bg with only the eyebrows lit.
+    bg_fade = 1.0 - _ramp(outro_frac, 0.28, 0.39)
+    if intro_frac >= 1.0 and bg_fade > 0.01:
+      # Steady hue tint — always visible between beats
       rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height),
-                        hsv_to_color(hue, 1.0, 1.0, int(hype * 25)))
-      # Color swell on each beat — high saturation so it pulses, not strobes
-      if eff_beat > 0.01:
+                        hsv_to_color(hue, 1.0, 1.0, int(hype * 45 * bg_fade)))
+      # Punchy color swell on strong beats — filters hi-hats, keeps kick hits
+      if beat_flash > 0.45:
         rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height),
-                          hsv_to_color(hue, 0.85, 1.0, int(eff_beat * hype * 65)))
+                          hsv_to_color(hue, 0.7, 1.0, int(beat_flash * hype * 85 * bg_fade)))
 
     # Dots appear instantly at explosion start then stay fully opaque
     dot_a = int(255 * min(1.0, intro_frac / 0.08)) if doing_intro else a
@@ -546,8 +550,6 @@ class EyebrowBilly:
         face_col = hsv_to_color(hue, dot_sat, 1.0, dot_a)
     else:
       face_col = hsv_to_color(hue, hype * eff_beat * 0.75, 1.0, a)
-
-    eye_col = face_col
 
     # ---- Face layout (target positions) ----
     bounce  = 0.0 if doing_intro else abs(math.sin(t * 1.9)) * h * 0.009 * hype
@@ -638,6 +640,7 @@ class EyebrowBilly:
         dot_idx += 1
 
     # ---- Small V mouth ----
+
     mouth_gap   = max(12, int(dot_gap * 0.75))
     mouth_dot_r = max(5,  int(dot_r  * 0.65))
     mouth_cx    = rect.x + w * 0.50
@@ -699,6 +702,34 @@ class EyebrowBilly:
           rl.draw_line_ex(pts[j], pts[j + 1], line_thick * 1.8,
                           rl.Color(brow_col.r, brow_col.g, brow_col.b, int(a * 0.30)))
           rl.draw_line_ex(pts[j], pts[j + 1], line_thick, brow_col)
+
+    # ---- Outro: simple arched eyebrows replace the waveforms ----
+    # Smooth parabolic arch (sin curve) = happy/relaxed brows, not angry.
+    # Right eyebrow dips toward the closing eye — like a real wink.
+    if not doing_intro and outro_frac > 0.05:
+      brow_baseline = eye_y - dot_gap * 2.9
+      brow_half_w   = dot_gap * 2.8
+      outro_brow_a  = int(_ramp(outro_frac, 0.30, 0.39) * 255)
+      outro_thick   = max(9.0, dot_r * 1.6)
+      arch_h        = dot_gap * 0.45   # how high the arch rises above baseline
+      _N_ARCH       = 12               # segments — enough for a smooth curve
+
+      brow_grey = rl.Color(185, 185, 185, outro_brow_a)
+
+      for side, ecx in enumerate((eye_lx, eye_rx)):
+        # Right eyebrow: dips down AND flattens as the eye closes, then restores
+        brow_y        = brow_baseline + (dot_gap * (1.0 - wink_scale) * 1.3 if side == 1 else 0.0)
+        eff_arch_h    = arch_h * wink_scale if side == 1 else arch_h
+
+        # Parabolic arch: sin(frac*π) peaks in the middle → happy upward curve
+        arch_pts = [
+          rl.Vector2(ecx - brow_half_w + brow_half_w * 2.0 * k / _N_ARCH,
+                     brow_y - eff_arch_h * math.sin(k / _N_ARCH * math.pi))
+          for k in range(_N_ARCH + 1)
+        ]
+
+        for j in range(len(arch_pts) - 1):
+          rl.draw_line_ex(arch_pts[j], arch_pts[j + 1], outro_thick, brow_grey)
 
     # ---- Particle bursts — kick only, not during outro ----
     is_kick = bands is not None and len(bands) >= 1 and float(bands[0]) > 0.60

@@ -244,7 +244,7 @@ class SettingsLayout(NavWidget):
         self._hype = min(1.0, t / 0.5)
 
     # Hue rotation (slow before drop, fast after)
-    self._hue = (self._hue + dt * 20.0 * max(0.1, self._hype)) % 360.0
+    self._hue = (self._hue + dt * 10.0) % 360.0  # steady slow drift — not hype-dependent
 
     # Latch "music started" flag (raylib resets get_music_time_played to 0 at song end)
     if t > 0.5:
@@ -296,12 +296,15 @@ class SettingsLayout(NavWidget):
         fi    = self._analysis.frame_at(t)
         bands = self._analysis.band_frames[fi]
 
-      # Face assembles in 6 s flat — always done well before the beat drop.
-      # The assembled face then sits still until the drop fires the eyebrows.
-      intro_frac = float(min(1.0, (now - self._eyebrow_start_time) / 6.0))
+      # Intro duration is synced to the detected drop time so the face finishes
+      # assembling exactly when the beat drops — if analysis isn't done yet or
+      # found no drop, fall back to 6 s so the face is ready before anything plays.
+      drop_t     = self._analysis.beat_drop_time if (self._analysis is not None and self._analysis.done) else 0.0
+      intro_dur  = drop_t if drop_t > 1.0 else 6.0
+      intro_frac = float(min(1.0, (now - self._eyebrow_start_time) / intro_dur))
 
       # Outro: calm effects + wink over the last 4 s of the song.
-      _OUTRO_SECS = 4.0
+      _OUTRO_SECS = 3.25
       song_len   = rl.get_music_time_length(self._music) if self._music else 0.0
       time_left  = max(0.0, song_len - t)
       outro_frac = max(0.0, 1.0 - time_left / _OUTRO_SECS) if song_len > _OUTRO_SECS else 0.0
