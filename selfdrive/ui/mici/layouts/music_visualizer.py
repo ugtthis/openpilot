@@ -815,7 +815,7 @@ class EyebrowBilly:
     # ---- Ephemeral chaos circles (intro only, wildfire colors) ----
     if doing_intro and intro_frac > 0.28:
       chaos_life = _ramp(intro_frac, 0.28, 0.46)
-      chaos_die  = 1.0 - _ramp(intro_frac, 0.80, 1.00)
+      chaos_die  = 1.0 - _ramp(intro_frac, 0.52, 0.68)
       chaos_env  = chaos_life * chaos_die
       for ci in range(len(self._chaos_angle)):
         drift  = math.sin(intro_frac * math.pi * 2.0 * self._chaos_dfreq[ci] + self._chaos_dphase[ci]) * 1.2
