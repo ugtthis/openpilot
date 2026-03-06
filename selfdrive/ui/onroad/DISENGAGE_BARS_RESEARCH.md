@@ -673,6 +673,198 @@ This was real-time head pose visualization. The DisengageBars replace the widget
 
 ---
 
+## Available DM Resources for UI Consumption
+
+Everything below is **read-only from the UI's perspective**. We never touch the DM pipeline — we only subscribe to its published messages via `ui_state.sm`.
+
+### Message 1: `driverStateV2` — Raw Neural Net Output (20 Hz)
+
+Published by `dmonitoringmodeld`. This is what the camera model actually sees. Two parallel `DriverData` structs (LHD + RHD) — use `isRHD` to pick the right one.
+
+| Field | Type | What it tells you | Currently used by UI? |
+|-------|------|-------------------|-----------------------|
+| `faceOrientation` | float[3] | `[pitch, yaw, roll]` in radians — live head angles | Yes — `DriverStateRenderer` (DMoji arcs + 3D outline) |
+| `faceOrientationStd` | float[3] | Per-axis uncertainty. `> 0.3` = unreliable | Yes — `driver_camera_dialog.py` |
+| `facePosition` | float[2] | Normalized `[x, y]` of face center in frame | Yes — `driver_camera_dialog.py`, `DriverStateRenderer` |
+| `facePositionStd` | float[2] | Uncertainty on face position | **No** — untapped |
+| `faceProb` | float | P(face visible). System gates at `> 0.7` | Yes — `driver_camera_dialog.py` |
+| `leftEyeProb` | float | P(left eye open) | Yes — `driver_camera_dialog.py` (mici) |
+| `rightEyeProb` | float | P(right eye open) | Yes — `driver_camera_dialog.py` (mici) |
+| `leftBlinkProb` | float | P(left eye blinking). Threshold: `> 0.865` | **No** — only used by `dmonitoringd` policy |
+| `rightBlinkProb` | float | P(right eye blinking) | **No** — only used by `dmonitoringd` policy |
+| `sunglassesProb` | float | P(sunglasses). If `> 0.9`, blink check skipped | Yes — `driver_camera_dialog.py` (mici) |
+| `phoneProb` | float | P(phone visible). Threshold: `> 0.5` | **No** — only used by `dmonitoringd` policy |
+| `wheelOnRightProb` | float | P(steering wheel is on right side) | Yes — `driver_camera_dialog.py` |
+| `frameId` | uint32 | Camera frame number | **No** |
+| `modelExecutionTime` | float | Model inference time (seconds) | **No** |
+| `gpuExecutionTime` | float | GPU time (seconds) | **No** |
+| `rawPredictions` | bytes | Full model output tensor (only when `SEND_RAW_PRED`) | **No** — debug only |
+
+**Key untapped signals**: `leftBlinkProb`, `rightBlinkProb`, `phoneProb`, `facePositionStd`. These are the raw per-frame probabilities *before* the policy layer integrates them. They could be used for fine-grained sub-indicators or real-time visualization.
+
+### Message 2: `driverMonitoringState` — Policy Layer Output (20 Hz)
+
+Published by `dmonitoringd`. This is the **processed, integrated** state after the policy logic runs.
+
+| Field | Type | What it tells you | Currently used by UI? |
+|-------|------|-------------------|-----------------------|
+| `awarenessStatus` | float | `1.0`=attentive → `0.0`=terminal → `<0`=forceDecel | Yes — `DisengageBars` (DM bar), `driver_camera_dialog.py` |
+| `isDistracted` | bool | Smoothed distraction state (after 0.25s filter) | **No** — we use `distractedType` instead |
+| `distractedType` | uint32 | Bitmask: `POSE=1, BLINK=2, PHONE=4` | Yes — `DisengageBars` (DM label) |
+| `faceDetected` | bool | `faceProb > 0.7` | Yes — `DriverStateRenderer` (mici), `onboarding.py` |
+| `isActiveMode` | bool | `true`=camera-tracked, `false`=wheel-touch fallback | Yes — `DriverStateRenderer` (arc colors) |
+| `isRHD` | bool | Right-hand drive detected | Yes — `DisengageBars`, `DriverStateRenderer` |
+| `stepChange` | float | Per-frame awareness drain/refill rate | **No** — could show drain speed |
+| `awarenessActive` | float | Active-mode awareness (separate from passive) | **No** — could show both tracks |
+| `awarenessPassive` | float | Passive-mode awareness (separate from active) | **No** — could show both tracks |
+| `posePitchOffset` | float | Learned "natural forward" pitch for this driver | **No** — could show calibration state |
+| `poseYawOffset` | float | Learned "natural forward" yaw for this driver | **No** — could show calibration state |
+| `posePitchValidCount` | uint32 | Samples accumulated for pitch calibration | **No** — could show calibration progress |
+| `poseYawValidCount` | uint32 | Samples accumulated for yaw calibration | **No** — could show calibration progress |
+| `isLowStd` | bool | Model is confident (`std < 0.3`). `false` = passive mode | **No** — could indicate model quality |
+| `hiStdCount` | uint32 | Frames with high pose uncertainty | **No** — could show model struggle |
+| `uncertainCount` | uint32 | Frames with uncertain pose overall | **No** — could show model struggle |
+| `events` | List(OnroadEvent) | DM-specific alert events | Used by `selfdrived` for alert banners |
+
+**Key untapped signals**: `stepChange` (drain rate — could animate differently), `awarenessActive`/`awarenessPassive` (dual-track), `isLowStd` (model confidence), `hiStdCount`/`uncertainCount` (model struggle duration), `posePitchValidCount`/`poseYawValidCount` (calibration progress).
+
+### DM-Related Params (persistent key-value store)
+
+| Param | Type | What it controls |
+|-------|------|-----------------|
+| `AlwaysOnDM` | bool | DM runs even when openpilot is not engaged |
+| `DriverTooDistracted` | bool | Set after 3 terminal alerts or 30s at red — blocks re-engagement |
+| `IsDriverViewEnabled` | bool | Demo/preview mode for driver camera |
+| `IsRhdDetected` | bool | Persisted RHD detection (survives reboots) |
+
+### DM Alert Event Names (fired by `dmonitoringd` → consumed by `selfdrived`)
+
+| Event | Mode | Awareness range | Banner |
+|-------|------|-----------------|--------|
+| `preDriverDistracted` | Active (face tracked) | `0.545 < x ≤ 0.727` | Green |
+| `promptDriverDistracted` | Active | `0.0 < x ≤ 0.545` | Orange |
+| `driverDistracted` | Active | `x ≤ 0.0` | Red + forceDecel |
+| `preDriverUnresponsive` | Passive (no face) | `0.2 < x ≤ 0.5` | Green |
+| `promptDriverUnresponsive` | Passive | `0.0 < x ≤ 0.2` | Orange |
+| `driverUnresponsive` | Passive | `x ≤ 0.0` | Red + forceDecel |
+| `tooDistracted` | Any | — | Blocks re-engagement entirely |
+
+### All DM Constants (from `helpers.py` → `DRIVER_MONITOR_SETTINGS`)
+
+**Timing:**
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `_DT_DMON` | `0.05` (20 Hz) | DM tick interval |
+| `_DISTRACTED_TIME` | `11.0s` | Active mode: total time to terminal |
+| `_DISTRACTED_PRE_TIME_TILL_TERMINAL` | `8.0s` | Active: pre-alert fires at this remaining |
+| `_DISTRACTED_PROMPT_TIME_TILL_TERMINAL` | `6.0s` | Active: prompt alert fires at this remaining |
+| `_AWARENESS_TIME` | `30.0s` | Passive mode: total time to terminal |
+| `_AWARENESS_PRE_TIME_TILL_TERMINAL` | `15.0s` | Passive: pre-alert fires at this remaining |
+| `_AWARENESS_PROMPT_TIME_TILL_TERMINAL` | `6.0s` | Passive: prompt alert fires at this remaining |
+
+**Detection thresholds:**
+
+| Constant | Value | What it gates |
+|----------|-------|---------------|
+| `_FACE_THRESHOLD` | `0.7` | Minimum `faceProb` to consider face visible |
+| `_EYE_THRESHOLD` | `0.65` | Minimum `eyeProb` to check blinks |
+| `_SG_THRESHOLD` | `0.9` | `sunglassesProb` above this = skip blink check |
+| `_BLINK_THRESHOLD` | `0.865` | Average blink prob above this = distracted |
+| `_PHONE_THRESH` | `0.5` | `phoneProb` above this = phone distraction |
+| `_POSE_PITCH_THRESHOLD` | `0.3133 rad (~18°)` | Pitch below natural = distracted |
+| `_POSE_PITCH_THRESHOLD_SLACK` | `0.3237 rad` | Lenient pitch (calm road) |
+| `_POSE_YAW_THRESHOLD` | `0.4020 rad (~23°)` | Yaw from center = distracted |
+| `_POSE_YAW_THRESHOLD_SLACK` | `0.5042 rad` | Lenient yaw (calm road) |
+| `_POSESTD_THRESHOLD` | `0.3` | Orientation std above this = model uncertain |
+| `_DISTRACTED_FILTER_TS` | `0.25s` | FirstOrderFilter RC for smoothing raw distraction bool |
+
+**Recovery and limits:**
+
+| Constant | Value | What it does |
+|----------|-------|--------------|
+| `_RECOVERY_FACTOR_MAX` | `5.0` | Max recovery speed multiplier (at awareness=0) |
+| `_RECOVERY_FACTOR_MIN` | `1.25` | Min recovery speed multiplier (at awareness=1) |
+| `_HI_STD_FALLBACK_TIME` | `200 frames (10s)` | After this many high-std frames → passive fallback |
+| `_MAX_TERMINAL_ALERTS` | `3` | Terminal alerts before lockout |
+| `_MAX_TERMINAL_DURATION` | `600 frames (30s)` | Cumulative terminal frames before lockout |
+| `_ALWAYS_ON_ALERT_MIN_SPEED` | `11 m/s` | Min speed for always-on DM alerts |
+
+**Calibration:**
+
+| Constant | Value | What it does |
+|----------|-------|--------------|
+| `_POSE_CALIB_MIN_SPEED` | `13 m/s` | Min speed to accumulate calibration |
+| `_POSE_OFFSET_MIN_COUNT` | `1200 frames (60s)` | Min samples before using learned offset |
+| `_POSE_OFFSET_MAX_COUNT` | `7200 frames (360s)` | Max calibration window |
+| `_PITCH_NATURAL_OFFSET` | `0.011 rad` | Default pitch offset (before learning) |
+| `_YAW_NATURAL_OFFSET` | `0.075 rad` | Default yaw offset |
+| `_WHEELPOS_CALIB_MIN_SPEED` | `11 m/s` | Min speed for RHD calibration |
+| `_WHEELPOS_THRESHOLD` | `0.5` | Probability threshold for RHD decision |
+| `_WHEELPOS_FILTER_MIN_COUNT` | `300 frames (15s)` | Min samples before committing RHD |
+
+### DM Source Files
+
+| File | Role |
+|------|------|
+| `selfdrive/monitoring/dmonitoringd.py` | Main daemon — glue between model output and policy |
+| `selfdrive/monitoring/helpers.py` | `DriverMonitoring` class: state machine, `_update_states()`, `_update_events()`, `get_state_packet()` |
+| `selfdrive/modeld/dmonitoringmodeld.py` | Neural net inference on driver camera → `driverStateV2` |
+| `cereal/log.capnp` | Message definitions (`DriverStateV2` at line ~2156, `DriverMonitoringState` at line ~2219) |
+| `selfdrive/ui/ui_state.py` | SubMaster subscription — confirms both `driverMonitoringState` and `driverStateV2` are subscribed |
+| `selfdrive/controls/controlsd.py` | Reads `awarenessStatus < 0` → sets `forceDecel` |
+| `selfdrive/selfdrived/selfdrived.py` | Reads `events` from DM → triggers alert banners |
+| `selfdrive/selfdrived/events.py` | Event definitions and alert text for all DM events |
+| `selfdrive/monitoring/test_monitoring.py` | Unit tests for DM state machine |
+
+### What Our DisengageBars Currently Use vs What's Available
+
+```
+CURRENTLY USED                          AVAILABLE BUT UNTAPPED
+─────────────────────                   ──────────────────────────
+driverMonitoringState:                  driverMonitoringState:
+  ✓ awarenessStatus  → DM bar fill       ○ stepChange         → drain/refill speed
+  ✓ distractedType   → DM label          ○ awarenessActive    → camera-mode track
+  ✓ isRHD            → bar anchor        ○ awarenessPassive   → wheel-touch track
+                                          ○ isDistracted       → smoothed bool
+                                          ○ faceDetected       → face visibility
+                                          ○ isActiveMode       → camera vs wheel mode
+                                          ○ isLowStd           → model confidence
+                                          ○ hiStdCount         → model struggle duration
+                                          ○ uncertainCount     → pose uncertainty duration
+                                          ○ posePitchOffset    → learned driver offset
+                                          ○ poseYawOffset      → learned driver offset
+                                          ○ posePitchValidCount → calibration progress
+                                          ○ poseYawValidCount   → calibration progress
+
+                                        driverStateV2 (raw model):
+                                          ○ faceOrientation    → live head angles
+                                          ○ faceOrientationStd → model certainty
+                                          ○ facePosition       → face location
+                                          ○ faceProb           → face detection raw
+                                          ○ leftBlinkProb      → per-eye blink
+                                          ○ rightBlinkProb     → per-eye blink
+                                          ○ phoneProb          → phone raw score
+                                          ○ sunglassesProb     → sunglasses raw score
+                                          ○ leftEyeProb        → eye visibility
+                                          ○ rightEyeProb       → eye visibility
+```
+
+### Potential Future Enhancements Using Untapped Signals
+
+| Idea | Signal source | Visual |
+|------|--------------|--------|
+| Show active vs passive mode on DM bar | `isActiveMode` | Different border color or icon |
+| Show model confidence/struggle | `isLowStd`, `hiStdCount` | Dim or blink the DM bar when model uncertain |
+| Dual-track awareness | `awarenessActive` + `awarenessPassive` | Two sub-bars or split indicator |
+| Drain speed indicator | `stepChange` | Animation speed or glow intensity |
+| Calibration progress | `posePitchValidCount` / `_POSE_OFFSET_MIN_COUNT` | Progress bar during first drive |
+| Per-eye blink visualization | `leftBlinkProb`, `rightBlinkProb` | Eye icons that blink with driver |
+| Phone probability bar | `phoneProb` raw | Sub-indicator on DM bar |
+| Live head pose mini-display | `faceOrientation` from `driverStateV2` | Small 3D head angle indicator |
+
+---
+
 ## File Locations
 
 | File | Purpose |
