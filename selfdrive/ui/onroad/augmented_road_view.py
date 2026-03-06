@@ -30,6 +30,10 @@ WIDE_CAM_MAX_SPEED = 10.0  # m/s (22 mph)
 ROAD_CAM_MIN_SPEED = 15.0  # m/s (34 mph)
 INF_POINT = np.array([1000.0, 0.0, 0.0])
 
+BOOKMARK_BTN_SIZE = 220
+BOOKMARK_ICON_SIZE = 160
+BOOKMARK_BTN_MARGIN = 30
+
 
 class AugmentedRoadView(CameraView):
   def __init__(self, stream_type: VisionStreamType = VisionStreamType.VISION_STREAM_ROAD):
@@ -49,8 +53,15 @@ class AugmentedRoadView(CameraView):
     self.alert_renderer = AlertRenderer()
     self._disengage_bars = DisengageBars()
 
+    self._flag_img = gui_app.texture("images/button_flag.png", BOOKMARK_ICON_SIZE, BOOKMARK_ICON_SIZE)
+    self._bookmark_btn_rect = rl.Rectangle(0, 0, BOOKMARK_BTN_SIZE, BOOKMARK_BTN_SIZE)
+    self._bookmark_callback = None
+
     # debug
     self._pm = messaging.PubMaster(['uiDebug'])
+
+  def set_bookmark_callback(self, callback) -> None:
+    self._bookmark_callback = callback
 
   def _render(self, rect):
     # Only render when system is started to avoid invalid data access
@@ -100,18 +111,33 @@ class AugmentedRoadView(CameraView):
     # Render disengage bars after scissor and border so they always paint on top
     self._disengage_bars.render(self._content_rect)
 
+    # Render bookmark button at bottom-right of road view
+    self._bookmark_btn_rect = rl.Rectangle(
+      self._content_rect.x + self._content_rect.width - BOOKMARK_BTN_MARGIN - BOOKMARK_BTN_SIZE,
+      self._content_rect.y + self._content_rect.height - BOOKMARK_BTN_MARGIN - BOOKMARK_BTN_SIZE,
+      BOOKMARK_BTN_SIZE, BOOKMARK_BTN_SIZE,
+    )
+    btn_pressed = self.is_pressed and rl.check_collision_point_rec(rl.get_mouse_position(), self._bookmark_btn_rect)
+    rl.draw_rectangle_rounded(self._bookmark_btn_rect, 0.3, 10, rl.Color(0, 0, 0, 200 if btn_pressed else 166))
+    rl.draw_texture(self._flag_img,
+                    int(self._bookmark_btn_rect.x + (BOOKMARK_BTN_SIZE - self._flag_img.width) // 2),
+                    int(self._bookmark_btn_rect.y + (BOOKMARK_BTN_SIZE - self._flag_img.height) // 2),
+                    rl.Color(255, 255, 255, 140 if btn_pressed else 255))
+
     # publish uiDebug
     msg = messaging.new_message('uiDebug')
     msg.uiDebug.drawTimeMillis = (time.monotonic() - start_draw) * 1000
     self._pm.send('uiDebug', msg)
 
-  def _handle_mouse_press(self, _):
-    if not self._hud_renderer.user_interacting() and self._click_callback is not None:
+  def _handle_mouse_press(self, mouse_pos):
+    if not rl.check_collision_point_rec(mouse_pos, self._bookmark_btn_rect) and \
+       not self._hud_renderer.user_interacting() and self._click_callback is not None:
       self._click_callback()
 
-  def _handle_mouse_release(self, _):
+  def _handle_mouse_release(self, mouse_pos):
     # We only call click callback on press if not interacting with HUD
-    pass
+    if rl.check_collision_point_rec(mouse_pos, self._bookmark_btn_rect) and self._bookmark_callback:
+      self._bookmark_callback()
 
   def _draw_border(self, rect: rl.Rectangle):
     rl.draw_rectangle_lines_ex(rect, UI_BORDER_SIZE, rl.BLACK)
