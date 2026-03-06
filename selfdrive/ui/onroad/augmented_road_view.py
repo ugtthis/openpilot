@@ -6,7 +6,7 @@ from msgq.visionipc import VisionStreamType
 from openpilot.selfdrive.ui import UI_BORDER_SIZE
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.selfdrive.ui.onroad.alert_renderer import AlertRenderer
-from openpilot.selfdrive.ui.onroad.driver_state import DriverStateRenderer
+from openpilot.selfdrive.ui.onroad.disengage_bars import DisengageBars
 from openpilot.selfdrive.ui.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.onroad.model_renderer import ModelRenderer
 from openpilot.selfdrive.ui.onroad.cameraview import CameraView
@@ -47,7 +47,7 @@ class AugmentedRoadView(CameraView):
     self.model_renderer = ModelRenderer()
     self._hud_renderer = HudRenderer()
     self.alert_renderer = AlertRenderer()
-    self.driver_state_renderer = DriverStateRenderer()
+    self._disengage_bars = DisengageBars()
 
     # debug
     self._pm = messaging.PubMaster(['uiDebug'])
@@ -87,7 +87,6 @@ class AugmentedRoadView(CameraView):
     self.model_renderer.render(self._content_rect)
     self._hud_renderer.render(self._content_rect)
     self.alert_renderer.render(self._content_rect)
-    self.driver_state_renderer.render(self._content_rect)
 
     # Custom UI extension point - add custom overlays here
     # Use self._content_rect for positioning within camera bounds
@@ -97,6 +96,9 @@ class AugmentedRoadView(CameraView):
 
     # Draw colored border based on driving state
     self._draw_border(rect)
+
+    # Render disengage bars after scissor and border so they always paint on top
+    self._disengage_bars.render(self._content_rect)
 
     # publish uiDebug
     msg = messaging.new_message('uiDebug')
