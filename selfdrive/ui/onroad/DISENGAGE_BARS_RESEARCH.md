@@ -361,6 +361,146 @@ The torque bar tells you **what the car is doing to steer**. The B/S bars tell y
 
 ---
 
+## Reference: Driver Monitoring (DM) System
+
+Driver Monitoring is a completely separate pipeline from the road model. It uses the **inward-facing IR driver camera** and outputs an awareness score and distraction classification.
+
+### Architecture
+
+```
+Driver camera (IR fisheye, VISION_STREAM_DRIVER)
+  → dmonitoringmodeld   (TinyGrad neural net, 20 Hz)
+        inputs:  camera frame + liveCalibration.rpyCalib
+        outputs: driverStateV2
+  → dmonitoringd        (policy/state machine, 20 Hz)
+        inputs:  driverStateV2, carState, selfdriveState,
+                 modelV2.meta.disengagePredictions.brakeDisengageProbs[0]  ← road model feeds here
+        outputs: driverMonitoringState
+  → UI (DriverStateRenderer / DisengageBars)
+  → selfdrived / controlsd (events, forceDecel)
+```
+
+### What the DM Neural Net Outputs (`driverStateV2`)
+
+The model always outputs **two parallel driver data sets simultaneously** — one for LHD and one for RHD — and a `wheelOnRightProb` to pick which to use.
+
+Each `DriverData` struct contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `faceOrientation` | float[3] | `[pitch, yaw, roll]` in radians (head pose) |
+| `faceOrientationStd` | float[3] | Uncertainty for each axis — `> 0.3` = unreliable |
+| `facePosition` | float[2] | Normalized `[x, y]` image position of face center |
+| `faceProb` | float | P(face visible). DM gates on this: needs `> 0.7` |
+| `leftEyeProb` | float | P(left eye open). Blink only checked if `> 0.65` |
+| `rightEyeProb` | float | P(right eye open) |
+| `leftBlinkProb` | float | P(left eye blinking) |
+| `rightBlinkProb` | float | P(right eye blinking) |
+| `sunglassesProb` | float | P(sunglasses). If `> 0.9`, blink check is skipped entirely |
+| `phoneProb` | float | P(driver looking at phone). Threshold: `> 0.5` |
+
+### What the DM Policy Outputs (`driverMonitoringState`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `awarenessStatus` | float | `1.0` = fully aware, `0.0` = red alert, `< 0` = forced decel |
+| `isDistracted` | bool | Smoothed distraction state |
+| `distractedType` | uint32 | Bitmask: `POSE=1`, `BLINK=2`, `PHONE=4` |
+| `faceDetected` | bool | `faceProb > 0.7` |
+| `isActiveMode` | bool | `true` = camera-tracked, `false` = wheel-touch only |
+| `isRHD` | bool | Right-hand drive — mirrors DMoji and selects which `DriverData` to use |
+| `posePitchOffset` | float | Learned "natural looking forward" pitch for this driver |
+| `poseYawOffset` | float | Learned "natural looking forward" yaw for this driver |
+| `isLowStd` | bool | Model is confident (`std < 0.3`). False = falls back to passive mode |
+| `stepChange` | float | Per-frame awareness drain/refill rate |
+| `awarenessActive` | float | Awareness in active (camera) mode |
+| `awarenessPassive` | float | Awareness in passive (wheel-touch) mode |
+
+### Distraction Classification
+
+Three independent sources:
+
+**POSE (`distractedType & 1`)** — head pitch too far down OR yaw too far sideways, relative to the driver's learned natural offset. Key asymmetry: **looking up is never penalized**, only down or sideways. Thresholds:
+- `_POSE_PITCH_THRESHOLD = 0.3133 rad (~18°)` below natural
+- `_POSE_YAW_THRESHOLD = 0.4020 rad (~23°)` from center
+
+**BLINK (`distractedType & 2`)** — average of left and right `blinkProb > 0.865`. Only checked if eyes are visible (`eyeProb > 0.65`) and no sunglasses (`sunglassesProb < 0.9`).
+
+**PHONE (`distractedType & 4`)** — `phoneProb > 0.5`. Separate from pose — you can be looking at the right angle but still be flagged for phone use.
+
+Final distraction requires: at least one type AND `faceProb > 0.7` AND `isLowStd`. Then filtered through `FirstOrderFilter(ts=0.25s)` to avoid flickering.
+
+### Awareness State Machine
+
+```
+awarenessStatus:   1.0  ──── 0.72 ──── 0.54 ──── 0.0 ──── < 0
+                   OK    pre-alert  prompt    red      forceDecel
+                          green     orange   full      (car brakes)
+```
+
+**Active mode** (face tracked, `isLowStd=true`): 11s total timeout
+- Pre-alert at 8s remaining → `preDriverDistracted` (green banner)
+- Prompt at 6s remaining → `promptDriverDistracted` (orange alert)
+- Terminal → `driverDistracted` + red fullscreen
+
+**Passive mode** (face lost or uncertain): 30s total timeout
+- Same cascade but longer: pre at 15s, prompt at 6s
+
+Awareness **recovers** when driver pays attention (at up to 5× faster than it drains). Resets to `1.0` on disengage or physical driver input (steering/gas press).
+
+After 3 terminal alerts OR 30s cumulative at terminal → `DriverTooDistracted` param set → blocks re-engagement entirely.
+
+### How the Road Model Feeds Into DM (`_set_policy`)
+
+The `brakeDisengageProbs[0]` (2-second window) from `modelV2` directly adjusts DM's pose thresholds:
+
+```python
+k1 = max(-0.00156 * ((car_speed - 16)**2) + 0.6, 0.2)  # peaks at 16 m/s (~36 mph)
+bp_normal = max(min(brake_disengage_prob / k1, 0.5), 0)
+# bp_normal=0 → use slack thresholds (lenient)
+# bp_normal=0.5 → use strict thresholds (tight)
+```
+
+When the road model predicts the driver is likely to brake (approaching a stop), DM **loosens** its pose thresholds to avoid false distraction alerts during an intentional takeover. When the road looks calm, DM is **stricter**. This makes the two completely separate cameras and models work cooperatively.
+
+### Pose Calibration (Driver Personalization)
+
+DM **learns each driver's natural "looking forward" head position** using a running stat filter:
+- Accumulates data only while: `vEgo > 13 m/s`, face detected, not distracted, model confident
+- After ~1–6 minutes of calibration, replaces generic offsets with driver-specific ones
+- Persisted across drives via params (`IsLdwEnabled` context)
+- Published as `posePitchOffset` and `poseYawOffset` in `driverMonitoringState`
+
+This is why DM doesn't false-alarm for drivers who naturally sit slightly tilted — it learns their baseline.
+
+### RHD Detection (`isRHD`)
+
+The DM model always outputs two parallel predictions (LHD + RHD). `wheelOnRightProb` accumulates over 15s of highway driving before committing. Once decided:
+- Selects `rightDriverData` vs `leftDriverData` in `dmonitoringd`
+- Mirrors the DMoji position in the UI (bottom-right instead of bottom-left)
+- Detection is **locked during engagement** to prevent mid-drive flips
+- Persisted to `IsRhdDetected` param every 5 minutes
+
+### Connection to the DisengageBars
+
+The `isRHD` field is the only `driverMonitoringState` field currently used by the DisengageBars widget — it controls whether the bar panel anchors to the bottom-left (LHD) or bottom-right (RHD) of the camera view, mirroring where the driver is seated.
+
+The `awarenessStatus` and `distractedType` fields are the obvious candidates for a future "A" (awareness) bar, showing the drain/recovery cycle visually. The `distractedType` bitmask would let you show separate sub-indicators for pose vs blink vs phone.
+
+### What the DMoji Was Rendering (Replaced by DisengageBars)
+
+The `DriverStateRenderer` (now replaced) rendered:
+- A 192px semi-transparent circle button in the bottom corner
+- A static driver face icon (`icons/driver_face.png`, 65% opacity when active)
+- A **live 3D face outline**: 33 keypoints projected from model space using the full `faceOrientation` rotation matrix, drawn as a spline — the outline actually rotated to track the driver's head in real time
+- Pitch arc (vertical) and yaw arc (horizontal) indicating head rotation direction
+- Arc color: green when engaged, gray when disengaged
+- Arc thickness grew with rapid head movement (`driver_pose_diff`)
+
+This was real-time head pose visualization. The DisengageBars replace the widget slot but currently show prediction bars, not head tracking.
+
+---
+
 ## File Locations
 
 | File | Purpose |
