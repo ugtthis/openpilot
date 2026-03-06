@@ -481,6 +481,178 @@ The DM model always outputs two parallel predictions (LHD + RHD). `wheelOnRightP
 - Detection is **locked during engagement** to prevent mid-drive flips
 - Persisted to `IsRhdDetected` param every 5 minutes
 
+### The `awarenessStatus` Abstraction — How Distraction Becomes a Number
+
+`awarenessStatus` is a single float, `1.0 → 0.0 → -0.1`, that is the **entire output of the driver monitoring system compressed into one scalar**. Every alert, every forceDecel, every re-engagement block derives from this one number.
+
+#### What it represents
+
+```
+1.0   driver is fully paying attention
+0.72  (threshold_pre)   pre-alert: green banner starts here
+0.54  (threshold_prompt) prompt alert: orange banner
+0.0   terminal: red fullscreen + forceDecel command to car
+-0.1  max negative (clamp floor) — counts time spent at red
+```
+
+The thresholds are computed from the timing constants, not hardcoded:
+```python
+threshold_pre    = _DISTRACTED_PRE_TIME_TILL_TERMINAL / _DISTRACTED_TIME   # 8/11  ≈ 0.727
+threshold_prompt = _DISTRACTED_PROMPT_TIME_TILL_TERMINAL / _DISTRACTED_TIME # 6/11  ≈ 0.545
+```
+
+#### How it drains
+
+Each frame (20 Hz = every 0.05s), `step_change` is subtracted when the driver is distracted:
+
+```python
+# active mode:  step_change = 0.05 / 11  ≈ 0.00455 per frame
+# passive mode: step_change = 0.05 / 30  ≈ 0.00167 per frame
+self.awareness = max(self.awareness - self.step_change, -0.1)
+```
+
+Draining only happens under two conditions (`certainly_distracted` OR `maybe_distracted`):
+
+```python
+certainly_distracted = (
+    self.driver_distraction_filter.x > 0.63   # smoothed flag crossed 63% threshold
+    and self.driver_distracted                  # raw distracted flag is set
+    and self.face_detected                      # face must be visible
+)
+maybe_distracted = (
+    self.hi_stds > _HI_STD_FALLBACK_TIME       # model uncertain for >10s
+    or not self.face_detected                   # face not detected
+)
+```
+
+The `driver_distraction_filter` is a `FirstOrderFilter(ts=0.25s)` on the raw bool — so brief glances away don't immediately drain awareness, they have to cross the 63% smoothed threshold.
+
+#### How it recovers
+
+When the driver IS paying attention, awareness refills — but **faster** than it drained, using a variable recovery rate that speeds up the more depleted the awareness is:
+
+```python
+recovery_rate = (
+    (_RECOVERY_FACTOR_MAX - _RECOVERY_FACTOR_MIN) * (1.0 - self.awareness)
+    + _RECOVERY_FACTOR_MIN
+) * self.step_change
+# _RECOVERY_FACTOR_MAX = 5x, _RECOVERY_FACTOR_MIN = 1.25x
+# so: at awareness=1.0 → recover at 1.25x drain rate
+#     at awareness=0.0 → recover at 5.0x drain rate
+self.awareness = min(self.awareness + recovery_rate, 1.0)
+```
+
+Recovery **stops** when alert is orange or red (`awareness <= threshold_prompt`) — the driver must physically engage (steer/gas) to reset from orange/red, they can't just look forward.
+
+#### Hard resets
+
+Three things instantly reset `awareness` back to `1.0`:
+1. Openpilot **disengages** (always-off mode)
+2. Driver presses **steering wheel** or **gas** while paying attention
+3. Mode switch from **passive → active** (face reacquires) — awareness is restored from the saved `awareness_active` buffer
+
+#### Standstill exemptions
+
+At a standstill:
+- Green pre-alert is **suppressed entirely** — `standstill_orange_exemption` prevents draining if reaching orange
+- The countdown effectively pauses while stopped, so a distracted driver at a red light won't alarm
+
+#### The two independent awareness tracks
+
+The system runs **two parallel awareness values**:
+
+```python
+self.awareness_active   # for when face is tracked (active mode)
+self.awareness_passive  # for when falling back to wheel-touch (passive mode)
+```
+
+When the mode switches (face detected/lost), the current value is saved to the appropriate track and the other is restored. So losing and regaining the face doesn't reset your progress — it continues from where it left off in that mode.
+
+#### What feeds into `certainly_distracted`
+
+The full chain from camera → distracted bool:
+
+```
+driverStateV2.leftDriverData.faceProb > 0.7          → face_detected
+driverStateV2.leftDriverData.faceOrientationStd < 0.3 → pose.low_std
+
+# POSE check (relative to learned natural offset):
+abs(pitch - pitch_offset) > 0.3133 * cfactor_pitch  → DISTRACTED_POSE
+abs(yaw   - yaw_offset)   > 0.4020 * cfactor_yaw    → DISTRACTED_POSE
+
+# BLINK check (only if eyes visible and no sunglasses):
+(leftBlinkProb + rightBlinkProb)/2 > 0.865           → DISTRACTED_BLINK
+
+# PHONE check:
+phoneProb > 0.5                                       → DISTRACTED_PHONE
+
+# Combined:
+driver_distracted = (any distracted_type)
+                    AND face_detected
+                    AND pose.low_std
+
+# Then smoothed:
+driver_distraction_filter.update(driver_distracted)  # FirstOrderFilter(ts=0.25s)
+# Drains awareness when: filter.x > 0.63
+```
+
+#### Alert event names (what selfdrived receives)
+
+```python
+# Active mode (face tracked):
+EventName.preDriverDistracted       # green banner, awareness in (threshold_prompt, threshold_pre]
+EventName.promptDriverDistracted    # orange alert, awareness in (0, threshold_prompt]
+EventName.driverDistracted          # red fullscreen, awareness <= 0  → also forceDecel
+
+# Passive mode (wheel-touch / no face):
+EventName.preDriverUnresponsive
+EventName.promptDriverUnresponsive
+EventName.driverUnresponsive
+
+# Always-on mode block:
+EventName.tooDistracted             # blocks re-engagement after 3 terminal alerts or 30s at red
+```
+
+`forceDecel` is computed in `controlsd`, not in the DM daemon:
+```python
+cs.forceDecel = bool(driverMonitoringState.awarenessStatus < 0.0)
+```
+
+#### What the DisengageBars would need to add an awareness bar
+
+To show `awarenessStatus` as a bar, subscribe to `driverMonitoringState`:
+
+```python
+# In disengage_bars.py:
+sm = ui_state.sm
+
+# The awareness level (1.0 = full, 0.0 = red):
+awareness = sm['driverMonitoringState'].awarenessStatus
+
+# Clamp to [0, 1] and invert so "full bar = danger":
+danger_level = 1.0 - max(min(awareness, 1.0), 0.0)
+
+# Or show it the other way (full bar = safe):
+safe_level = max(min(awareness, 1.0), 0.0)
+
+# Distraction type for color coding:
+dtype = sm['driverMonitoringState'].distractedType
+is_pose  = bool(dtype & 1)
+is_blink = bool(dtype & 2)
+is_phone = bool(dtype & 4)
+
+# Active vs passive mode (different thresholds and timers):
+is_active_mode = sm['driverMonitoringState'].isActiveMode
+```
+
+The color mapping would naturally follow the alert thresholds:
+- `awareness > 0.727` → green (below pre-alert threshold)
+- `0.545 < awareness <= 0.727` → yellow (in pre-alert zone)
+- `0.0 < awareness <= 0.545` → orange (in prompt zone)
+- `awareness <= 0.0` → red (terminal)
+
+The `distractedType` bitmask lets you show sub-indicators: a tiny icon or color shift per distraction type (pose vs blink vs phone).
+
 ### Connection to the DisengageBars
 
 The `isRHD` field is the only `driverMonitoringState` field currently used by the DisengageBars widget — it controls whether the bar panel anchors to the bottom-left (LHD) or bottom-right (RHD) of the camera view, mirroring where the driver is seated.
