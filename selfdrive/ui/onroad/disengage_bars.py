@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import pyray as rl
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY
@@ -8,8 +9,13 @@ from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 
-# Widget dimensions -- wide enough for 6 bars
-WIDTH = 570
+# Confidence ball column (left of bars) -- matches mici ConfidenceBall radius and column width
+BALL_RADIUS = 24       # px, identical to mici status_dot_radius
+BALL_COLUMN_W = 60     # px, matches mici SIDE_PANEL_WIDTH; ball column left of the bars
+BALL_GAP = 16          # px, gap between ball column and first bar
+
+# Widget dimensions -- ball column + 6 bars
+WIDTH = 646  # 570 (6-bar width) + BALL_COLUMN_W + BALL_GAP
 HEIGHT = 480
 PADDING = 24
 BAR_GAP = 12
@@ -115,21 +121,43 @@ def _draw_bar(bar_x: float, bar_area_y: float, bar_w: float, bar_area_h: float,
     rl.draw_rectangle_rounded(block_rect, BLOCK_ROUNDNESS, BLOCK_SEGMENTS, color)
 
 
+def _draw_confidence_ball(cx: float, cy: float, radius: int,
+                          top: rl.Color, bottom: rl.Color) -> None:
+  """Draw a gradient circle using the same technique as mici ConfidenceBall.
+
+  Paints a gradient rectangle then masks the corners with a ring, matching
+  mici's draw_circle_gradient exactly.
+  """
+  rl.draw_rectangle_gradient_v(int(cx - radius), int(cy - radius),
+                               radius * 2, radius * 2, top, bottom)
+  outer_radius = math.ceil(radius * math.sqrt(2)) + 1
+  rl.draw_ring(rl.Vector2(int(cx), int(cy)), radius, outer_radius,
+               0.0, 360.0, 20, rl.BLACK)
+
+
 class DisengageBars(Widget):
   """
-  Segmented LED-style bars in the tici onroad view:
+  Segmented LED-style bars plus the mici confidence ball in the tici onroad view.
 
-    B  – brake-disengage probability (modelV2, 10s horizon, driver-override signal)
-    BI – braking intensity (carState.aEgo, actual measured vehicle deceleration)
-    G  – gas-override probability (modelV2, 10s horizon)
-         high G means the model predicts the driver will press gas to override the current plan
-    S  – steer-override probability (modelV2, 10s horizon, driver-override signal)
-    SA – steering arc / torque utilization (abs torque, direction-agnostic)
-         shows how close the steering system is to its torque limit
-    DM – driver distraction level (1 - driverMonitoringState.awarenessStatus)
-         label changes to P (pose) / E (eyes/blink) / Ph (phone) when distracted
+  Left column (confidence ball):
+    ●  – combined model confidence: (1-brakeProb)*(1-steerProb), same formula as mici.
+         Color: green > 0.5, yellow > 0.2, red ≤ 0.2. Override = white. Disengaged = dark.
+         Vertical position: high = confident, low = nervous.
 
-  B, G, and S share the same data source as the mici ConfidenceBall.
+  Bars, left-to-right (two groups separated by a gap):
+    Predictions (neural net, 10 s horizon):
+      B  – brake-disengage probability
+      G  – gas-override probability (driver pressing gas to override current plan)
+      S  – steer-override probability
+
+    Reactive (physical signals):
+      BI – braking intensity (carState.aEgo, actual measured vehicle deceleration)
+      SA – steering arc / torque utilization (abs torque, direction-agnostic)
+           top block reserved for lateral controller saturation
+      DM – driver distraction level (1 - driverMonitoringState.awarenessStatus)
+           label changes to P (pose) / E (eyes/blink) / Ph (phone) when distracted
+
+  B, G, S, and the confidence ball share the same NN meta head source.
   BI fills upward as the car brakes -- directly reacts to measured deceleration.
   SA mirrors the mici TorqueBar signal but shows absolute utilization (0=none, 1=limit).
   DM fills upward as the driver becomes more distracted; empty = fully attentive.
@@ -137,6 +165,8 @@ class DisengageBars(Widget):
 
   def __init__(self):
     super().__init__()
+    # Confidence ball: matches mici ConfidenceBall exactly -- starts at -0.5 to animate in from below
+    self._confidence_filter = FirstOrderFilter(-0.5, 0.5, 1 / gui_app.target_fps)
     # B / S / G: slow filter (0.5s RC) -- probability signals don't need instant response
     self._brake_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
     self._steer_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
@@ -167,6 +197,7 @@ class DisengageBars(Widget):
       self._dm_distracted_type = sm['driverMonitoringState'].distractedType
 
     if ui_state.status == UIStatus.DISENGAGED:
+      self._confidence_filter.update(-0.5)
       self._brake_filter.update(0.0)
       self._steer_filter.update(0.0)
       self._gas_filter.update(0.0)
@@ -179,6 +210,11 @@ class DisengageBars(Widget):
       self._brake_filter.update(max(predictions.brakeDisengageProbs or [0.0]))
       self._steer_filter.update(max(predictions.steerOverrideProbs or [0.0]))
       self._gas_filter.update(max(predictions.gasDisengageProbs or [0.0]))
+      # Confidence ball: identical formula to mici ConfidenceBall
+      self._confidence_filter.update(
+        (1 - max(predictions.brakeDisengageProbs or [1.0])) *
+        (1 - max(predictions.steerOverrideProbs or [1.0]))
+      )
 
       # BI: actual measured vehicle deceleration from carState.aEgo.
       # aEgo is negative when decelerating. We flip the sign so braking → positive,
@@ -249,11 +285,43 @@ class DisengageBars(Widget):
     # Semi-transparent dark background card
     rl.draw_rectangle_rounded(container, CORNER_RADIUS, 10, rl.Color(0, 0, 0, 110))
 
-    # Bar area geometry -- bar count depends on longitudinal capability
-    bar_area_x = container_x + PADDING
+    # Bar area geometry -- ball column occupies the far-left, then bars follow
+    bar_area_x = container_x + PADDING + BALL_COLUMN_W + BALL_GAP
     bar_area_y = container_y + PADDING
-    bar_area_w = WIDTH - 2 * PADDING
+    bar_area_w = WIDTH - 2 * PADDING - BALL_COLUMN_W - BALL_GAP
     bar_area_h = HEIGHT - 2 * PADDING - LABEL_HEIGHT
+
+    # --- Confidence ball (left column) ---
+    # Vertical position: maps confidence [0, 1] → top to bottom of bar area.
+    # Identical formula to mici ConfidenceBall._render — no clamp.
+    # When disengaged (filter = -0.5) the ball sits below the bar area; the scissor
+    # region clips it to the card so it slides in from the bottom on engage, just like mici.
+    confidence = self._confidence_filter.x
+    ball_cx = container_x + PADDING + BALL_COLUMN_W // 2
+    ball_cy = bar_area_y + (1 - confidence) * (bar_area_h - 2 * BALL_RADIUS) + BALL_RADIUS
+
+    # Color zones — identical to mici (order matches: ENGAGED → green/yellow/red, OVERRIDE → white/gray, else → dark)
+    if ui_state.status == UIStatus.ENGAGED:
+      if confidence > 0.5:
+        ball_top = rl.Color(0, 255, 204, 255)
+        ball_bot = rl.Color(0, 255, 38, 255)
+      elif confidence > 0.2:
+        ball_top = rl.Color(255, 200, 0, 255)
+        ball_bot = rl.Color(255, 115, 0, 255)
+      else:
+        ball_top = rl.Color(255, 0, 21, 255)
+        ball_bot = rl.Color(255, 0, 89, 255)
+    elif override:
+      ball_top = rl.Color(255, 255, 255, 255)
+      ball_bot = rl.Color(82, 82, 82, 255)
+    else:
+      ball_top = rl.Color(50, 50, 50, 255)
+      ball_bot = rl.Color(13, 13, 13, 255)
+
+    # Scissor to card bounds so the ball slides in from the card bottom on engage (mici behavior)
+    rl.begin_scissor_mode(int(container_x), int(container_y), WIDTH, HEIGHT)
+    _draw_confidence_ball(ball_cx, ball_cy, BALL_RADIUS, ball_top, ball_bot)
+    rl.end_scissor_mode()
 
     # Two semantic groups:
     #   Predictions (left):  B, G, S  — neural net forecasts of driver intervention
