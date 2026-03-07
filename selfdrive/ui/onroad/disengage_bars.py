@@ -143,8 +143,8 @@ class DisengageBars(Widget):
     self._gas_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
     # BI: faster filter (0.15s RC) -- physical decel should feel immediate
     self._accel_filter = FirstOrderFilter(0.0, 0.15, 1 / gui_app.target_fps)
-    # SA: fast filter matching BI -- torque utilization is a physical signal
-    self._torque_utilization_filter = FirstOrderFilter(0.0, 0.15, 1 / gui_app.target_fps)
+    # SA: matches mici TorqueBar RC -- torque utilization is a physical signal
+    self._torque_utilization_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     # DM: match B/S smoothness -- awarenessStatus is already time-integrated
     self._dm_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
     self._dm_distracted_type = 0
