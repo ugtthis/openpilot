@@ -225,18 +225,21 @@ raw_prob >= ceiling × (N - 0.5) / block_count
 
 ### Reference tables
 
-**B / G / S with current shared ceiling = 0.4, 5 blocks:**
+**B / G / S with ceiling = 0.5, 5 blocks (each block = 10% band):**
 
-| Block | Color | Lights at raw prob |
-|-------|-------|-------------------|
-| 1 | green | 4% |
-| 2 | yellow-green | 12% |
-| 3 | yellow | 20% |
-| 4 | orange | 28% |
-| 5 | red | 36% |
+| Block | Color | Band | Lights at (midpoint) |
+|-------|-------|------|---------------------|
+| 1 | green | 0 – 10% | 5% |
+| 2 | yellow-green | 10 – 20% | 15% |
+| 3 | yellow | 20 – 30% | 25% |
+| 4 | orange | 30 – 40% | 35% |
+| 5 | red | 40 – 50% | 45% |
 
-Bar saturates (stays full) above 36%. Ceiling of 40% is the clamp point, not the
-top-block threshold.
+Bar saturates (stays full) above 50%.
+
+Note: `round()` places thresholds at midpoints (5%, 15%, ...) not band edges (10%, 20%, ...).
+Switching `_lit_levels` from `round()` to `int()` would make blocks light at exact band edges
+but makes the top block harder to reach. Worth revisiting with real drive data.
 
 **BI with MAX_DECEL = 3.5 m/s², 5 blocks:**
 
@@ -261,7 +264,7 @@ All live in `selfdrive/ui/onroad/disengage_bars.py` at the top of the file.
 
 | Constant | Value | Controls |
 |----------|-------|----------|
-| `PROB_SENSITIVITY_CEILING` | 0.4 | Raw prob at which B, G, S bars saturate |
+| `PROB_SENSITIVITY_CEILING` | 0.5 | Raw prob at which B, G, S bars are fully lit (each block = ~10%) |
 | `MAX_DECEL` | 3.5 m/s² | Deceleration that fills the BI bar completely |
 | `DEFAULT_MAX_LAT_ACCEL` | 3.0 m/s² | SA normalization for angle-controlled cars without CP data |
 | `SA_BLOCK_COUNT` | 10 | Number of SA blocks (finer resolution than other bars) |
@@ -275,28 +278,24 @@ output has frame-to-frame noise and the signals are already predictive (future-l
 
 ---
 
-## 7. Open Design Question: Should B, G, S Share One Ceiling?
+## 7. Design Decision: Shared Ceiling at 0.5
 
-Currently all three share `PROB_SENSITIVITY_CEILING = 0.4`. But they predict events of
-different severity (see section 3). The severity argument says:
+All three probability bars (B, G, S) share `PROB_SENSITIVITY_CEILING = 0.5`.
 
-- **B** predicts a full disengage — most consequential, worth detecting early → lower ceiling (more sensitive)
-- **G / S** predict recoverable overrides — less urgent, avoid false alarm → higher ceiling (less sensitive)
+**Rationale:** Without real-drive probability distribution data, we cannot confirm the
+model's calibration differs between event types. A shared ceiling keeps things simple to
+reason about — each block = ~10% model confidence, 5 blocks = 50% — while avoiding
+per-bar tuning we can't validate. This was chosen over a severity-based split (B=0.3,
+G/S=0.6) because the model's probability scales may not be comparable across event types.
 
-Candidate split:
+**Previous value:** 0.4 (each block = ~8%, full bar at 36%). Raised to 0.5 to reduce
+over-sensitivity and give the bars a cleaner mental model.
 
-| Bar | Proposed ceiling | Block 1 | Block 3 | Block 5 (full) |
-|-----|-----------------|---------|---------|---------------|
-| B | 0.3 | 3% | 15% | 27% |
-| G | 0.6 | 6% | 30% | 54% |
-| S | 0.6 | 6% | 30% | 54% |
-| Current (all) | 0.4 | 4% | 20% | 36% |
+**Future consideration:** If real drives show B needs earlier warning or G/S are too noisy,
+per-bar ceilings can be introduced by replacing the single constant with three:
+`BRAKE_CEILING`, `GAS_CEILING`, `STEER_CEILING`.
 
-To implement a split, replace `PROB_SENSITIVITY_CEILING` with three separate constants
-and update the `bars` list in `_render()` accordingly.
-
-The argument *against* splitting: the model's probability scale may not be well-calibrated
-across event types. A gas-override prob of 0.3 might not be "equivalent urgency" to a
-brake-disengage prob of 0.3. Without real-drive probability distribution data it is hard
-to know whether the model assigns higher or lower raw values to one event type vs another.
-Observing bar behavior on actual drives is the most reliable calibration method.
+**round() vs int():** The current `_lit_levels` uses `round()`, which places block
+thresholds at midpoints of each 10% band (5%, 15%, 25%, ...). Switching to `int()` would
+place them at exact band edges (10%, 20%, 30%, ...) but makes the top block harder to
+reach. Worth revisiting with real drive data to see which gives better visual feedback.
