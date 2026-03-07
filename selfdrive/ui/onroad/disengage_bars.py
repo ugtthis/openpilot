@@ -354,7 +354,7 @@ class DisengageBars(Widget):
       _draw_bar(bar_x, bar_area_y, bar_w, bar_area_h, lit, override, disengaged, n_blocks, c_lit, c_dim)
 
       # Centered label below bar
-      font_size = 40
+      font_size = 42
       label_size = measure_text_cached(self._font, label, font_size)
       label_pos = rl.Vector2(bar_x + (bar_w - label_size.x) / 2,
                              bar_area_y + bar_area_h + 10)
