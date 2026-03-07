@@ -20,8 +20,9 @@ CORNER_RADIUS = 0.12
 BLOCK_ROUNDNESS = 0.35
 BLOCK_SEGMENTS = 8
 
-# B / S bars: saturates at this raw probability (lower = more sensitive)
-PROB_SENSITIVITY_CEILING = 0.4
+# B / G / S bars: raw probability at which the bar is fully lit.
+# 0.5 means each of the 5 blocks represents a ~10% probability band (50% total range).
+PROB_SENSITIVITY_CEILING = 0.5
 
 # BI bar: actual measured vehicle deceleration (m/s²) that fills the bar completely.
 # carState.aEgo is negative when decelerating; we map [-MAX_DECEL, 0] → [1, 0].
@@ -79,7 +80,12 @@ SA_BLOCK_COLORS_DIM = [
 
 
 def _lit_levels(scaled_0_to_1: float, block_count: int) -> int:
-  """Map a pre-scaled value in [0, 1] to a discrete block count [0, block_count]."""
+  """Map a pre-scaled value in [0, 1] to a discrete block count [0, block_count].
+
+  Uses round() so thresholds sit at midpoints of each band (5%, 15%, 25%, ...).
+  Switching to int() would place thresholds at band edges (10%, 20%, 30%, ...)
+  but makes the top block harder to reach — tradeoff worth revisiting with real drive data.
+  """
   return round(min(max(scaled_0_to_1, 0.0), 1.0) * block_count)
 
 
