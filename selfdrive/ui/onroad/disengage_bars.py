@@ -8,7 +8,7 @@ from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 
-# Widget dimensions -- wide enough for 5 bars
+# Widget dimensions -- wide enough for 6 bars
 WIDTH = 570
 HEIGHT = 480
 PADDING = 24
@@ -110,17 +110,19 @@ def _draw_bar(bar_x: float, bar_area_y: float, bar_w: float, bar_area_h: float,
 
 class DisengageBars(Widget):
   """
-  Five segmented LED-style bars in the tici onroad view:
+  Segmented LED-style bars in the tici onroad view:
 
     B  – brake-disengage probability (modelV2, 10s horizon, driver-override signal)
     BI – braking intensity (carState.aEgo, actual measured vehicle deceleration)
+    G  – gas-override probability (modelV2, 10s horizon)
+         high G means the model predicts the driver will press gas to override the current plan
     S  – steer-override probability (modelV2, 10s horizon, driver-override signal)
     SA – steering arc / torque utilization (abs torque, direction-agnostic)
          shows how close the steering system is to its torque limit
     DM – driver distraction level (1 - driverMonitoringState.awarenessStatus)
          label changes to P (pose) / E (eyes/blink) / Ph (phone) when distracted
 
-  B and S share the same data source as the mici ConfidenceBall.
+  B, G, and S share the same data source as the mici ConfidenceBall.
   BI fills upward as the car brakes -- directly reacts to measured deceleration.
   SA mirrors the mici TorqueBar signal but shows absolute utilization (0=none, 1=limit).
   DM fills upward as the driver becomes more distracted; empty = fully attentive.
@@ -128,9 +130,10 @@ class DisengageBars(Widget):
 
   def __init__(self):
     super().__init__()
-    # B / S: slow filter (0.5s RC) -- probability signals don't need instant response
+    # B / S / G: slow filter (0.5s RC) -- probability signals don't need instant response
     self._brake_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
     self._steer_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
+    self._gas_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
     # BI: faster filter (0.15s RC) -- physical decel should feel immediate
     self._accel_filter = FirstOrderFilter(0.0, 0.15, 1 / gui_app.target_fps)
     # SA: fast filter matching BI -- torque utilization is a physical signal
@@ -159,14 +162,16 @@ class DisengageBars(Widget):
     if ui_state.status == UIStatus.DISENGAGED:
       self._brake_filter.update(0.0)
       self._steer_filter.update(0.0)
+      self._gas_filter.update(0.0)
       self._accel_filter.update(0.0)
       self._torque_utilization_filter.update(0.0)
       self._dm_filter.update(0.0)
     else:
-      # B / S: driver-override probabilities from the neural net meta head
+      # B / S / G: driver-override probabilities from the neural net meta head
       predictions = sm['modelV2'].meta.disengagePredictions
       self._brake_filter.update(max(predictions.brakeDisengageProbs or [0.0]))
       self._steer_filter.update(max(predictions.steerOverrideProbs or [0.0]))
+      self._gas_filter.update(max(predictions.gasDisengageProbs or [0.0]))
 
       # BI: actual measured vehicle deceleration from carState.aEgo.
       # aEgo is negative when decelerating. We flip the sign so braking → positive,
@@ -237,22 +242,24 @@ class DisengageBars(Widget):
     # Semi-transparent dark background card
     rl.draw_rectangle_rounded(container, CORNER_RADIUS, 10, rl.Color(0, 0, 0, 110))
 
-    # Bar area geometry -- 5 bars, 4 gaps
+    # Bar area geometry -- bar count depends on longitudinal capability
     bar_area_x = container_x + PADDING
     bar_area_y = container_y + PADDING
     bar_area_w = WIDTH - 2 * PADDING
     bar_area_h = HEIGHT - 2 * PADDING - LABEL_HEIGHT
-    bar_w = (bar_area_w - 4 * BAR_GAP) // 5
 
     # Pre-scale each signal to [0, 1] before level mapping.
     # Each entry: (scaled_value, label, block_count, colors_lit, colors_dim)
     bars = [
       (min(self._brake_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "B",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
       (min(self._accel_filter.x / MAX_DECEL, 1.0),                "BI",         BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
+      (min(self._gas_filter.x / PROB_SENSITIVITY_CEILING, 1.0),   "G",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
       (min(self._steer_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "S",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
       (min(self._torque_utilization_filter.x, 1.0),               "SA",         SA_BLOCK_COUNT, SA_BLOCK_COLORS_LIT, SA_BLOCK_COLORS_DIM),
       (min(self._dm_filter.x, 1.0),                               self._dm_label(), BLOCK_COUNT, BLOCK_COLORS_LIT,   BLOCK_COLORS_DIM),
     ]
+
+    bar_w = (bar_area_w - (len(bars) - 1) * BAR_GAP) // len(bars)
 
     for i, (scaled, label, n_blocks, c_lit, c_dim) in enumerate(bars):
       bar_x = bar_area_x + i * (bar_w + BAR_GAP)
