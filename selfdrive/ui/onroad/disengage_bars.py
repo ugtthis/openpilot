@@ -13,6 +13,7 @@ WIDTH = 570
 HEIGHT = 480
 PADDING = 24
 BAR_GAP = 12
+GROUP_GAP = 28  # extra space between prediction group (B,G,S) and reactive group (BI,SA,DM)
 LABEL_HEIGHT = 44
 BLOCK_COUNT = 5
 BLOCK_GAP = 6
@@ -254,21 +255,28 @@ class DisengageBars(Widget):
     bar_area_w = WIDTH - 2 * PADDING
     bar_area_h = HEIGHT - 2 * PADDING - LABEL_HEIGHT
 
-    # Pre-scale each signal to [0, 1] before level mapping.
+    # Two semantic groups:
+    #   Predictions (left):  B, G, S  — neural net forecasts of driver intervention
+    #   Reactive   (right):  BI, SA, DM — physical actuation and driver monitoring
     # Each entry: (scaled_value, label, block_count, colors_lit, colors_dim)
-    bars = [
+    predict_bars = [
       (min(self._brake_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "B",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
-      (min(self._accel_filter.x / MAX_DECEL, 1.0),                "BI",         BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
       (min(self._gas_filter.x / PROB_SENSITIVITY_CEILING, 1.0),   "G",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
       (min(self._steer_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "S",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
+    ]
+    reactive_bars = [
+      (min(self._accel_filter.x / MAX_DECEL, 1.0),                "BI",         BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
       (min(self._torque_utilization_filter.x, 1.0),               "SA",         SA_BLOCK_COUNT, SA_BLOCK_COLORS_LIT, SA_BLOCK_COLORS_DIM),
       (min(self._dm_filter.x, 1.0),                               self._dm_label(), BLOCK_COUNT, BLOCK_COLORS_LIT,   BLOCK_COLORS_DIM),
     ]
+    bars = predict_bars + reactive_bars
 
-    bar_w = (bar_area_w - (len(bars) - 1) * BAR_GAP) // len(bars)
+    n_bars = len(bars)
+    bar_w = (bar_area_w - (n_bars - 1) * BAR_GAP - GROUP_GAP) // n_bars
 
     for i, (scaled, label, n_blocks, c_lit, c_dim) in enumerate(bars):
-      bar_x = bar_area_x + i * (bar_w + BAR_GAP)
+      group_offset = GROUP_GAP if i >= len(predict_bars) else 0
+      bar_x = bar_area_x + i * (bar_w + BAR_GAP) + group_offset
 
       # Faint background track behind all blocks
       track_rect = rl.Rectangle(bar_x, bar_area_y, bar_w, bar_area_h)
