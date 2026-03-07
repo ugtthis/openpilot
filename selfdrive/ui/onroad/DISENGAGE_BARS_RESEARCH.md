@@ -1,6 +1,6 @@
 # Disengage Bars: Research & Signal Analysis
 
-POC widget replacing the DMoji in the tici onroad view with segmented LED-style bars. Goal: give drivers real-time, decomposed visibility into what openpilot's models are predicting and what the car is doing, instead of a single abstracted confidence indicator.
+POC widget replacing the DMoji in the tici onroad view with a mici-style confidence ball plus segmented LED-style bars. Goal: give drivers real-time, decomposed visibility into what openpilot's models are predicting and what the car is doing, without collapsing everything into a single abstracted confidence indicator.
 
 ## Problem Statement
 
@@ -10,19 +10,29 @@ The mici confidence ball combines brake-disengage and steer-override probabiliti
 confidence = (1 - max(brakeDisengageProbs)) * (1 - max(steerOverrideProbs))
 ```
 
-This loses two things: (1) which signal is driving the change (brake vs steer), and (2) any forward-looking physical awareness of braking need. The POC splits these apart and adds a third bar for braking intent.
+By itself, that loses two things: (1) which signal is driving the change (brake vs steer), and (2) any forward-looking or present-tense physical awareness of what the car is actually doing. The current widget keeps the familiar confidence ball, but breaks the rest of the information into separate bars for model predictions, vehicle reaction, steering saturation, and driver monitoring.
 
 ## Current Implementation
 
-Three bars: `B | BI | S`
+Current widget layout:
+
+- Confidence ball column on the far left, using the same formula and color zones as mici
+- Prediction group: `B | G | S`
+- Reactive group: `BI | SA | DM`
 
 | Bar | Label | Source | Question it answers |
 |-----|-------|--------|---------------------|
-| B | BRAKE | `modelV2.meta.disengagePredictions.brakeDisengageProbs` | "How likely is the driver to brake-override openpilot?" |
+| Confidence ball | `●` | `(1 - max(brakeDisengageProbs)) * (1 - max(steerOverrideProbs))` | "Overall, how confident is the model that openpilot will stay comfortable?" |
+| B | B | `modelV2.meta.disengagePredictions.brakeDisengageProbs` | "How likely is the driver to brake-override openpilot?" |
+| G | G | `modelV2.meta.disengagePredictions.gasDisengageProbs` | "How likely is the driver to press gas to override the current plan?" |
+| S | S | `modelV2.meta.disengagePredictions.steerOverrideProbs` | "How likely is the driver to grab the steering wheel?" |
 | BI | BI | `carState.aEgo` (measured deceleration) | "How hard is the car braking right now?" |
-| S | STEER | `modelV2.meta.disengagePredictions.steerOverrideProbs` | "How likely is the driver to grab the steering wheel?" |
+| SA | SA | `controlsState.lateralControlState` / `carOutput.actuatorsOutput.torque` | "How close is lateral control to its steering limit?" |
+| DM | DM / `P` / `E` / `Ph` | `driverMonitoringState.awarenessStatus` and `distractedType` | "How distracted is the driver, and what type of distraction is active?" |
 
-**Key limitation with BI**: `carState.aEgo` is a lagging indicator -- it only shows braking that is *already happening*, not braking that *may be needed*. The original goal was forward-looking: "a brake event may be needed."
+The bars are also visually grouped now: `B/G/S` are predictive neural-net signals, while `BI/SA/DM` are reactive physical or monitoring signals. `SA` uses 10 blocks for finer steering-limit resolution, with the top red block reserved for actual lateral-controller saturation.
+
+**Key limitation with BI**: `carState.aEgo` is still a lagging indicator -- it only shows braking that is *already happening*, not braking that *may be needed*. The original BI goal was forward-looking: "a brake event may be needed." The current implementation intentionally favors universality and immediate physical truth over prediction.
 
 ## The BI Bar Problem: What We Tried and Why It Failed
 
@@ -151,11 +161,15 @@ Radar catches sudden cut-ins instantly. Model covers stop signs, curves, and eve
 
 | Parameter | Current | Effect |
 |-----------|---------|--------|
-| `PROB_SENSITIVITY_CEILING` | 0.4 | B/S bars saturate at 40% raw probability |
+| `PROB_SENSITIVITY_CEILING` | 0.5 | B/G/S bars saturate at 50% raw probability; with 5 blocks this is ~10% per block |
 | `MAX_DECEL` | 3.5 m/s² | BI bar saturates at ~0.35g |
-| `FirstOrderFilter RC (B/S)` | 0.5s | Smoothing for probability signals |
+| `FirstOrderFilter RC (B/G/S)` | 0.5s | Smoothing for prediction signals |
 | `FirstOrderFilter RC (BI)` | 0.15s | Smoothing for physical decel signal |
-| `BLOCK_COUNT` | 5 | Number of discrete levels per bar |
+| `FirstOrderFilter RC (SA)` | 0.1s | Slightly faster response, matching mici TorqueBar behavior |
+| `FirstOrderFilter RC (DM)` | 0.5s | Smoothing for awareness-based distraction display |
+| `BLOCK_COUNT` | 5 | Number of discrete levels for B/G/S/BI/DM |
+| `SA_BLOCK_COUNT` | 10 | Number of discrete levels for steering utilization; top block reserved for saturation |
+| `GROUP_GAP` | 28 px | Extra visual separation between prediction and reactive bar groups |
 
 ## Neural Network Meta Head Detail
 
@@ -177,11 +191,11 @@ All disengage probs are **cumulative** (P(by t=10s) >= P(by t=2s)). Using `max()
 
 These predictions are trained on real-world driver interventions -- the model learned from millions of miles of data when human drivers actually pressed the brake or grabbed the wheel. They measure **driver distrust/discomfort**, not physical threat level.
 
-## Separate Confidence System (Not Used by Bars)
+## Separate Confidence System (Still Not Used by the Widget)
 
 The `modelV2.confidence` field (green/yellow/red enum) uses a more sophisticated rolling-buffer diagonal-score method over 5 snapshots. It combines all three disengage types and checks whether past predictions about the current moment were accurate. Thresholds: green < 0.01165, yellow < 0.06157, red >= 0.06157.
 
-This system is computed in `fill_model_msg.py` but neither the confidence ball nor the disengage bars currently use it.
+This system is computed in `fill_model_msg.py`, but the current onroad widget still does **not** use `modelV2.confidence`. The confidence ball rendered in `disengage_bars.py` uses the original mici formula based on brake/steer disengage probabilities, not the newer enum field.
 
 ---
 
