@@ -28,20 +28,31 @@ H_BAR_INNER_GAP = 8      # px, gap between B3 and B4 rows
 H_BAR_GAP = 22            # px, gap between B4 row and the top of the vertical bars
 H_BAR_B3_CEILING = 0.60  # B3 prob at which a block renders fully red
 H_BAR_B4_CEILING = 0.30  # B4 prob at which a block renders fully red
-H_BAR_LABEL_FONT_SIZE = 30
+H_BAR_LABEL_FONT_SIZE = 26
 
 # Widget dimensions -- ball column + 7 bars + two stacked H-bars at top
 WIDTH = 646  # bars shrink slightly to fit 7; increase WIDTH if more space is needed
-HEIGHT = 480 + 2 * H_BAR_HEIGHT + H_BAR_INNER_GAP + H_BAR_GAP
+TOP_HEADER_SPACE = 26
+SECTION_HEADER_SPACE = 24
+LABEL_BOTTOM_GAP = 14
+HEIGHT = 480 + 2 * H_BAR_HEIGHT + H_BAR_INNER_GAP + H_BAR_GAP + TOP_HEADER_SPACE + SECTION_HEADER_SPACE
 PADDING = 24
 BAR_GAP = 12
-GROUP_GAP = 28  # extra space between prediction group (B,G,S) and reactive group (BI,SA,DM)
-LABEL_HEIGHT = 44
+GROUP_GAP = 34  # extra space between prediction group (B,G,S) and reactive group (BI,SA,DM)
+PREDICT_SECTION_RATIO = 0.54
+LABEL_HEIGHT = 56
+SECTION_CARD_TOP_OVERHANG = 28
+SECTION_CARD_BOTTOM_PADDING = 10
 BLOCK_COUNT = 5
 BLOCK_GAP = 6
 CORNER_RADIUS = 0.12
 BLOCK_ROUNDNESS = 0.35
 BLOCK_SEGMENTS = 8
+LABEL_FONT_SIZE = 32
+SECTION_LABEL_FONT_SIZE = 16
+TRACK_ROUNDNESS = 0.15
+FRAME_INSET = 4
+BLOCK_FRAME_INSET = 2
 
 # B / G / S bars: raw probability at which the bar is fully lit.
 # 0.5 means each of the 5 blocks represents a ~10% probability band (50% total range).
@@ -57,48 +68,48 @@ DEFAULT_MAX_LAT_ACCEL = 3.0  # m/s²
 
 # Per-level colors, bottom (1) to top (5): green → yellow-green → yellow → orange → red
 BLOCK_COLORS_LIT = [
-  rl.Color(26,  210,  80, 240),   # level 1 – green
-  rl.Color(130, 220,   0, 240),   # level 2 – yellow-green
-  rl.Color(255, 200,   0, 240),   # level 3 – yellow
-  rl.Color(255, 130,   0, 240),   # level 4 – orange
-  rl.Color(255,  40,  40, 240),   # level 5 – red
+  rl.Color(70, 178, 102, 235),    # level 1 – muted green
+  rl.Color(178, 188, 82, 235),    # level 2 – olive-gold
+  rl.Color(225, 190, 86, 238),    # level 3 – sand
+  rl.Color(222, 124, 62, 240),    # level 4 – amber
+  rl.Color(214, 58, 44, 242),     # level 5 – red
 ]
 
 # Dimmed/unlit version of each block (same hue, much darker)
 BLOCK_COLORS_DIM = [
-  rl.Color( 10,  50,  25, 100),
-  rl.Color( 30,  55,   0, 100),
-  rl.Color( 55,  45,   0, 100),
-  rl.Color( 55,  30,   0, 100),
-  rl.Color( 55,  10,  10, 100),
+  rl.Color(22, 36, 24, 112),
+  rl.Color(40, 38, 18, 112),
+  rl.Color(56, 42, 18, 116),
+  rl.Color(60, 32, 18, 118),
+  rl.Color(58, 18, 18, 118),
 ]
 
 # SA bar has more blocks for finer torque-limit resolution.
 # Top block (red) is the saturation indicator; blocks 1-9 show continuous utilization.
 SA_BLOCK_COUNT = 10
 SA_BLOCK_COLORS_LIT = [
-  rl.Color( 26, 210,  80, 240),   # 1  – green
-  rl.Color( 70, 220,  40, 240),   # 2  – lime-green
-  rl.Color(120, 225,   0, 240),   # 3  – lime
-  rl.Color(175, 220,   0, 240),   # 4  – yellow-lime
-  rl.Color(225, 210,   0, 240),   # 5  – yellow
-  rl.Color(255, 175,   0, 240),   # 6  – amber
-  rl.Color(255, 130,   0, 240),   # 7  – orange
-  rl.Color(255,  90,   0, 240),   # 8  – deep orange
-  rl.Color(255,  55,  10, 240),   # 9  – orange-red
-  rl.Color(255,  40,  40, 240),   # 10 – red (saturation only)
+  rl.Color( 70, 178, 102, 235),   # 1
+  rl.Color(104, 184,  92, 235),   # 2
+  rl.Color(142, 186,  88, 235),   # 3
+  rl.Color(176, 186,  84, 235),   # 4
+  rl.Color(206, 184,  80, 238),   # 5
+  rl.Color(220, 166,  74, 238),   # 6
+  rl.Color(224, 142,  68, 239),   # 7
+  rl.Color(222, 116,  60, 240),   # 8
+  rl.Color(218,  86,  48, 241),   # 9
+  rl.Color(214,  58,  44, 242),   # 10
 ]
 SA_BLOCK_COLORS_DIM = [
-  rl.Color( 10,  50,  25, 100),
-  rl.Color( 18,  55,  10, 100),
-  rl.Color( 28,  55,   0, 100),
-  rl.Color( 40,  55,   0, 100),
-  rl.Color( 52,  50,   0, 100),
-  rl.Color( 55,  40,   0, 100),
-  rl.Color( 55,  30,   0, 100),
-  rl.Color( 55,  20,   0, 100),
-  rl.Color( 55,  14,   4, 100),
-  rl.Color( 55,  10,  10, 100),
+  rl.Color(22, 36, 24, 112),
+  rl.Color(26, 36, 22, 112),
+  rl.Color(32, 36, 18, 112),
+  rl.Color(38, 36, 18, 112),
+  rl.Color(46, 38, 18, 114),
+  rl.Color(52, 36, 18, 116),
+  rl.Color(58, 32, 18, 118),
+  rl.Color(60, 28, 18, 118),
+  rl.Color(58, 22, 18, 118),
+  rl.Color(58, 18, 18, 118),
 ]
 
 # C bar: modelV2.confidence — 3 blocks matching the 3-state RYG enum.
@@ -107,15 +118,107 @@ SA_BLOCK_COLORS_DIM = [
 # Fewer blocks lit means the model is less confident about staying engaged.
 CONF_BLOCK_COUNT = 3
 CONF_BLOCK_COLORS_LIT = [
-  rl.Color(255,  40,  40, 240),  # block 0 (bottom) – red   (lit in all states)
-  rl.Color(255, 200,   0, 240),  # block 1 (middle) – yellow (lit when yellow or green)
-  rl.Color( 26, 210,  80, 240),  # block 2 (top)    – green  (lit only when green)
+  rl.Color(214,  58,  44, 242),  # block 0 (bottom) – red
+  rl.Color(225, 190,  86, 238),  # block 1 (middle) – sand/yellow
+  rl.Color( 70, 178, 102, 235),  # block 2 (top)    – muted green
 ]
 CONF_BLOCK_COLORS_DIM = [
-  rl.Color( 55,  10,  10, 100),
-  rl.Color( 55,  45,   0, 100),
-  rl.Color( 10,  50,  25, 100),
+  rl.Color(58, 18, 18, 118),
+  rl.Color(56, 42, 18, 116),
+  rl.Color(22, 36, 24, 112),
 ]
+
+PANEL_OUTER = rl.Color(12, 12, 14, 214)
+PANEL_INNER = rl.Color(20, 21, 24, 244)
+SECTION_CARD = rl.Color(34, 34, 37, 220)
+SECTION_CARD_INNER = rl.Color(20, 20, 22, 242)
+TRACK_OUTER = rl.Color(84, 79, 69, 88)
+TRACK_INNER = rl.Color(18, 18, 20, 238)
+LABEL_COLOR = rl.Color(245, 238, 224, 230)
+MUTED_LABEL_COLOR = rl.Color(171, 163, 151, 210)
+SECTION_LABEL_COLOR = rl.Color(207, 198, 183, 205)
+TICK_COLOR = rl.Color(173, 164, 150, 72)
+BEZEL_HIGHLIGHT = rl.Color(255, 250, 242, 18)
+
+
+def _with_alpha(color: rl.Color, alpha: int) -> rl.Color:
+  return rl.Color(color.r, color.g, color.b, alpha)
+
+
+def _inset_rect(rect: rl.Rectangle, inset_x: float, inset_y: float | None = None) -> rl.Rectangle:
+  inset_y = inset_x if inset_y is None else inset_y
+  return rl.Rectangle(rect.x + inset_x, rect.y + inset_y, rect.width - 2 * inset_x, rect.height - 2 * inset_y)
+
+
+def _state_shell_colors(override: bool, disengaged: bool) -> tuple[rl.Color, rl.Color]:
+  if disengaged:
+    return (
+      rl.Color(118, 124, 132, 66),
+      rl.Color(134, 140, 148, 48),
+    )
+  if override:
+    return (
+      rl.Color(196, 198, 202, 74),
+      rl.Color(180, 184, 188, 54),
+    )
+  return (
+    rl.Color(86, 132, 102, 78),
+    rl.Color(168, 174, 158, 54),
+  )
+
+
+def _draw_shell(rect: rl.Rectangle, frame_color: rl.Color) -> None:
+  rl.draw_rectangle_rounded(rect, CORNER_RADIUS, 12, PANEL_OUTER)
+  rl.draw_rectangle_rounded(_inset_rect(rect, 1), CORNER_RADIUS, 12, frame_color)
+  inner = _inset_rect(rect, FRAME_INSET)
+  rl.draw_rectangle_rounded(inner, CORNER_RADIUS, 12, PANEL_INNER)
+
+
+def _draw_track_shell(rect: rl.Rectangle, frame_color: rl.Color) -> None:
+  rl.draw_rectangle_rounded(rect, TRACK_ROUNDNESS, 8, _with_alpha(frame_color, max(44, frame_color.a)))
+  rl.draw_rectangle_rounded(_inset_rect(rect, 1), TRACK_ROUNDNESS, 8, BEZEL_HIGHLIGHT)
+  inner = _inset_rect(rect, 2)
+  rl.draw_rectangle_rounded(inner, TRACK_ROUNDNESS, 8, TRACK_INNER)
+
+
+def _draw_section_card(rect: rl.Rectangle, frame_color: rl.Color) -> None:
+  rl.draw_rectangle_rounded(rect, 0.1, 8, _with_alpha(frame_color, max(28, frame_color.a - 10)))
+  inner = _inset_rect(rect, 1)
+  rl.draw_rectangle_rounded(inner, 0.1, 8, SECTION_CARD)
+  rl.draw_rectangle_rounded(_inset_rect(inner, 3), 0.1, 8, SECTION_CARD_INNER)
+
+
+def _draw_track_ticks(rect: rl.Rectangle, count: int, horizontal: bool = False) -> None:
+  if horizontal:
+    step = rect.width / count
+    for i in range(count + 1):
+      x = rect.x + i * step
+      tick_h = rect.height * (0.34 if i in (0, count) else 0.24)
+      tick_rect = rl.Rectangle(x - 1, rect.y + rect.height - tick_h - 3, 2, tick_h)
+      rl.draw_rectangle_rounded(tick_rect, 1.0, 4, TICK_COLOR)
+  else:
+    step = rect.height / count
+    for i in range(count + 1):
+      y = rect.y + i * step
+      tick_w = rect.width * (0.54 if i in (0, count) else 0.4)
+      tick_rect = rl.Rectangle(rect.x + rect.width - tick_w - 4, y - 1, tick_w, 2)
+      rl.draw_rectangle_rounded(tick_rect, 1.0, 4, TICK_COLOR)
+
+
+def _draw_gauge_ring(cx: float, cy: float, radius: float, tick_color: rl.Color) -> None:
+  center = rl.Vector2(int(cx), int(cy))
+  rl.draw_ring(center, radius + 6, radius + 10, 0.0, 360.0, 32, _with_alpha(tick_color, 44))
+  for angle_deg in range(-120, 121, 24):
+    angle = math.radians(angle_deg)
+    outer = rl.Vector2(cx + math.cos(angle) * (radius + 10), cy + math.sin(angle) * (radius + 10))
+    inner = rl.Vector2(cx + math.cos(angle) * (radius + (4 if angle_deg % 48 else 1)),
+                       cy + math.sin(angle) * (radius + (4 if angle_deg % 48 else 1)))
+    rl.draw_line_ex(inner, outer, 1.5, _with_alpha(tick_color, 70 if angle_deg % 48 == 0 else 42))
+
+
+def _draw_segment_block(block_rect: rl.Rectangle, fill_color: rl.Color) -> None:
+  rl.draw_rectangle_rounded(block_rect, BLOCK_ROUNDNESS, BLOCK_SEGMENTS, rl.Color(16, 16, 18, 225))
+  rl.draw_rectangle_rounded(_inset_rect(block_rect, BLOCK_FRAME_INSET), BLOCK_ROUNDNESS, BLOCK_SEGMENTS, fill_color)
 
 
 def _lit_levels(scaled_0_to_1: float, block_count: int) -> int:
@@ -150,7 +253,7 @@ def _draw_bar(bar_x: float, bar_area_y: float, bar_w: float, bar_area_h: float,
     else:
       color = colors_dim[level]
 
-    rl.draw_rectangle_rounded(block_rect, BLOCK_ROUNDNESS, BLOCK_SEGMENTS, color)
+    _draw_segment_block(block_rect, color)
 
 
 def _draw_h_bar(x: float, y: float, w: float, h: float,
@@ -169,6 +272,7 @@ def _draw_h_bar(x: float, y: float, w: float, h: float,
   for i, prob in enumerate(probs[:n]):
     block_x = x + i * (block_w + BLOCK_GAP)
     block_rect = rl.Rectangle(block_x, y, block_w, h)
+    scaled = 0.0
 
     if disengaged:
       color = rl.Color(35, 35, 35, 120)
@@ -185,7 +289,7 @@ def _draw_h_bar(x: float, y: float, w: float, h: float,
         alpha = int(80 + scaled * 160)
         color = rl.Color(base.r, base.g, base.b, alpha)
 
-    rl.draw_rectangle_rounded(block_rect, BLOCK_ROUNDNESS, BLOCK_SEGMENTS, color)
+    _draw_segment_block(block_rect, color)
 
 
 def _draw_confidence_ball(cx: float, cy: float, radius: int,
@@ -195,11 +299,16 @@ def _draw_confidence_ball(cx: float, cy: float, radius: int,
   Paints a gradient rectangle then masks the corners with a ring, matching
   mici's draw_circle_gradient exactly.
   """
+  gauge_color = rl.Color(196, 188, 174, 80)
+  _draw_gauge_ring(cx, cy, radius, gauge_color)
+  glow = rl.Color(top.r, top.g, top.b, 14)
+  rl.draw_ring(rl.Vector2(int(cx), int(cy)), radius + 3, radius + 8, 0.0, 360.0, 24, glow)
   rl.draw_rectangle_gradient_v(int(cx - radius), int(cy - radius),
                                radius * 2, radius * 2, top, bottom)
   outer_radius = math.ceil(radius * math.sqrt(2)) + 1
   rl.draw_ring(rl.Vector2(int(cx), int(cy)), radius, outer_radius,
                0.0, 360.0, 20, rl.BLACK)
+  rl.draw_ring(rl.Vector2(int(cx), int(cy)), radius - 2, radius, 0.0, 360.0, 20, rl.Color(255, 246, 232, 16))
 
 
 class DisengageBars(Widget):
@@ -361,14 +470,18 @@ class DisengageBars(Widget):
   def _dm_label(self) -> str:
     """Return distraction type label when active, else 'DM'."""
     dt = self._dm_distracted_type
-    if dt & 4: return "Ph"
-    if dt & 2: return "E"
-    if dt & 1: return "P"
+    if dt & 4:
+      return "Ph"
+    if dt & 2:
+      return "E"
+    if dt & 1:
+      return "P"
     return "DM"
 
   def _render(self, rect: rl.Rectangle) -> None:
     disengaged = ui_state.status == UIStatus.DISENGAGED
     override = ui_state.status == UIStatus.OVERRIDE
+    frame_color, rule_color = _state_shell_colors(override, disengaged)
 
     # Mirror DMoji position anchor: bottom-left (LHD) or bottom-right (RHD).
     # Anchor on the horizontal center of the widget so both edges stay on-screen.
@@ -381,70 +494,16 @@ class DisengageBars(Widget):
     container_y = cy - HEIGHT // 2
     container = rl.Rectangle(container_x, container_y, WIDTH, HEIGHT)
 
-    # Semi-transparent dark background card
-    rl.draw_rectangle_rounded(container, CORNER_RADIUS, 10, rl.Color(0, 0, 0, 110))
-
     # Bar area geometry -- ball column occupies the far-left, then bars follow.
     # Two stacked H-bars (B3, B4) sit above the vertical bars.
     bar_area_x = container_x + PADDING + BALL_COLUMN_W + BALL_GAP
     bar_area_w = WIDTH - 2 * PADDING - BALL_COLUMN_W - BALL_GAP
-    b3_bar_y = container_y + PADDING
+    b3_bar_y = container_y + PADDING + TOP_HEADER_SPACE
     b4_bar_y = b3_bar_y + H_BAR_HEIGHT + H_BAR_INNER_GAP
-    bar_area_y = b4_bar_y + H_BAR_HEIGHT + H_BAR_GAP
-    bar_area_h = HEIGHT - 2 * PADDING - LABEL_HEIGHT - 2 * H_BAR_HEIGHT - H_BAR_INNER_GAP - H_BAR_GAP
+    bar_area_y = b4_bar_y + H_BAR_HEIGHT + H_BAR_GAP + SECTION_HEADER_SPACE
+    bar_area_h = HEIGHT - 2 * PADDING - LABEL_HEIGHT - 2 * H_BAR_HEIGHT - H_BAR_INNER_GAP - H_BAR_GAP - TOP_HEADER_SPACE - SECTION_HEADER_SPACE
+    _draw_shell(container, frame_color)
 
-    # --- Confidence ball (left column) ---
-    # Vertical position: maps confidence [0, 1] → top to bottom of bar area.
-    # Identical formula to mici ConfidenceBall._render — no clamp.
-    # When disengaged (filter = -0.5) the ball sits below the bar area; the scissor
-    # region clips it to the card so it slides in from the bottom on engage, just like mici.
-    confidence = self._confidence_filter.x
-    ball_cx = container_x + PADDING + BALL_COLUMN_W // 2
-    ball_cy = bar_area_y + (1 - confidence) * (bar_area_h - 2 * BALL_RADIUS) + BALL_RADIUS
-
-    # Color zones — identical to mici (order matches: ENGAGED → green/yellow/red, OVERRIDE → white/gray, else → dark)
-    if ui_state.status == UIStatus.ENGAGED:
-      if confidence > 0.5:
-        ball_top = rl.Color(0, 255, 204, 255)
-        ball_bot = rl.Color(0, 255, 38, 255)
-      elif confidence > 0.2:
-        ball_top = rl.Color(255, 200, 0, 255)
-        ball_bot = rl.Color(255, 115, 0, 255)
-      else:
-        ball_top = rl.Color(255, 0, 21, 255)
-        ball_bot = rl.Color(255, 0, 89, 255)
-    elif override:
-      ball_top = rl.Color(255, 255, 255, 255)
-      ball_bot = rl.Color(82, 82, 82, 255)
-    else:
-      ball_top = rl.Color(50, 50, 50, 255)
-      ball_bot = rl.Color(13, 13, 13, 255)
-
-    # Scissor to card bounds so the ball slides in from the card bottom on engage (mici behavior)
-    rl.begin_scissor_mode(int(container_x), int(container_y), WIDTH, HEIGHT)
-    _draw_confidence_ball(ball_cx, ball_cy, BALL_RADIUS, ball_top, ball_bot)
-    rl.end_scissor_mode()
-
-    # --- Stacked horizontal bars (B3 top, B4 bottom) ---
-    label_color = rl.Color(170, 170, 170, 210)
-    for bar_y, probs, label, ceiling in (
-      (b3_bar_y, [f.x for f in self._b3_filters], "B3", H_BAR_B3_CEILING),
-      (b4_bar_y, [f.x for f in self._b4_filters], "B4", H_BAR_B4_CEILING),
-    ):
-      rl.draw_rectangle_rounded(
-        rl.Rectangle(bar_area_x, bar_y, bar_area_w, H_BAR_HEIGHT),
-        0.4, 6, rl.Color(20, 20, 20, 160))
-      _draw_h_bar(bar_area_x, bar_y, bar_area_w, H_BAR_HEIGHT, probs, override, disengaged, ceiling)
-      lbl_sz = measure_text_cached(self._font, label, H_BAR_LABEL_FONT_SIZE)
-      lbl_pos = rl.Vector2(
-        container_x + PADDING + (BALL_COLUMN_W - lbl_sz.x) / 2,
-        bar_y + (H_BAR_HEIGHT - lbl_sz.y) / 2)
-      rl.draw_text_ex(self._font, label, lbl_pos, H_BAR_LABEL_FONT_SIZE, 0, label_color)
-
-    # Two semantic groups:
-    #   Predictions (left):  C, B, G, S  — neural net forecasts of driver intervention
-    #   Reactive   (right):  BI, SA, DM — physical actuation and driver monitoring
-    # Each entry: (scaled_value, label, block_count, colors_lit, colors_dim)
     predict_bars = [
       (self._model_confidence_scaled,                              "C",          CONF_BLOCK_COUNT, CONF_BLOCK_COLORS_LIT, CONF_BLOCK_COLORS_DIM),
       (min(self._brake_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "B",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
@@ -456,25 +515,114 @@ class DisengageBars(Widget):
       (min(self._torque_utilization_filter.x, 1.0),               "SA",         SA_BLOCK_COUNT, SA_BLOCK_COLORS_LIT, SA_BLOCK_COLORS_DIM),
       (min(self._dm_filter.x, 1.0),                               self._dm_label(), BLOCK_COUNT, BLOCK_COLORS_LIT,   BLOCK_COLORS_DIM),
     ]
-    bars = predict_bars + reactive_bars
+    sections_total_w = bar_area_w - GROUP_GAP
+    predict_section_w = int(sections_total_w * PREDICT_SECTION_RATIO)
+    reactive_section_w = sections_total_w - predict_section_w
+    predict_section_x = bar_area_x
+    reactive_section_x = predict_section_x + predict_section_w + GROUP_GAP
 
-    n_bars = len(bars)
-    bar_w = (bar_area_w - (n_bars - 1) * BAR_GAP - GROUP_GAP) // n_bars
+    predict_bar_w = (predict_section_w - (len(predict_bars) - 1) * BAR_GAP) // len(predict_bars)
+    reactive_bar_w = (reactive_section_w - (len(reactive_bars) - 1) * BAR_GAP) // len(reactive_bars)
+    predict_content_w = len(predict_bars) * predict_bar_w + (len(predict_bars) - 1) * BAR_GAP
+    reactive_content_w = len(reactive_bars) * reactive_bar_w + (len(reactive_bars) - 1) * BAR_GAP
+    predict_content_x = predict_section_x + (predict_section_w - predict_content_w) / 2
+    reactive_content_x = reactive_section_x + (reactive_section_w - reactive_content_w) / 2
 
-    for i, (scaled, label, n_blocks, c_lit, c_dim) in enumerate(bars):
-      group_offset = GROUP_GAP if i >= len(predict_bars) else 0
-      bar_x = bar_area_x + i * (bar_w + BAR_GAP) + group_offset
+    horizontal_group_rect = rl.Rectangle(bar_area_x - 8, b3_bar_y - 8, bar_area_w + 16, H_BAR_HEIGHT * 2 + H_BAR_INNER_GAP + 16)
 
-      # Faint background track behind all blocks
-      track_rect = rl.Rectangle(bar_x, bar_area_y, bar_w, bar_area_h)
-      rl.draw_rectangle_rounded(track_rect, 0.15, 6, rl.Color(20, 20, 20, 160))
+    # Keep the inner section cards above the footer labels so they never intrude
+    # into the shell's rounded bottom corners.
+    section_card_y = bar_area_y - SECTION_CARD_TOP_OVERHANG
+    section_card_h = bar_area_h + SECTION_CARD_TOP_OVERHANG + SECTION_CARD_BOTTOM_PADDING
+    predictive_group_rect = rl.Rectangle(predict_section_x - 10, section_card_y, predict_section_w + 20, section_card_h)
+    reactive_group_rect = rl.Rectangle(reactive_section_x - 10, section_card_y, reactive_section_w + 20, section_card_h)
+    _draw_section_card(horizontal_group_rect, frame_color)
+    _draw_section_card(predictive_group_rect, frame_color)
+    _draw_section_card(reactive_group_rect, frame_color)
 
-      lit = _lit_levels(scaled, n_blocks)
-      _draw_bar(bar_x, bar_area_y, bar_w, bar_area_h, lit, override, disengaged, n_blocks, c_lit, c_dim)
+    ball_cx = container_x + PADDING + BALL_COLUMN_W // 2
+    ball_track_rect = rl.Rectangle(ball_cx - 14, bar_area_y, 28, bar_area_h)
+    _draw_track_shell(ball_track_rect, frame_color)
+    _draw_track_ticks(ball_track_rect, BLOCK_COUNT)
 
-      # Centered label below bar
-      font_size = 42
-      label_size = measure_text_cached(self._font, label, font_size)
-      label_pos = rl.Vector2(bar_x + (bar_w - label_size.x) / 2,
-                             bar_area_y + bar_area_h + 10)
-      rl.draw_text_ex(self._font, label, label_pos, font_size, 0, rl.Color(170, 170, 170, 210))
+    # --- Confidence ball (left column) ---
+    # Vertical position: maps confidence [0, 1] → top to bottom of bar area.
+    # Identical formula to mici ConfidenceBall._render — no clamp.
+    # When disengaged (filter = -0.5) the ball sits below the bar area; the scissor
+    # region clips it to the card so it slides in from the bottom on engage, just like mici.
+    confidence = self._confidence_filter.x
+    ball_cy = bar_area_y + (1 - confidence) * (bar_area_h - 2 * BALL_RADIUS) + BALL_RADIUS
+
+    # Color zones — identical to mici (order matches: ENGAGED → green/yellow/red, OVERRIDE → white/gray, else → dark)
+    if ui_state.status == UIStatus.ENGAGED:
+      if confidence > 0.5:
+        ball_top = rl.Color(120, 178, 124, 255)
+        ball_bot = rl.Color(72, 126, 78, 255)
+      elif confidence > 0.2:
+        ball_top = rl.Color(221, 182, 98, 255)
+        ball_bot = rl.Color(179, 108, 56, 255)
+      else:
+        ball_top = rl.Color(196, 72, 58, 255)
+        ball_bot = rl.Color(126, 36, 34, 255)
+    elif override:
+      ball_top = rl.Color(228, 224, 216, 255)
+      ball_bot = rl.Color(104, 100, 96, 255)
+    else:
+      ball_top = rl.Color(68, 68, 70, 255)
+      ball_bot = rl.Color(24, 24, 26, 255)
+
+    # Scissor to card bounds so the ball slides in from the card bottom on engage (mici behavior)
+    rl.begin_scissor_mode(int(container_x), int(container_y), WIDTH, HEIGHT)
+    _draw_confidence_ball(ball_cx, ball_cy, BALL_RADIUS, ball_top, ball_bot)
+    rl.end_scissor_mode()
+
+    # --- Stacked horizontal bars (B3 top, B4 bottom) ---
+    label_color = MUTED_LABEL_COLOR if disengaged else LABEL_COLOR
+    top_header = "BRAKE HORIZON"
+    top_header_size = measure_text_cached(self._font, top_header, SECTION_LABEL_FONT_SIZE)
+    top_header_pos = rl.Vector2(
+      bar_area_x + (bar_area_w - top_header_size.x) / 2,
+      container_y + PADDING + 2,
+    )
+    rl.draw_text_ex(self._font, top_header, top_header_pos, SECTION_LABEL_FONT_SIZE, 1, SECTION_LABEL_COLOR)
+    for bar_y, probs, label, ceiling in (
+      (b3_bar_y, [f.x for f in self._b3_filters], "B3", H_BAR_B3_CEILING),
+      (b4_bar_y, [f.x for f in self._b4_filters], "B4", H_BAR_B4_CEILING),
+    ):
+      h_track_rect = rl.Rectangle(bar_area_x, bar_y, bar_area_w, H_BAR_HEIGHT)
+      _draw_track_shell(h_track_rect, frame_color)
+      _draw_track_ticks(h_track_rect, BLOCK_COUNT, horizontal=True)
+      _draw_h_bar(bar_area_x, bar_y, bar_area_w, H_BAR_HEIGHT, probs, override, disengaged, ceiling)
+      lbl_sz = measure_text_cached(self._font, label, H_BAR_LABEL_FONT_SIZE)
+      lbl_pos = rl.Vector2(
+        container_x + PADDING + (BALL_COLUMN_W - lbl_sz.x) / 2,
+        bar_y + (H_BAR_HEIGHT - lbl_sz.y) / 2)
+      rl.draw_text_ex(self._font, label, lbl_pos, H_BAR_LABEL_FONT_SIZE, 0, label_color)
+
+    # Two semantic groups:
+    #   Predictions (left):  C, B, G, S  — neural net forecasts of driver intervention
+    #   Reactive   (right):  BI, SA, DM — physical actuation and driver monitoring
+    # Each entry: (scaled_value, label, block_count, colors_lit, colors_dim)
+    predict_label_pos = rl.Vector2(predict_section_x + 12, bar_area_y - 24)
+    react_label_pos = rl.Vector2(reactive_section_x + 12, bar_area_y - 24)
+    rl.draw_text_ex(self._font, "FORECAST", predict_label_pos, SECTION_LABEL_FONT_SIZE, 1, SECTION_LABEL_COLOR)
+    rl.draw_text_ex(self._font, "VEHICLE", react_label_pos, SECTION_LABEL_FONT_SIZE, 1, SECTION_LABEL_COLOR)
+
+    for section_x, bar_w, section_bars in (
+      (predict_content_x, predict_bar_w, predict_bars),
+      (reactive_content_x, reactive_bar_w, reactive_bars),
+    ):
+      for i, (scaled, label, n_blocks, c_lit, c_dim) in enumerate(section_bars):
+        bar_x = section_x + i * (bar_w + BAR_GAP)
+
+        track_rect = rl.Rectangle(bar_x, bar_area_y, bar_w, bar_area_h)
+        _draw_track_shell(track_rect, frame_color)
+        _draw_track_ticks(track_rect, n_blocks)
+
+        lit = _lit_levels(scaled, n_blocks)
+        _draw_bar(bar_x, bar_area_y, bar_w, bar_area_h, lit, override, disengaged, n_blocks, c_lit, c_dim)
+
+        label_size = measure_text_cached(self._font, label, LABEL_FONT_SIZE)
+        label_pos = rl.Vector2(bar_x + (bar_w - label_size.x) / 2,
+                               bar_area_y + bar_area_h + LABEL_BOTTOM_GAP)
+        rl.draw_text_ex(self._font, label, label_pos, LABEL_FONT_SIZE, 1, label_color)
