@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import pyray as rl
+from cereal import log
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY
 from openpilot.selfdrive.ui import UI_BORDER_SIZE
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
@@ -9,13 +10,15 @@ from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 
+ConfidenceClass = log.ModelDataV2.ConfidenceClass
+
 # Confidence ball column (left of bars) -- matches mici ConfidenceBall radius and column width
 BALL_RADIUS = 24       # px, identical to mici status_dot_radius
 BALL_COLUMN_W = 60     # px, matches mici SIDE_PANEL_WIDTH; ball column left of the bars
 BALL_GAP = 16          # px, gap between ball column and first bar
 
-# Widget dimensions -- ball column + 6 bars
-WIDTH = 646  # 570 (6-bar width) + BALL_COLUMN_W + BALL_GAP
+# Widget dimensions -- ball column + 7 bars
+WIDTH = 646  # bars shrink slightly to fit 7; increase WIDTH if more space is needed
 HEIGHT = 480
 PADDING = 24
 BAR_GAP = 12
@@ -85,6 +88,22 @@ SA_BLOCK_COLORS_DIM = [
   rl.Color( 55,  10,  10, 100),
 ]
 
+# C bar: modelV2.confidence — 3 blocks matching the 3-state RYG enum.
+# Blocks bottom-to-top: red (always lit when any confidence signal), yellow, green.
+# green → 3/3 lit, yellow → 2/3 lit, red → 1/3 lit.
+# Fewer blocks lit means the model is less confident about staying engaged.
+CONF_BLOCK_COUNT = 3
+CONF_BLOCK_COLORS_LIT = [
+  rl.Color(255,  40,  40, 240),  # block 0 (bottom) – red   (lit in all states)
+  rl.Color(255, 200,   0, 240),  # block 1 (middle) – yellow (lit when yellow or green)
+  rl.Color( 26, 210,  80, 240),  # block 2 (top)    – green  (lit only when green)
+]
+CONF_BLOCK_COLORS_DIM = [
+  rl.Color( 55,  10,  10, 100),
+  rl.Color( 55,  45,   0, 100),
+  rl.Color( 10,  50,  25, 100),
+]
+
 
 def _lit_levels(scaled_0_to_1: float, block_count: int) -> int:
   """Map a pre-scaled value in [0, 1] to a discrete block count [0, block_count].
@@ -146,6 +165,9 @@ class DisengageBars(Widget):
 
   Bars, left-to-right (two groups separated by a gap):
     Predictions (neural net, 10 s horizon):
+      C  – modelV2.confidence: rolling RYG classifier (brake+gas+steer combined, ~2s update).
+           3 blocks: bottom=red lit when any state, mid=yellow, top=green.
+           green→3 lit, yellow→2 lit, red→1 lit. Fewer blocks = model less confident.
       B  – brake-disengage probability
       G  – gas-override probability (driver pressing gas to override current plan)
       S  – steer-override probability
@@ -157,6 +179,7 @@ class DisengageBars(Widget):
       DM – driver distraction level (1 - driverMonitoringState.awarenessStatus)
            label changes to P (pose) / E (eyes/blink) / Ph (phone) when distracted
 
+  C uses modelV2.confidence (fill_model_msg.py), which is distinct from the continuous ball.
   B, G, S, and the confidence ball share the same NN meta head source.
   BI fills upward as the car brakes -- directly reacts to measured deceleration.
   SA mirrors the mici TorqueBar signal but shows absolute utilization (0=none, 1=limit).
@@ -167,6 +190,9 @@ class DisengageBars(Widget):
     super().__init__()
     # Confidence ball: matches mici ConfidenceBall exactly -- starts at -0.5 to animate in from below
     self._confidence_filter = FirstOrderFilter(-0.5, 0.5, 1 / gui_app.target_fps)
+    # C bar: modelV2.confidence enum mapped to a 0/1/2/3-of-3 fill; no filter needed,
+    # the signal is already a rolling-history classifier updated every ~2s in modeld.
+    self._model_confidence_scaled = 0.0
     # B / S / G: slow filter (0.5s RC) -- probability signals don't need instant response
     self._brake_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
     self._steer_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
@@ -198,6 +224,7 @@ class DisengageBars(Widget):
 
     if ui_state.status == UIStatus.DISENGAGED:
       self._confidence_filter.update(-0.5)
+      self._model_confidence_scaled = 0.0
       self._brake_filter.update(0.0)
       self._steer_filter.update(0.0)
       self._gas_filter.update(0.0)
@@ -205,6 +232,16 @@ class DisengageBars(Widget):
       self._torque_utilization_filter.update(0.0)
       self._dm_filter.update(0.0)
     else:
+      # C bar: modelV2.confidence is a 3-state RYG enum computed in fill_model_msg.py.
+      # Map to a scaled value so _lit_levels() produces 1, 2, or 3 out of CONF_BLOCK_COUNT=3.
+      conf = sm['modelV2'].confidence
+      if conf == ConfidenceClass.green:
+        self._model_confidence_scaled = 1.0        # 3/3 blocks lit
+      elif conf == ConfidenceClass.yellow:
+        self._model_confidence_scaled = 2 / 3      # 2/3 blocks lit
+      else:
+        self._model_confidence_scaled = 1 / 3      # 1/3 blocks lit (red or unknown)
+
       # B / S / G: driver-override probabilities from the neural net meta head
       predictions = sm['modelV2'].meta.disengagePredictions
       self._brake_filter.update(max(predictions.brakeDisengageProbs or [0.0]))
@@ -324,10 +361,11 @@ class DisengageBars(Widget):
     rl.end_scissor_mode()
 
     # Two semantic groups:
-    #   Predictions (left):  B, G, S  — neural net forecasts of driver intervention
+    #   Predictions (left):  C, B, G, S  — neural net forecasts of driver intervention
     #   Reactive   (right):  BI, SA, DM — physical actuation and driver monitoring
     # Each entry: (scaled_value, label, block_count, colors_lit, colors_dim)
     predict_bars = [
+      (self._model_confidence_scaled,                              "C",          CONF_BLOCK_COUNT, CONF_BLOCK_COLORS_LIT, CONF_BLOCK_COLORS_DIM),
       (min(self._brake_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "B",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
       (min(self._gas_filter.x / PROB_SENSITIVITY_CEILING, 1.0),   "G",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
       (min(self._steer_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "S",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
