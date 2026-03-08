@@ -17,9 +17,22 @@ BALL_RADIUS = 24       # px, identical to mici status_dot_radius
 BALL_COLUMN_W = 60     # px, matches mici SIDE_PANEL_WIDTH; ball column left of the bars
 BALL_GAP = 16          # px, gap between ball column and first bar
 
-# Widget dimensions -- ball column + 7 bars
+# Two stacked horizontal bars at the top of the widget showing predicted braking intensity.
+# B3 (top row):    brake3MetersPerSecondSquaredProbs -- moderate-hard braking (~0.3g).
+#                  Active in traffic, exits, city driving. Ceiling ~0.60 (FCW uses 0.70).
+# B4 (bottom row): brake4MetersPerSecondSquaredProbs -- hard braking (~0.4g).
+#                  Fires less often; escalates visibly relative to B3 when danger grows.
+# Reading together: B3 lights first → B4 follows = escalating braking demand ahead.
+H_BAR_HEIGHT = 34         # px, height of each horizontal bar row
+H_BAR_INNER_GAP = 8      # px, gap between B3 and B4 rows
+H_BAR_GAP = 22            # px, gap between B4 row and the top of the vertical bars
+H_BAR_B3_CEILING = 0.60  # B3 prob at which a block renders fully red
+H_BAR_B4_CEILING = 0.30  # B4 prob at which a block renders fully red
+H_BAR_LABEL_FONT_SIZE = 30
+
+# Widget dimensions -- ball column + 7 bars + two stacked H-bars at top
 WIDTH = 646  # bars shrink slightly to fit 7; increase WIDTH if more space is needed
-HEIGHT = 480
+HEIGHT = 480 + 2 * H_BAR_HEIGHT + H_BAR_INNER_GAP + H_BAR_GAP
 PADDING = 24
 BAR_GAP = 12
 GROUP_GAP = 28  # extra space between prediction group (B,G,S) and reactive group (BI,SA,DM)
@@ -140,6 +153,41 @@ def _draw_bar(bar_x: float, bar_area_y: float, bar_w: float, bar_area_h: float,
     rl.draw_rectangle_rounded(block_rect, BLOCK_ROUNDNESS, BLOCK_SEGMENTS, color)
 
 
+def _draw_h_bar(x: float, y: float, w: float, h: float,
+                probs: list, override: bool, disengaged: bool,
+                ceiling: float = 0.30) -> None:
+  """Draw a horizontal segmented bar where each of the 5 blocks shows one time-horizon's probability.
+
+  Unlike the vertical bars (which stack blocks to show a single scalar), each block here
+  is independently colored by its own probability value, creating a temporal risk gradient:
+  left block = 2 s ahead, right block = 10 s ahead. Color maps green → red as prob rises,
+  with brightness proportional to scaled probability so low-prob blocks stay visibly dim.
+  """
+  n = BLOCK_COUNT
+  block_w = (w - (n - 1) * BLOCK_GAP) / n
+
+  for i, prob in enumerate(probs[:n]):
+    block_x = x + i * (block_w + BLOCK_GAP)
+    block_rect = rl.Rectangle(block_x, y, block_w, h)
+
+    if disengaged:
+      color = rl.Color(35, 35, 35, 120)
+    elif override:
+      scaled = min(prob / ceiling, 1.0)
+      color = rl.Color(160, 160, 160, 180) if scaled > 0.1 else rl.Color(40, 40, 40, 100)
+    else:
+      scaled = min(prob / ceiling, 1.0)
+      level = min(int(scaled * n), n - 1)
+      if scaled < 0.04:
+        color = BLOCK_COLORS_DIM[0]
+      else:
+        base = BLOCK_COLORS_LIT[level]
+        alpha = int(80 + scaled * 160)
+        color = rl.Color(base.r, base.g, base.b, alpha)
+
+    rl.draw_rectangle_rounded(block_rect, BLOCK_ROUNDNESS, BLOCK_SEGMENTS, color)
+
+
 def _draw_confidence_ball(cx: float, cy: float, radius: int,
                           top: rl.Color, bottom: rl.Color) -> None:
   """Draw a gradient circle using the same technique as mici ConfidenceBall.
@@ -204,6 +252,10 @@ class DisengageBars(Widget):
     # DM: match B/S smoothness -- awarenessStatus is already time-integrated
     self._dm_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
     self._dm_distracted_type = 0
+    # H-bars: one filter per time step (t=[2,4,6,8,10]s) for each braking threshold.
+    # Same RC as B/G/S -- these are NN probability signals.
+    self._b3_filters = [FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps) for _ in range(BLOCK_COUNT)]
+    self._b4_filters = [FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps) for _ in range(BLOCK_COUNT)]
     self._is_rhd = False
     self._font = gui_app.font(FontWeight.MEDIUM)
 
@@ -231,6 +283,10 @@ class DisengageBars(Widget):
       self._accel_filter.update(0.0)
       self._torque_utilization_filter.update(0.0)
       self._dm_filter.update(0.0)
+      for f in self._b3_filters:
+        f.update(0.0)
+      for f in self._b4_filters:
+        f.update(0.0)
     else:
       # C bar: modelV2.confidence is a 3-state RYG enum computed in fill_model_msg.py.
       # Map to a scaled value so _lit_levels() produces 1, 2, or 3 out of CONF_BLOCK_COUNT=3.
@@ -247,6 +303,12 @@ class DisengageBars(Widget):
       self._brake_filter.update(max(predictions.brakeDisengageProbs or [0.0]))
       self._steer_filter.update(max(predictions.steerOverrideProbs or [0.0]))
       self._gas_filter.update(max(predictions.gasDisengageProbs or [0.0]))
+      # H-bars: per-horizon braking probabilities for B3 and B4 (t=[2,4,6,8,10]s).
+      b3_raw = list(predictions.brake3MetersPerSecondSquaredProbs or [])
+      b4_raw = list(predictions.brake4MetersPerSecondSquaredProbs or [])
+      for i, (f3, f4) in enumerate(zip(self._b3_filters, self._b4_filters, strict=True)):
+        f3.update(b3_raw[i] if i < len(b3_raw) else 0.0)
+        f4.update(b4_raw[i] if i < len(b4_raw) else 0.0)
       # Confidence ball: identical formula to mici ConfidenceBall
       self._confidence_filter.update(
         (1 - max(predictions.brakeDisengageProbs or [1.0])) *
@@ -322,11 +384,14 @@ class DisengageBars(Widget):
     # Semi-transparent dark background card
     rl.draw_rectangle_rounded(container, CORNER_RADIUS, 10, rl.Color(0, 0, 0, 110))
 
-    # Bar area geometry -- ball column occupies the far-left, then bars follow
+    # Bar area geometry -- ball column occupies the far-left, then bars follow.
+    # Two stacked H-bars (B3, B4) sit above the vertical bars.
     bar_area_x = container_x + PADDING + BALL_COLUMN_W + BALL_GAP
-    bar_area_y = container_y + PADDING
     bar_area_w = WIDTH - 2 * PADDING - BALL_COLUMN_W - BALL_GAP
-    bar_area_h = HEIGHT - 2 * PADDING - LABEL_HEIGHT
+    b3_bar_y = container_y + PADDING
+    b4_bar_y = b3_bar_y + H_BAR_HEIGHT + H_BAR_INNER_GAP
+    bar_area_y = b4_bar_y + H_BAR_HEIGHT + H_BAR_GAP
+    bar_area_h = HEIGHT - 2 * PADDING - LABEL_HEIGHT - 2 * H_BAR_HEIGHT - H_BAR_INNER_GAP - H_BAR_GAP
 
     # --- Confidence ball (left column) ---
     # Vertical position: maps confidence [0, 1] → top to bottom of bar area.
@@ -359,6 +424,22 @@ class DisengageBars(Widget):
     rl.begin_scissor_mode(int(container_x), int(container_y), WIDTH, HEIGHT)
     _draw_confidence_ball(ball_cx, ball_cy, BALL_RADIUS, ball_top, ball_bot)
     rl.end_scissor_mode()
+
+    # --- Stacked horizontal bars (B3 top, B4 bottom) ---
+    label_color = rl.Color(170, 170, 170, 210)
+    for bar_y, probs, label, ceiling in (
+      (b3_bar_y, [f.x for f in self._b3_filters], "B3", H_BAR_B3_CEILING),
+      (b4_bar_y, [f.x for f in self._b4_filters], "B4", H_BAR_B4_CEILING),
+    ):
+      rl.draw_rectangle_rounded(
+        rl.Rectangle(bar_area_x, bar_y, bar_area_w, H_BAR_HEIGHT),
+        0.4, 6, rl.Color(20, 20, 20, 160))
+      _draw_h_bar(bar_area_x, bar_y, bar_area_w, H_BAR_HEIGHT, probs, override, disengaged, ceiling)
+      lbl_sz = measure_text_cached(self._font, label, H_BAR_LABEL_FONT_SIZE)
+      lbl_pos = rl.Vector2(
+        container_x + PADDING + (BALL_COLUMN_W - lbl_sz.x) / 2,
+        bar_y + (H_BAR_HEIGHT - lbl_sz.y) / 2)
+      rl.draw_text_ex(self._font, label, lbl_pos, H_BAR_LABEL_FONT_SIZE, 0, label_color)
 
     # Two semantic groups:
     #   Predictions (left):  C, B, G, S  — neural net forecasts of driver intervention
