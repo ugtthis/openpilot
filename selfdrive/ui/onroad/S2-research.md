@@ -209,11 +209,242 @@ The system itself fires a `steerSaturated` event by comparing model intent (`des
 
 `brakeDisengageProbs[0]` (road model prediction) directly modulates DM pose thresholds. When the road model predicts an imminent brake override, DM loosens its distraction thresholds. This is a cross-pipeline combination where one prediction feeds into another system's parameters.
 
+### Pattern 7: Radar/Vision Lead Fusion — Probability Product (`radard.py`)
+
+```python
+# radard.py - match_vision_to_track()
+prob_d = laplacian_pdf(c.dRel, offset_vision_dist, lead.xStd[0])   # distance match
+prob_y = laplacian_pdf(c.yRel, -lead.y[0], lead.yStd[0])           # lateral match
+prob_v = laplacian_pdf(c.vRel + v_ego, lead.v[0], lead.vStd[0])    # velocity match
+prob = prob_d * prob_y * prob_v
+track = max(tracks.values(), key=prob)
+```
+
+The best radar track for a vision lead is chosen by **multiplying** three independent agreement probabilities: distance, lateral offset, and velocity. This is a product-of-independent-likelihoods fusion — structurally the same as the confidence ball's `(1-brake)*(1-steer)` but for sensor agreement rather than risk. The product is zero if any dimension has no match, moderate if they mostly agree, and high only when all three line up well.
+
+**Relevance to S+SA**: This is a product-based combination where all inputs must agree. It's the opposite philosophy from `max()` — a mismatch in any one input kills the combined score. For lead fusion, requiring agreement is the right call (you need the radar track to actually *be* the same object the camera sees). For S+SA, this is wrong — we don't want to require both to agree, we want to show whichever fires first.
+
+### Pattern 8: MPC Multi-Obstacle `min()` — Most Constraining Wins (`long_mpc.py`)
+
+```python
+# long_mpc.py - MPC obstacle combination
+x_obstacles = np.column_stack([lead_0_obstacle, lead_1_obstacle, cruise_obstacle])
+self.source = MPC_SOURCES[np.argmin(x_obstacles[0])]
+self.params[:,2] = np.min(x_obstacles, axis=1)
+```
+
+The MPC follows three potential constraints simultaneously: lead 0, lead 1, and the cruise speed target. At each timestep it takes the **minimum** (closest/most constraining obstacle). `min()` here is equivalent to `max()` for threat: the most constraining obstacle wins, just as `max()` picks the highest-threat signal.
+
+**Relevance to S+SA**: This is the same logic as `max(S, SA)` — multiple independent inputs, and the most urgent/constraining one determines behavior. The MPC has been doing this for every timestep of every drive.
+
+### Pattern 9: Lateral + Longitudinal Acceleration Envelope (`longitudinal_planner.py`)
+
+```python
+# limit_accel_in_turns()
+a_total_max = np.interp(v_ego, _A_TOTAL_MAX_BP, _A_TOTAL_MAX_V)
+a_y = v_ego**2 * angle_steers * CV.DEG_TO_RAD / (CP.steerRatio * CP.wheelbase)
+a_x_allowed = math.sqrt(max(a_total_max**2 - a_y**2, 0.))
+return [a_target[0], min(a_target[1], a_x_allowed)]
+```
+
+Longitudinal acceleration is limited by how much lateral acceleration is already being used — the "friction circle" concept. This is a combination where one axis (lateral) constrains the other (longitudinal), producing a total that can't exceed what the tires can deliver. The car can't brake hard AND steer hard simultaneously.
+
+**Relevance to S+SA**: This is an interaction between the lateral and longitudinal axes — the same relationship between B/BI and S/SA that would need to be accounted for in a combined lateral + longitudinal widget.
+
+### Pattern 10: DM Distraction — OR of Three Independent Types (`helpers.py`)
+
+```python
+# monitoring/helpers.py
+distracted_types = []
+if pitch_error > pitch_threshold or yaw_error > yaw_threshold:
+    distracted_types.append(DistractedType.DISTRACTED_POSE)
+if (blink_left + blink_right) * 0.5 > BLINK_THRESHOLD:
+    distracted_types.append(DistractedType.DISTRACTED_BLINK)
+if phone_prob > PHONE_THRESH:
+    distracted_types.append(DistractedType.DISTRACTED_PHONE)
+
+# Combined: any type present AND face detected AND low std
+driver_distracted = len(distracted_types) > 0 and face_detected and pose.low_std
+```
+
+Three independent distraction sources (pose, blink, phone) are combined with OR — any one is enough to trigger distraction. But the result is then ANDed with confidence gates (`face_detected`, `low_std`). This is a **union with quality gates**: any signal fires the flag, but only if the data is trustworthy.
+
+**Relevance to S+SA**: The quality-gate pattern is worth considering. `max(S, SA)` is a pure union. But SA when `latActive=false` or when `vEgo < sat_check_min_speed` may not be meaningful — adding quality gates like the DM system does could prevent false contributions.
+
+### Pattern 11: Blink Probability Gating — Multiplicative Masking (`helpers.py`)
+
+```python
+# monitoring/helpers.py
+self.blink.left = leftBlinkProb * (leftEyeProb > EYE_THRESHOLD) * (sunglassesProb < SG_THRESHOLD)
+```
+
+Blink probability is multiplied by boolean gates: eye must be visible and no sunglasses. The boolean-as-multiplier pattern (True=1, False=0) means the raw probability is either passed through unchanged or zeroed out entirely. This is sharper than a weighted combination — it's all-or-nothing gating.
+
+**Relevance to S+SA**: SA already has gating: `if not latActive: torque_util = 0.0`. This is the same multiplicative masking pattern, ensuring the signal is only contributed when it's meaningful.
+
+### Pattern 12: Experimental Mode — `min()` of Camera and MPC (`longitudinal_planner.py`)
+
+```python
+# longitudinal_planner.py
+if experimentalMode:
+    output_a_target = min(output_a_target_e2e, output_a_target_mpc)
+    self.output_should_stop = output_should_stop_e2e or output_should_stop_mpc
+```
+
+Two different acceleration signals (camera model vs MPC) are combined with `min()` (more conservative wins) for accel and `or` (either can request a stop) for stops. This is a **conservative union**: the system takes the more cautious of two independent planners. `min()` for accel and `or` for stops is equivalent to "both must agree it's safe to go faster; either can demand a stop."
+
+**Relevance to S+SA**: For the acceleration target, `min()` is the safety-oriented choice. For S+SA, `max()` is the safety-oriented choice (higher warning = safer). They're the same principle — err toward the more cautious/alerting direction.
+
+### Pattern 13: State Machine Priority Cascade (`state.py`)
+
+```python
+# state.py - event handling
+if events.contains(ET.USER_DISABLE):          # highest priority
+    state = State.disabled
+elif events.contains(ET.IMMEDIATE_DISABLE):   # second priority
+    ...
+elif events.contains(ET.SOFT_DISABLE):        # third
+    ...
+elif events.contains(ET.OVERRIDE_LATERAL) or events.contains(ET.OVERRIDE_LONGITUDINAL):
+    state = State.overriding                   # lowest of the active concerns
+```
+
+Multiple event types are combined via priority ordering: the most severe always wins. `OVERRIDE_LATERAL` and `OVERRIDE_LONGITUDINAL` are themselves combined with OR — either triggers the override state.
+
+**Relevance to S+SA**: The state machine uses OR (union) for combining related override types, just as `max()` would union S and SA. The priority cascade is a more structured version of the same idea.
+
+### Pattern 14: Lane Change — Multi-Condition AND with Direction-Specific OR (`desire_helper.py`)
+
+```python
+# desire_helper.py
+torque_applied = steeringPressed and (
+    (steeringTorque > 0 and direction == left) or
+    (steeringTorque < 0 and direction == right)
+)
+blindspot_detected = (
+    (leftBlindspot and direction == left) or
+    (rightBlindspot and direction == right)
+)
+if torque_applied and not blindspot_detected:
+    lane_change_state = LaneChangeState.laneChangeStarting
+```
+
+Lane change requires: torque applied in the correct direction AND no blindspot on that side AND blinker active AND above minimum speed. This is a conjunction (AND) of independently-sourced conditions. The blindspot check is particularly interesting — it combines radar-based BSM with visual scene information to make a safety decision.
+
+### Pattern 15: Path Coloring — HSL Gradient from Acceleration (`model_renderer.py`)
+
+```python
+# model_renderer.py (experimental mode)
+path_hue = np.clip(60 + acceleration_x[i] * 35, 0, 120)    # green 60° → red 0° → yellow 120°
+saturation = min(abs(acceleration_x[i] * 1.5), 1)
+lightness = np.interp(saturation, [0.0, 1.0], [0.95, 0.62])
+```
+
+A continuous model prediction (acceleration) is mapped to a continuous visual output (hue/saturation/lightness). This is a direct signal-to-visual mapping without combination — but the design choice of encoding magnitude in saturation AND direction in hue is worth noting for the S+SA color encoding proposal.
+
+### Pattern 16: Torque Bar Color Transition — Thresholded Ramp (`torque_bar.py`)
+
+```python
+# torque_bar.py
+blend_factor = max(0, abs(torque_filter.x) - 0.75) * 4   # 0 below 75%, ramps to 1 at 100%
+start_color = blend_colors(white, yellow, blend_factor)
+end_color = blend_colors(white, orange, blend_factor)
+```
+
+The color transition from white to yellow/orange only begins at 75% torque utilization. Below 75%, the bar is always white regardless of torque level. This is a **thresholded** visual encoding — the signal is continuous but the visual alarm only activates above a threshold.
+
+**Relevance to S+SA**: If color encoding is used to show which source (S vs SA) drives the combined bar, a thresholded approach could work: only show the color when the bar is above some minimum level, so low-level noise doesn't create distracting color flicker.
+
 ---
 
-## 4. Three Candidate Combination Formulas
+### Combination Pattern Summary
 
-Given the goal of **earliest warning**, three formulas are worth evaluating.
+| # | Location | Pattern | Signals | Purpose |
+|---|----------|---------|---------|---------|
+| 1 | Confidence ball | `(1-A)*(1-B)` product | brake + steer probs | Single confidence scalar |
+| 2 | modelV2.confidence | Union → hazard → diagonal | brake + gas + steer | Rolling accuracy score |
+| 3 | FCW | `A or B` | model FCW + planner FCW | Either triggers alert |
+| 4 | BI Option C | `max(A, B)` | model decel + radar decel | Earliest decel signal |
+| 5 | steerSaturated | `A > 1.2*B and C` | desired vs actual + saturated | Lateral crisis alert |
+| 6 | DM policy | `A` modulates `B` | brake prob → DM thresholds | Cross-pipeline coupling |
+| 7 | Lead fusion | `A * B * C` | distance × lateral × velocity match | Best-match selection |
+| 8 | MPC obstacles | `min(A, B, C)` | lead0 + lead1 + cruise | Most constraining wins |
+| 9 | Accel envelope | `sqrt(max² - lat²)` | lateral accel + total limit | Friction circle |
+| 10 | DM distraction | `any(A,B,C) and D and E` | pose + blink + phone, gated | Union with quality gates |
+| 11 | Blink gating | `A * bool(B) * bool(C)` | blink × eye × not-sunglasses | Multiplicative mask |
+| 12 | Experimental mode | `min(A, B)` / `A or B` | e2e + MPC accel / stop | Conservative fusion |
+| 13 | State machine | Priority cascade + OR | disable > soft > override | Most severe wins |
+| 14 | Lane change | `A and B and not C` | torque + blinker + not-blindspot | Multi-condition gate |
+| 15 | Path coloring | `f(x) → HSL` | acceleration → hue/saturation | Continuous visual mapping |
+| 16 | Torque bar color | `max(0, x-0.75)*4` | torque → color blend | Thresholded ramp |
+
+---
+
+## 4. The S Horizon Question — Which Window to Use
+
+### Background: Why `max()` always gives the 10-second value
+
+The 5 `steerOverrideProbs` values at `t=[2,4,6,8,10]s` are **cumulative** probabilities — P(by t=Ns) is always >= P(by t=(N-2)s). So `max()` mathematically always returns `steerOverrideProbs[4]` (the 10s value). The current code inherited this from the confidence ball without an independent decision about which horizon best serves the S bar's purpose.
+
+### How the codebase handles this elsewhere
+
+There are exactly four consumers of disengage probability arrays, and they make **three different choices**:
+
+| Consumer | Approach | Which horizons used | Why |
+|----------|----------|-------------------|-----|
+| S bar / confidence ball | `max()` | Always the 10s value | Inherited from confidence ball, "worst case across all horizons" |
+| DM `_set_policy` | Direct `[0]` | Only the 2s value | Needs imminent signal; 10s would loosen DM thresholds too early |
+| `modelV2.confidence` | Full vector + per-slice hazard math | All 5 independently | Needs temporal structure for rolling accuracy score |
+| B3/B4 horizontal bars | Individual per-horizon | All 5 displayed separately | Shows full temporal gradient to the driver |
+
+**DM's choice of the 2s window is the most instructive**: it deliberately rejected `max()` because the 10s value was too sensitive for its use case — it would loosen distraction thresholds during a long 10-second worry window when only a 2-second certainty was actionable.
+
+### What each window gives you for S
+
+**`steerOverrideProbs[4]` — 10 second window (current via `max()`)**
+- Rises slowly and early as a situation develops
+- Higher baseline noise: routine complex roads (construction, lane merges) maintain moderate values
+- Never spikes hard — always smoothed over the widest window
+- Best for: ambient awareness of scene complexity
+
+**`steerOverrideProbs[0]` — 2 second window**
+- Much lower in normal driving (tighter window = fewer events qualify)
+- Spikes sharply and fast when something is imminent
+- Quieter background noise, louder alarm
+- Best for: near-term urgency signaling
+
+**Near-term concentration ratio: `steerOverrideProbs[0] / steerOverrideProbs[4]`**
+- Answers: "how much of the 10s risk is concentrated in the next 2s?"
+- High ratio (near 1.0) = the threat is near
+- Low ratio = long-term possibility, not imminent
+- Best for: distinguishing "genuinely about to happen" from "model vaguely worried"
+
+### Implication for the combined bar
+
+Since SA already provides fast-response early warning for hardware stress, the S component in `max(S, SA)` doesn't need to be the early warning — SA handles that. S's role in the combination is to cover the visual-scene scenarios SA can't see. This reframes the horizon choice:
+
+- If S uses the **10s window**: the combined bar has ambient awareness from S + fast spikes from SA. The bar may show constant low-level S noise on mildly complex roads.
+- If S uses the **2s window**: the combined bar is quiet in normal driving, spikes from SA for hardware stress, and spikes from S only when something is genuinely imminent visually. Cleaner, sharper.
+
+## 5. Full Combination Matrix
+
+Crossing S horizon choices with combination formulas:
+
+| Name | Formula | Normal driving | Hard visible curve | Ambiguous lane | Sudden crosswind |
+|------|---------|---------------|-------------------|---------------|-----------------|
+| **Current S** | `S_10s` alone | Low-medium | Medium | Medium-high | Low |
+| **S2-A** | `max(S_10s, SA)` | Low-medium | High (SA first, then S) | Medium-high | High (SA immediate) |
+| **S2-B** | `max(S_2s, SA)` | Very low | High (SA first, S spike later) | Low | High (SA immediate) |
+| **S2-C** | `max(ratio × S_10s, SA)` | Very low | High (concentrated) | Low | High (SA immediate) |
+| **S2-D** | `1-(1-S_10s)(1-SA)` | Low-medium | Very high when both | Medium-high | High |
+
+**Recommended for "earliest warning"**: `max(S_2s, SA)` — cleanest signal-to-noise ratio. SA handles all hardware early warnings at 0.1s response time. S_2s adds sharp spikes only for visually-driven imminent situations without the constant low-level noise of the 10s window.
+
+**Fallback if S_2s is too quiet**: `max(S_10s, SA)` — more visual-complexity awareness at the cost of higher baseline noise on complex roads.
+
+## 6. Candidate Combination Formulas — Detailed Analysis
+
+Given the goal of **earliest warning**, three formulas are worth evaluating in detail with worked examples.
 
 ### Formula A: `max(S, SA)` — Earliest Warning
 
@@ -289,7 +520,7 @@ lateral_warning = S_norm * SA_norm
 
 ---
 
-## 5. Why `max()` is the Right Formula for the Stated Goal
+## 7. Why `max()` is the Right Formula for the Stated Goal
 
 The goal is **earliest warning**. `max()` is the correct formula because:
 
@@ -303,7 +534,7 @@ The goal is **earliest warning**. `max()` is the correct formula because:
 
 ---
 
-## 6. What You Lose and Whether It Matters
+## 8. What You Lose and Whether It Matters
 
 ### The decomposition loss
 
@@ -333,7 +564,7 @@ The confidence ball combines brake and steer without decomposing which is drivin
 
 ---
 
-## 7. Other Axis Pairs Worth the Same Analysis
+## 9. Other Axis Pairs Worth the Same Analysis
 
 The S+SA combination is one of three natural pairs where a behavioral prediction and a physical measurement share the same axis.
 
@@ -376,7 +607,7 @@ This pair is structurally different. S predicts driver intervention on steering;
 
 ---
 
-## 8. Implementation: What `max(S, SA)` Would Look Like
+## 10. Implementation: What `max(S, SA)` Would Look Like
 
 ### Input sources (already available in `disengage_bars.py`)
 
@@ -401,7 +632,7 @@ Currently `max(steerOverrideProbs)` always returns the 10-second cumulative prob
 
 ---
 
-## 9. Open Questions
+## 11. Open Questions
 
 **Q1: Which S horizon should feed the combined bar?**
 
