@@ -31,7 +31,7 @@ H_BAR_B4_CEILING = 0.30  # B4 prob at which a block renders fully red
 H_BAR_LABEL_FONT_SIZE = 26
 
 # Widget dimensions -- ball column + 7 bars + two stacked H-bars at top
-WIDTH = 646  # bars shrink slightly to fit 7; increase WIDTH if more space is needed
+WIDTH = 700  # 8 bars total (5 prediction + 3 reactive); increased from 646 to fit S2
 TOP_HEADER_SPACE = 26
 SECTION_HEADER_SPACE = 24
 LABEL_BOTTOM_GAP = 14
@@ -126,6 +126,25 @@ CONF_BLOCK_COLORS_DIM = [
   rl.Color(58, 18, 18, 118),
   rl.Color(56, 42, 18, 116),
   rl.Color(22, 36, 24, 112),
+]
+
+# S2 bar: max(S, SA) -- combines behavioral prediction with physical actuation.
+# Blue-to-amber palette distinguishes S2 from S (green-red) and SA (green-red gradient).
+# Top block (red) indicates the same maximum urgency as other bars.
+S2_BLOCK_COUNT = 5
+S2_BLOCK_COLORS_LIT = [
+  rl.Color( 60, 148, 200, 235),   # level 1 – steel blue
+  rl.Color( 76, 162, 168, 235),   # level 2 – teal
+  rl.Color(118, 166, 118, 236),   # level 3 – transition (teal-green)
+  rl.Color(210, 148,  58, 239),   # level 4 – amber
+  rl.Color(214,  58,  44, 242),   # level 5 – red (matches top of other bars)
+]
+S2_BLOCK_COLORS_DIM = [
+  rl.Color(16,  36,  52, 112),
+  rl.Color(18,  38,  44, 112),
+  rl.Color(28,  38,  28, 112),
+  rl.Color(56,  38,  16, 116),
+  rl.Color(58,  18,  18, 118),
 ]
 
 PANEL_OUTER = rl.Color(12, 12, 14, 214)
@@ -360,6 +379,8 @@ class DisengageBars(Widget):
     self._torque_utilization_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     # DM: match B/S smoothness -- awarenessStatus is already time-integrated
     self._dm_filter = FirstOrderFilter(0.0, 0.5, 1 / gui_app.target_fps)
+    # S2: max(S, SA) combined lateral warning -- RC between S (0.5s) and SA (0.1s)
+    self._s2_filter = FirstOrderFilter(0.0, 0.2, 1 / gui_app.target_fps)
     self._dm_distracted_type = 0
     # H-bars: one filter per time step (t=[2,4,6,8,10]s) for each braking threshold.
     # Same RC as B/G/S -- these are NN probability signals.
@@ -392,6 +413,7 @@ class DisengageBars(Widget):
       self._accel_filter.update(0.0)
       self._torque_utilization_filter.update(0.0)
       self._dm_filter.update(0.0)
+      self._s2_filter.update(0.0)
       for f in self._b3_filters:
         f.update(0.0)
       for f in self._b4_filters:
@@ -462,6 +484,14 @@ class DisengageBars(Widget):
       else:
         self._torque_utilization_filter.update(min(torque_util, (SA_BLOCK_COUNT - 1) / SA_BLOCK_COUNT))
 
+      # S2: max(S_norm, SA_norm) -- earliest lateral warning from either source.
+      # S fires when the camera predicts a driver steer override (behavioral).
+      # SA fires when the car is physically working hard to steer (actuation).
+      # max() means the bar responds to whichever sees trouble first.
+      s2_s_norm = min(self._steer_filter.x / PROB_SENSITIVITY_CEILING, 1.0)
+      s2_sa_norm = min(self._torque_utilization_filter.x, 1.0)
+      self._s2_filter.update(max(s2_s_norm, s2_sa_norm))
+
       # DM: invert awarenessStatus so bar fills UP as distraction increases.
       # awareness=1.0 (attentive) → 0.0 on bar. awareness=0.0 (terminal) → 1.0 on bar.
       awareness = sm['driverMonitoringState'].awarenessStatus
@@ -509,6 +539,7 @@ class DisengageBars(Widget):
       (min(self._brake_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "B",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
       (min(self._gas_filter.x / PROB_SENSITIVITY_CEILING, 1.0),   "G",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
       (min(self._steer_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "S",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
+      (min(self._s2_filter.x, 1.0),                               "S2",         S2_BLOCK_COUNT, S2_BLOCK_COLORS_LIT, S2_BLOCK_COLORS_DIM),
     ]
     reactive_bars = [
       (min(self._accel_filter.x / MAX_DECEL, 1.0),                "BI",         BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
