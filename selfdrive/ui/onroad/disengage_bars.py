@@ -54,9 +54,16 @@ TRACK_ROUNDNESS = 0.15
 FRAME_INSET = 4
 BLOCK_FRAME_INSET = 2
 
-# B / G / S bars: raw probability at which the bar is fully lit.
+# B / G bars: raw probability at which the bar is fully lit.
 # 0.5 means each of the 5 blocks represents a ~10% probability band (50% total range).
 PROB_SENSITIVITY_CEILING = 0.5
+
+# S bar: keep it as an upward-filling risk bar, but align its key thresholds to the
+# confidence ball when brake disengage is zero. That means:
+# - yellow starts around steerOverrideProb = 0.5
+# - red starts around steerOverrideProb = 0.8
+# The first two thresholds fill in lower-risk steer activity without the old 0.5 amplification.
+S_BLOCK_THRESHOLDS = [0.10, 0.25, 0.50, 0.65, 0.80]
 
 # BI bar: actual measured vehicle deceleration (m/s²) that fills the bar completely.
 # carState.aEgo is negative when decelerating; we map [-MAX_DECEL, 0] → [1, 0].
@@ -248,6 +255,18 @@ def _lit_levels(scaled_0_to_1: float, block_count: int) -> int:
   but makes the top block harder to reach — tradeoff worth revisiting with real drive data.
   """
   return round(min(max(scaled_0_to_1, 0.0), 1.0) * block_count)
+
+
+def _steer_lit_levels(raw_steer_prob: float) -> int:
+  """Map raw steerOverrideProb to lit blocks using S_BLOCK_THRESHOLDS.
+
+  S is intentionally not scaled by PROB_SENSITIVITY_CEILING. Instead each
+  threshold directly mirrors when the confidence ball would move to that color
+  band assuming brake disengage probability is zero, i.e.:
+    confidence ≈ (1 - steerProb) → yellow when steerProb ≥ 0.5, red at ≥ 0.8.
+  """
+  raw_steer_prob = min(max(raw_steer_prob, 0.0), 1.0)
+  return sum(raw_steer_prob >= t for t in S_BLOCK_THRESHOLDS)
 
 
 def _draw_bar(bar_x: float, bar_area_y: float, bar_w: float, bar_area_h: float,
@@ -534,17 +553,24 @@ class DisengageBars(Widget):
     bar_area_h = HEIGHT - 2 * PADDING - LABEL_HEIGHT - 2 * H_BAR_HEIGHT - H_BAR_INNER_GAP - H_BAR_GAP - TOP_HEADER_SPACE - SECTION_HEADER_SPACE
     _draw_shell(container, frame_color)
 
+    # S uses an explicit threshold function aligned to the confidence ball; pre-compute
+    # its lit count here so the generic bar loop stays a simple (scaled, ...) shape.
+    steer_lit = _steer_lit_levels(self._steer_filter.x)
+
+    # Each entry: (scaled_0_to_1, label, block_count, colors_lit, colors_dim)
+    # For S we pass steer_lit / BLOCK_COUNT as a pre-quantised scaled value so that
+    # _lit_levels() recovers the same integer without re-mapping.
     predict_bars = [
-      (self._model_confidence_scaled,                              "C",          CONF_BLOCK_COUNT, CONF_BLOCK_COLORS_LIT, CONF_BLOCK_COLORS_DIM),
-      (min(self._brake_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "B",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
-      (min(self._gas_filter.x / PROB_SENSITIVITY_CEILING, 1.0),   "G",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
-      (min(self._steer_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "S",          BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
-      (min(self._s2_filter.x, 1.0),                               "S2",         S2_BLOCK_COUNT, S2_BLOCK_COLORS_LIT, S2_BLOCK_COLORS_DIM),
+      (self._model_confidence_scaled,                              "C",  CONF_BLOCK_COUNT, CONF_BLOCK_COLORS_LIT, CONF_BLOCK_COLORS_DIM),
+      (min(self._brake_filter.x / PROB_SENSITIVITY_CEILING, 1.0), "B",  BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
+      (min(self._gas_filter.x / PROB_SENSITIVITY_CEILING, 1.0),   "G",  BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
+      (steer_lit / BLOCK_COUNT,                                    "S",  BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
+      (min(self._s2_filter.x, 1.0),                               "S2", S2_BLOCK_COUNT, S2_BLOCK_COLORS_LIT, S2_BLOCK_COLORS_DIM),
     ]
     reactive_bars = [
-      (min(self._accel_filter.x / MAX_DECEL, 1.0),                "BI",         BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
-      (min(self._torque_utilization_filter.x, 1.0),               "SA",         SA_BLOCK_COUNT, SA_BLOCK_COLORS_LIT, SA_BLOCK_COLORS_DIM),
-      (min(self._dm_filter.x, 1.0),                               self._dm_label(), BLOCK_COUNT, BLOCK_COLORS_LIT,   BLOCK_COLORS_DIM),
+      (min(self._accel_filter.x / MAX_DECEL, 1.0),                "BI", BLOCK_COUNT,    BLOCK_COLORS_LIT,    BLOCK_COLORS_DIM),
+      (min(self._torque_utilization_filter.x, 1.0),               "SA", SA_BLOCK_COUNT, SA_BLOCK_COLORS_LIT, SA_BLOCK_COLORS_DIM),
+      (min(self._dm_filter.x, 1.0),                               self._dm_label(), BLOCK_COUNT, BLOCK_COLORS_LIT, BLOCK_COLORS_DIM),
     ]
     sections_total_w = bar_area_w - GROUP_GAP
     predict_section_w = int(sections_total_w * PREDICT_SECTION_RATIO)
