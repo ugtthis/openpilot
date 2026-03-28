@@ -78,6 +78,9 @@ class AugmentedRoadView(CameraView):
 
   def _handle_mouse_release(self, mouse_pos: MousePos) -> None:
     if not self._action_tray.consume_touch_handled_by_tray():
+      # Taps inside the DAC view are handled by its cells — don't navigate home.
+      if self._dac_active and rl.check_collision_point_rec(mouse_pos, self._content_rect):
+        return
       super()._handle_mouse_release(mouse_pos)
 
   def _render(self, _) -> None:
@@ -150,7 +153,8 @@ class AugmentedRoadView(CameraView):
     self._dac_view.render(self._content_rect)
 
   def _render_side_panel(self) -> None:
-    self._confidence_ball.render(self.rect)
+    if not self._dac_active:
+      self._confidence_ball.render(self.rect)
     self._action_tray.render(self.rect)
 
   def _switch_stream_if_needed(self, sm) -> None:
