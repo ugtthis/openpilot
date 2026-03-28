@@ -202,8 +202,8 @@ class DACView(Widget):
     )
 
     bar_configs = (
-      (self._steer_filter.x, "STR"),
-      (self._brake_filter.x, "BRK"),
+      (self._steer_filter.x, "S"),
+      (self._brake_filter.x, "B"),
       (self._dm_filter.x,    "DM"),
     )
 
