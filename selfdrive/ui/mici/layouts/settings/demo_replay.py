@@ -10,7 +10,7 @@ from openpilot.common.basedir import BASEDIR
 from openpilot.common.filter_simple import BounceFilter
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.mici.widgets.button import PRESSED_SCALE
-from openpilot.system.ui.lib.application import gui_app
+from openpilot.system.ui.lib.application import gui_app, FontWeight
 
 _REPLAY_BINARY = os.path.join(BASEDIR, "tools", "replay", "replay")
 
@@ -108,13 +108,13 @@ class DemoReplayController:
 
 
 class DemoButton(Widget):
-  def __init__(self, texture: rl.Texture):
+  def __init__(self):
     super().__init__()
     self.set_rect(rl.Rectangle(0, 0, _DOME_SIZE + _DOME_RIGHT_MARGIN, _DOME_SIZE))
-    self._texture = texture
     self._scale_filter = BounceFilter(1.0, 0.1, 1 / gui_app.target_fps)
     self._click_delay = 0.075
     self._active = False
+    self._font = gui_app.font(FontWeight.BOLD)
 
   def set_active(self, active: bool) -> None:
     self._active = active
@@ -125,10 +125,39 @@ class DemoButton(Widget):
     draw_h = _DOME_SIZE * scale
     x = rect.x + (_DOME_SIZE - draw_w) / 2
     y = rect.y + (_DOME_SIZE - draw_h) / 2
-    tint = _DOME_TINT_ACTIVE if self._active else _DOME_TINT_INACTIVE
-    rl.draw_texture_pro(
-      self._texture,
-      rl.Rectangle(0, 0, self._texture.width, self._texture.height),
-      rl.Rectangle(x, y, draw_w, draw_h),
-      rl.Vector2(0, 0), 0.0, tint,
+
+    outer_color = rl.Color(185, 24, 24, 255) if self._active else rl.Color(98, 28, 28, 255)
+    inner_color = rl.Color(255, 80, 80, 255) if self._active else rl.Color(145, 52, 52, 255)
+    text_color = _DOME_TINT_ACTIVE if self._active else _DOME_TINT_INACTIVE
+
+    center_x = x + draw_w / 2
+    center_y = y + draw_h / 2
+    radius = int(draw_w / 2)
+
+    rl.draw_circle_gradient(int(center_x), int(center_y), radius, inner_color, outer_color)
+    rl.draw_ring(
+      rl.Vector2(center_x, center_y),
+      radius - 7,
+      radius,
+      0.0,
+      360.0,
+      48,
+      rl.Color(255, 255, 255, 55 if self._active else 30),
+    )
+    rl.draw_circle(
+      int(center_x - draw_w * 0.16),
+      int(center_y - draw_h * 0.18),
+      draw_w * 0.12,
+      rl.Color(255, 220, 220, 65 if self._active else 35),
+    )
+
+    label = "DEMO"
+    text_size = rl.measure_text_ex(self._font, label, 32, 0)
+    rl.draw_text_ex(
+      self._font,
+      label,
+      rl.Vector2(center_x - text_size.x / 2, center_y - text_size.y / 2),
+      32,
+      0,
+      text_color,
     )

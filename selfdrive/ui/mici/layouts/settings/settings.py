@@ -19,8 +19,7 @@ class SettingsLayout(NavScroller):
     super().__init__()
     self._demo_replay = DemoReplayController()
 
-    dome_texture = gui_app.texture("icons_dac/red_dome_button.png", 150, 150)
-    self._demo_btn = DemoButton(dome_texture)
+    self._demo_btn = DemoButton()
     self._demo_btn.set_click_callback(self._demo_replay.toggle)
 
     toggles_panel = TogglesLayoutMici()

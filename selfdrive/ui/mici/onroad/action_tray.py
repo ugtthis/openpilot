@@ -5,7 +5,7 @@ from enum import IntEnum
 from openpilot.common.filter_simple import BounceFilter
 from openpilot.selfdrive.ui.mici.widgets.button import PRESSED_SCALE
 from openpilot.selfdrive.ui.ui_state import ui_state
-from openpilot.system.ui.lib.application import MouseEvent, gui_app
+from openpilot.system.ui.lib.application import MouseEvent, gui_app, FontWeight
 from openpilot.system.ui.widgets import Widget
 
 BUTTON_SIZE = 150
@@ -59,18 +59,32 @@ class DACActionButton(TrayActionButton):
     self._is_dac_active = is_dac_active
     self._bg = gui_app.texture("icons_mici/buttons/button_circle.png", BUTTON_SIZE, BUTTON_SIZE)
     self._bg_pressed = gui_app.texture("icons_mici/buttons/button_circle_pressed.png", BUTTON_SIZE, BUTTON_SIZE)
-    self._dac_icon = gui_app.texture("icons_dac/dac-btn.png", 64, 64)
-    self._onroad_icon = gui_app.texture("icons_dac/onroad-ui-icon.png", 64, 32)
+    self._font = gui_app.font(FontWeight.BOLD)
 
   def _render(self, _) -> None:
     rect = self.scaled_rect()
     bg = self._bg_pressed if self.is_pressed else self._bg
     tint = rl.Color(220, 220, 220, 255) if self.is_pressed else rl.WHITE
     rl.draw_texture_ex(bg, rl.Vector2(rect.x, rect.y), 0.0, rect.width / bg.width, rl.WHITE)
-    icon = self._onroad_icon if self._is_dac_active() else self._dac_icon
-    x = rect.x + (rect.width - icon.width) / 2
-    y = rect.y + (rect.height - icon.height) / 2
-    rl.draw_texture_ex(icon, rl.Vector2(x, y), 0.0, 1.0, tint)
+
+    label = "ROAD" if self._is_dac_active() else "DAC"
+    accent = rl.Color(160, 255, 210, tint.a) if self._is_dac_active() else rl.Color(255, 255, 255, tint.a)
+
+    text_size = rl.measure_text_ex(self._font, label, 34, 0)
+    text_pos = rl.Vector2(
+      rect.x + (rect.width - text_size.x) / 2,
+      rect.y + (rect.height - text_size.y) / 2 - 10,
+    )
+    rl.draw_text_ex(self._font, label, text_pos, 34, 0, accent)
+
+    underline_width = 52 if self._is_dac_active() else 36
+    underline_rect = rl.Rectangle(
+      rect.x + (rect.width - underline_width) / 2,
+      text_pos.y + text_size.y + 8,
+      underline_width,
+      6,
+    )
+    rl.draw_rectangle_rounded(underline_rect, 0.8, 8, accent)
 
 
 class SidePanelActionTray(Widget):
