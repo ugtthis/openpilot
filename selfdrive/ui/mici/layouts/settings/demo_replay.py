@@ -56,8 +56,12 @@ class DemoReplayController:
     if self._state != ReplayState.OFF:
       return
 
+    # Block system-level messages published by always-running device services.
+    # Replay would kill their publisher sockets causing those processes to crash.
+    # The UI only needs the driving data messages (carState, modelV2, etc.) from replay.
+    _SYSTEM_BLOCK = "clocks,managerState,peripheralState,logMessage,errorLogMessage,androidLog,procLog,uploaderState"
     self._replay_proc = subprocess.Popen(
-      [_REPLAY_BINARY, "--demo", "--block", "clocks"],
+      [_REPLAY_BINARY, "--demo", "--block", _SYSTEM_BLOCK],
       env=os.environ,
       stdout=subprocess.DEVNULL,
       stderr=subprocess.DEVNULL,
