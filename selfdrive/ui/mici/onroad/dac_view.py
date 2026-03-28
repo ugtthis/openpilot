@@ -2,6 +2,7 @@ import numpy as np
 import pyray as rl
 
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY
+from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.ui.lib.application import FontWeight, gui_app
@@ -17,7 +18,8 @@ from openpilot.system.ui.widgets import Widget
 #   DM  — driver distraction    (higher = less aware, closer to takeover event)
 #
 # All three bars read the same way: height = disengage risk contribution.
-# The remaining 3 right tiles are placeholders.
+# The top-right tile is split into set-speed + retro speedometer.
+# The two lower right tiles are still placeholders.
 
 _DAC_BG_COLOR = rl.BLACK
 _PLACEHOLDER_TILE_COLOR = rl.Color(210, 210, 210, 255)
@@ -30,10 +32,38 @@ _CONTENT_INSET = 8
 _TILE_GAP = 16
 _TILE_ROUNDNESS = 0.06
 _TILE_SEGMENTS = 12
+_RIGHT_TOP_HEIGHT_RATIO = 0.34
+_RIGHT_TOP_HEIGHT_BOOST = 40
+_SPEED_TEXT_BASELINE_OFFSET = -6
 
 # Signal tuning
 _MAX_DECEL = 3.5              # m/s² — brake bar saturates here
 _DEFAULT_MAX_LAT_ACCEL = 3.0  # m/s² — steering ceiling without CP.maxLateralAccel
+_SET_SPEED_NA = 255
+_KPH_TO_MPH = 0.621371
+
+# Right-top layout
+_RIGHT_TOP_SPLIT_GAP = 10
+_SET_SPEED_WIDTH_RATIO = 0.2
+
+# Set-speed tile layout
+_SET_SPEED_PAD_X = 10
+_SET_SPEED_TOP_PAD = 8
+_SET_SPEED_BOTTOM_PAD = 8
+_SET_SPEED_DIVIDER_GAP = 5
+_SET_SPEED_VALUE_GAP_TOP = 10
+_SET_SPEED_VALUE_TO_UNIT_GAP = 2
+
+# Speedometer layout
+_SPEEDO_PANEL_PAD_X = 14
+_SPEEDO_PANEL_PAD_Y = 12
+_SPEEDO_SEGMENTS = 42
+_SPEEDO_SEG_GAP = 2
+_SPEEDO_RED_ZONE_START_RATIO = 0.8
+_SPEEDO_SWEEP_BASE_RATIO = 0.50
+_SPEEDO_SWEEP_PEAK_RATIO = 0.27
+_SPEEDO_SWEEP_THICKNESS_RATIO = 0.24
+_SPEEDO_SWEEP_EXTRA_HEIGHT_RATIO = 0.10
 
 # Segmented bar geometry
 _N_PAIRS = 5          # color zones (green / lime / yellow / orange / red)
@@ -58,6 +88,13 @@ _COLLAPSE_STARTS_AT_PAIR = 2
 _BAR_BG_COLOR = rl.Color(20, 20, 20, 255)
 _BAR_FRAME_COLOR = rl.Color(62, 62, 62, 130)   # subtle bezel outline
 _SEG_OFF_COLOR = rl.Color(42, 42, 42, 255)      # dim "unlit" slot
+_RETRO_PANEL_BG = rl.Color(24, 24, 24, 255)
+_SPEEDO_PANEL_BG = rl.BLACK
+_RETRO_PANEL_GLOW = rl.Color(255, 170, 40, 255)
+_RETRO_PANEL_GLOW_DIM = rl.Color(120, 88, 32, 255)
+_RETRO_TEXT_DIM = rl.Color(185, 150, 90, 255)
+_SET_SPEED_ACCENT = rl.Color(210, 210, 210, 255)
+_SET_SPEED_DIM = rl.Color(145, 145, 145, 255)
 
 # LED segment colors: 5 pairs × 2 blocks, index 0 = bottom, 9 = top.
 # Each pair shares one flat color. The hue jump between pairs is deliberately
@@ -114,6 +151,16 @@ def _blend_seg(on: rl.Color, fill: float) -> rl.Color:
   )
 
 
+def _fit_text_size(font: rl.Font, text: str, max_size: int, min_size: int,
+                   max_width: float, max_height: float) -> int:
+  """Largest font size that fits within the given bounds."""
+  for size in range(max_size, min_size - 1, -1):
+    text_size = measure_text_cached(font, text, size)
+    if text_size.x <= max_width and text_size.y <= max_height:
+      return size
+  return min_size
+
+
 class DACView(Widget):
   def __init__(self):
     super().__init__()
@@ -122,15 +169,22 @@ class DACView(Widget):
     self._brake_filter = FirstOrderFilter(0.0, 0.15, dt)
     # DM stores *distraction risk* (1 - awarenessStatus), so 0.0 = safe, 1.0 = terminal
     self._dm_filter = FirstOrderFilter(0.0, 0.5, dt)
+    self._speed = 0.0
+    self._set_speed = _SET_SPEED_NA
+    self._is_cruise_set = False
+    self._v_ego_cluster_seen = False
+
     self._font = gui_app.font(FontWeight.BOLD)
+    self._font_medium = gui_app.font(FontWeight.MEDIUM)
+    self._font_display = gui_app.font(FontWeight.DISPLAY)
 
   def _update_state(self) -> None:
     sm = ui_state.sm
+    controls_state = sm['controlsState']
+    car_state = sm['carState']
 
     # --- Steering bar: mirrors torque_bar.py angle vs torque branching ---
-    if sm['controlsState'].lateralControlState.which() == 'angleState':
-      controls_state = sm['controlsState']
-      car_state = sm['carState']
+    if controls_state.lateralControlState.which() == 'angleState':
       live_params = sm['liveParameters']
       car_control = sm['carControl']
 
@@ -155,12 +209,14 @@ class DACView(Widget):
       self._steer_filter.update(abs(sm['carOutput'].actuatorsOutput.torque))
 
     # --- Brake bar: present-tense deceleration via aEgo ---
-    a_ego = sm['carState'].aEgo
+    a_ego = car_state.aEgo
     self._brake_filter.update(min(max(-a_ego, 0.0) / _MAX_DECEL, 1.0))
 
     # --- DM bar: awarenessStatus 1.0=attentive → risk 0.0, 0.0=terminal → risk 1.0 ---
     awareness = sm['driverMonitoringState'].awarenessStatus
     self._dm_filter.update(1.0 - max(min(awareness, 1.0), 0.0))
+
+    self._update_speed_state(controls_state, car_state)
 
   def _render(self, rect: rl.Rectangle) -> None:
     rl.draw_rectangle_rec(rect, _DAC_BG_COLOR)
@@ -184,7 +240,7 @@ class DACView(Widget):
     tall_tile_w = (left_group_w - 2 * gap) / 3
     tall_tile_h = rect.height
 
-    top_right_h = rect.height * 0.34
+    top_right_h = rect.height * _RIGHT_TOP_HEIGHT_RATIO + _RIGHT_TOP_HEIGHT_BOOST
     bottom_right_h = rect.height - top_right_h - gap
     bottom_tile_w = (right_group_w - gap) / 2
 
@@ -194,12 +250,11 @@ class DACView(Widget):
       rl.Rectangle(rect.x + 2 * (tall_tile_w + gap), rect.y, tall_tile_w, tall_tile_h),
     )
 
-    placeholder_rects = (
-      rl.Rectangle(rect.x + left_group_w + gap, rect.y, right_group_w, top_right_h),
-      rl.Rectangle(rect.x + left_group_w + gap, rect.y + top_right_h + gap, bottom_tile_w, bottom_right_h),
-      rl.Rectangle(rect.x + left_group_w + gap + bottom_tile_w + gap, rect.y + top_right_h + gap,
-                   bottom_tile_w, bottom_right_h),
-    )
+    top_right_rect = rl.Rectangle(rect.x + left_group_w + gap, rect.y, right_group_w, top_right_h)
+    bottom_left_rect = rl.Rectangle(rect.x + left_group_w + gap, rect.y + top_right_h + gap,
+                                    bottom_tile_w, bottom_right_h)
+    bottom_right_rect = rl.Rectangle(rect.x + left_group_w + gap + bottom_tile_w + gap, rect.y + top_right_h + gap,
+                                     bottom_tile_w, bottom_right_h)
 
     bar_configs = (
       (self._steer_filter.x, "S"),
@@ -210,8 +265,13 @@ class DACView(Widget):
     for tile_rect, (level, label) in zip(bar_rects, bar_configs, strict=True):
       self._draw_segment_bar(tile_rect, level, label)
 
-    for tile_rect in placeholder_rects:
-      rl.draw_rectangle_rounded(tile_rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, _PLACEHOLDER_TILE_COLOR)
+    set_speed_rect, speedo_rect = self._split_top_right_rect(top_right_rect)
+
+    self._draw_set_speed_tile(set_speed_rect)
+    self._draw_speedometer_tile(speedo_rect)
+
+    for tile_rect in (bottom_left_rect, bottom_right_rect):
+      self._draw_placeholder_tile(tile_rect)
 
   def _draw_segment_bar(self, rect: rl.Rectangle, level: float, label: str) -> None:
     rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, _BAR_BG_COLOR)
@@ -302,6 +362,138 @@ class DACView(Widget):
         rl.Rectangle(seg_x, top_y, seg_w, seg_h),
         _SEG_ROUNDNESS, _SEG_ROUND_SEGS, _blend_seg(color, top_fill),
       )
+
+  def _update_speed_state(self, controls_state, car_state) -> None:
+    """Mirror hud_renderer's displayed set-speed and cluster-speed behavior."""
+    v_cruise_cluster = car_state.vCruiseCluster
+    self._set_speed = controls_state.vCruiseDEPRECATED if v_cruise_cluster == 0.0 else v_cruise_cluster
+    self._is_cruise_set = 0 < self._set_speed < _SET_SPEED_NA
+
+    v_ego_cluster = car_state.vEgoCluster
+    self._v_ego_cluster_seen = self._v_ego_cluster_seen or v_ego_cluster != 0.0
+    v_ego = v_ego_cluster if self._v_ego_cluster_seen else car_state.vEgo
+    speed_conversion = CV.MS_TO_KPH if ui_state.is_metric else CV.MS_TO_MPH
+    self._speed = max(0.0, v_ego * speed_conversion)
+
+  def _split_top_right_rect(self, rect: rl.Rectangle) -> tuple[rl.Rectangle, rl.Rectangle]:
+    set_speed_w = (rect.width - _RIGHT_TOP_SPLIT_GAP) * _SET_SPEED_WIDTH_RATIO
+    speedo_w = rect.width - _RIGHT_TOP_SPLIT_GAP - set_speed_w
+    return (
+      rl.Rectangle(rect.x, rect.y, set_speed_w, rect.height),
+      rl.Rectangle(rect.x + set_speed_w + _RIGHT_TOP_SPLIT_GAP, rect.y, speedo_w, rect.height),
+    )
+
+  def _draw_panel(self, rect: rl.Rectangle, bg_color: rl.Color) -> None:
+    rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, bg_color)
+    rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5, _BAR_FRAME_COLOR)
+
+  def _draw_placeholder_tile(self, rect: rl.Rectangle) -> None:
+    rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, _PLACEHOLDER_TILE_COLOR)
+
+  def _draw_set_speed_tile(self, rect: rl.Rectangle) -> None:
+    self._draw_panel(rect, _RETRO_PANEL_BG)
+
+    inner_w = rect.width - 2 * _SET_SPEED_PAD_X
+
+    title = "SET"
+    title_size = _fit_text_size(self._font_medium, title, 18, 12, inner_w, rect.height * 0.14)
+    title_text_size = measure_text_cached(self._font_medium, title, title_size)
+    title_pos = rl.Vector2(rect.x + rect.width / 2 - title_text_size.x / 2, rect.y + _SET_SPEED_TOP_PAD)
+    rl.draw_text_ex(self._font_medium, title, title_pos, title_size, 0, _SET_SPEED_DIM)
+
+    accent_y = title_pos.y + title_text_size.y + _SET_SPEED_DIVIDER_GAP
+    rl.draw_line_ex(
+      rl.Vector2(rect.x + _SET_SPEED_PAD_X + 2, accent_y),
+      rl.Vector2(rect.x + rect.width - _SET_SPEED_PAD_X - 2, accent_y),
+      2,
+      rl.Color(_SET_SPEED_ACCENT.r, _SET_SPEED_ACCENT.g, _SET_SPEED_ACCENT.b, 110),
+    )
+
+    set_speed = self._set_speed
+    if self._is_cruise_set and not ui_state.is_metric:
+      set_speed *= _KPH_TO_MPH
+
+    value_text = "--" if not self._is_cruise_set else str(round(set_speed))
+    unit_text = "km/h" if ui_state.is_metric else "mph"
+    value_top = accent_y + _SET_SPEED_VALUE_GAP_TOP
+    value_bottom = rect.y + rect.height - _SET_SPEED_BOTTOM_PAD
+    value_height = max(20.0, value_bottom - value_top)
+    unit_size = _fit_text_size(self._font_medium, unit_text, 14, 10, inner_w, value_height * 0.22)
+    unit_text_size = measure_text_cached(self._font_medium, unit_text, unit_size)
+
+    value_max_size = 30 if len(value_text) <= 2 else 28
+    value_size = _fit_text_size(self._font, value_text, value_max_size, 18, inner_w - 4, value_height * 0.55)
+    value_text_size = measure_text_cached(self._font, value_text, value_size)
+    pair_height = value_text_size.y + _SET_SPEED_VALUE_TO_UNIT_GAP + unit_text_size.y
+    pair_top = value_top + max(0.0, (value_height - pair_height) / 2)
+
+    value_pos = rl.Vector2(rect.x + rect.width / 2 - value_text_size.x / 2, pair_top)
+    value_color = _SET_SPEED_ACCENT if self._is_cruise_set else _SET_SPEED_DIM
+    rl.draw_text_ex(self._font, value_text, value_pos, value_size, 0, value_color)
+
+    unit_pos = rl.Vector2(rect.x + rect.width / 2 - unit_text_size.x / 2,
+                          value_pos.y + value_text_size.y + _SET_SPEED_VALUE_TO_UNIT_GAP)
+    rl.draw_text_ex(self._font_medium, unit_text, unit_pos, unit_size, 0, _SET_SPEED_DIM)
+
+  def _draw_speedometer_tile(self, rect: rl.Rectangle) -> None:
+    self._draw_panel(rect, _SPEEDO_PANEL_BG)
+
+    max_speed = 160.0 if ui_state.is_metric else 100.0
+    speed_frac = min(max(self._speed / max_speed, 0.0), 1.0)
+    panel_rect = rl.Rectangle(
+      rect.x + _SPEEDO_PANEL_PAD_X,
+      rect.y + _SPEEDO_PANEL_PAD_Y,
+      rect.width - 2 * _SPEEDO_PANEL_PAD_X,
+      rect.height - 2 * _SPEEDO_PANEL_PAD_Y,
+    )
+
+    self._draw_speedometer_sweep(panel_rect, speed_frac)
+    self._draw_speedometer_readout(rect, panel_rect)
+
+  def _draw_speedometer_sweep(self, panel_rect: rl.Rectangle, speed_frac: float) -> None:
+    seg_w = max(2.0, (panel_rect.width - (_SPEEDO_SEGMENTS - 1) * _SPEEDO_SEG_GAP) / _SPEEDO_SEGMENTS)
+    lit_segments = speed_frac * _SPEEDO_SEGMENTS
+    red_zone_start = int(_SPEEDO_SEGMENTS * _SPEEDO_RED_ZONE_START_RATIO)
+
+    sweep_base_y = panel_rect.y + panel_rect.height * _SPEEDO_SWEEP_BASE_RATIO
+    sweep_peak = panel_rect.height * _SPEEDO_SWEEP_PEAK_RATIO
+    sweep_thickness = panel_rect.height * _SPEEDO_SWEEP_THICKNESS_RATIO
+
+    for idx in range(_SPEEDO_SEGMENTS):
+      x = panel_rect.x + idx * (seg_w + _SPEEDO_SEG_GAP)
+      frac = idx / max(_SPEEDO_SEGMENTS - 1, 1)
+      dome = np.sqrt(max(0.0, 1.0 - ((frac - 0.5) / 0.5) ** 2))
+      bottom_y = sweep_base_y - dome * sweep_peak
+      top_y = bottom_y - (sweep_thickness + dome * panel_rect.height * _SPEEDO_SWEEP_EXTRA_HEIGHT_RATIO)
+      seg_rect = rl.Rectangle(x, top_y, seg_w, bottom_y - top_y)
+
+      if idx < lit_segments:
+        color = _RETRO_PANEL_GLOW if idx < red_zone_start else rl.Color(210, 32, 24, 255)
+      else:
+        color = rl.Color(52, 52, 52, 255) if idx < red_zone_start else rl.Color(62, 24, 24, 255)
+
+      rl.draw_rectangle_rounded(seg_rect, 0.15, 4, color)
+
+  def _draw_speedometer_readout(self, rect: rl.Rectangle, panel_rect: rl.Rectangle) -> None:
+    unit_text = "km/h" if ui_state.is_metric else "mph"
+    unit_size = 20
+    unit_text_size = measure_text_cached(self._font_medium, unit_text, unit_size)
+    baseline_y = rect.y + rect.height - _SPEEDO_PANEL_PAD_Y - unit_text_size.y
+    side_inset = panel_rect.x + 2
+
+    speed_text = str(round(self._speed))
+    speed_size = max(36, int(rect.height * 0.50))
+    speed_text_size = measure_text_cached(self._font_display, speed_text, speed_size)
+    speed_pos = rl.Vector2(rect.x + rect.width * 0.5 - speed_text_size.x / 2,
+                           baseline_y + unit_text_size.y - speed_text_size.y - _SPEED_TEXT_BASELINE_OFFSET)
+    rl.draw_text_ex(self._font_display, speed_text, speed_pos, speed_size, 0, rl.WHITE)
+
+    unit_pos = rl.Vector2(rect.x + rect.width - _SPEEDO_PANEL_PAD_X - 2 - unit_text_size.x, baseline_y)
+    rl.draw_text_ex(self._font_medium, unit_text, unit_pos, unit_size, 0, rl.Color(235, 235, 235, 230))
+
+    min_box = rl.Rectangle(side_inset, baseline_y + 1, 18, 18)
+    rl.draw_rectangle_lines_ex(min_box, 1.5, rl.Color(220, 220, 220, 200))
+    rl.draw_text_ex(self._font_medium, "0", rl.Vector2(min_box.x + 5, min_box.y - 1), 18, 0, rl.WHITE)
 
   def draw_status_border(self, rect: rl.Rectangle) -> None:
     inset = _BORDER_SIZE / 2
