@@ -57,7 +57,7 @@ class DemoReplayController:
       return
 
     self._replay_proc = subprocess.Popen(
-      [_REPLAY_BINARY, "--demo"],
+      [_REPLAY_BINARY, "--demo", "--block", "clocks"],
       env=os.environ,
       stdout=subprocess.DEVNULL,
       stderr=subprocess.DEVNULL,
