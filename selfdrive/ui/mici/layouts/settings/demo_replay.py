@@ -19,6 +19,12 @@ _REPLAY_BINARY = os.path.join(BASEDIR, "tools", "replay", "replay")
 # etc.) which are NOT running when offroad, so replay can publish them without
 # conflicting with any always-running system process.
 #
+# Camera rendering needs both:
+#   * camera state messages (roadCameraState / wideRoadCameraState)
+#   * encode-index messages (roadEncodeIdx / wideRoadEncodeIdx)
+# The state messages drive UI metadata, while the encode indexes let replay feed
+# recorded frames into VisionIPC so the actual route footage appears on-screen.
+#
 # Intentionally excluded:
 #   deviceState  — owned by hardwared (always running). The UI's onroad state
 #                  is triggered via the DemoReplayActive param instead.
@@ -33,6 +39,7 @@ _REPLAY_ALLOW_MESSAGES = ",".join([
   "driverMonitoringState", "driverStateV2",
   "lateralPlan", "longitudinalPlan",
   "roadCameraState", "wideRoadCameraState",
+  "roadEncodeIdx", "wideRoadEncodeIdx",
   "gpsLocationExternal",
 ])
 
