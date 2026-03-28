@@ -8,7 +8,6 @@ cd "$ROOT"
 export UV_PYTHON=3.12
 OPENSSL_WRAPPER_DIR=""
 REPLAY_LOG="$ROOT/.run_ui_replay.log"
-VENV_SYNC_STAMP="$ROOT/.venv/.run_ui_sync_stamp"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   echo "Usage: ./run_ui.sh [--ui] [--tici] [--fresh] [replay args...]"
@@ -58,31 +57,12 @@ sleep 1
 
 echo "Syncing submodules..."
 git submodule sync --recursive
+# Force checkout so linked worktrees don't leave submodules as metadata-only directories.
 git submodule update --init --recursive --force --progress
 
+echo "Syncing Python dependencies..."
 uv python install 3.12
-SYNC_INPUTS_HASH="$(
-  python3 - <<'PY'
-import hashlib
-from pathlib import Path
-
-root = Path.cwd()
-hasher = hashlib.sha256()
-for rel_path in ("pyproject.toml", "uv.lock"):
-  hasher.update(rel_path.encode())
-  hasher.update(b"\0")
-  hasher.update((root / rel_path).read_bytes())
-  hasher.update(b"\0")
-print(hasher.hexdigest())
-PY
-)"
-
-if [[ ! -x "$ROOT/.venv/bin/python3" ]] || [[ ! -f "$VENV_SYNC_STAMP" ]] || [[ "$( < "$VENV_SYNC_STAMP")" != "$SYNC_INPUTS_HASH" ]] || ! "$ROOT/.venv/bin/python3" -c "import openpilot.tools.lib.file_downloader, PIL" >/dev/null 2>&1; then
-  echo "Syncing Python dependencies..."
-  uv sync --frozen --all-extras
-  mkdir -p "$(dirname "$VENV_SYNC_STAMP")"
-  printf '%s' "$SYNC_INPUTS_HASH" > "$VENV_SYNC_STAMP"
-fi
+uv sync --frozen --all-extras
 
 export PATH="$ROOT/.venv/bin:$PATH"
 
@@ -99,23 +79,22 @@ fi
 
 [[ ! -f selfdrive/assets/fonts/Inter-Medium.fnt ]] && python3 selfdrive/assets/fonts/process.py
 
-if [[ ! -x tools/replay/replay ]] || [[ ! -f msgq_repo/msgq/ipc_pyx.so ]] || [[ ! -f common/params_pyx.so ]]; then
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    OPENSSL_PREFIX=""
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  OPENSSL_PREFIX=""
+  if command -v brew >/dev/null 2>&1; then
+    OPENSSL_PREFIX="$(brew --prefix openssl@3 2>/dev/null || brew --prefix openssl 2>/dev/null || true)"
+  fi
+
+  if [[ ! -f "$OPENSSL_PREFIX/include/openssl/sha.h" ]]; then
     if command -v brew >/dev/null 2>&1; then
-      OPENSSL_PREFIX="$(brew --prefix openssl@3 2>/dev/null || brew --prefix openssl 2>/dev/null || true)"
+      echo "Installing OpenSSL with Homebrew..."
+      brew install openssl@3
+      OPENSSL_PREFIX="$(brew --prefix openssl@3 2>/dev/null || true)"
     fi
+  fi
 
-    if [[ ! -f "$OPENSSL_PREFIX/include/openssl/sha.h" ]]; then
-      if command -v brew >/dev/null 2>&1; then
-        echo "Installing OpenSSL with Homebrew..."
-        brew install openssl@3
-        OPENSSL_PREFIX="$(brew --prefix openssl@3 2>/dev/null || true)"
-      fi
-    fi
-
-    if [[ ! -n "$OPENSSL_PREFIX" || ! -f "$OPENSSL_PREFIX/include/openssl/sha.h" ]]; then
-      cat <<'EOF'
+  if [[ ! -n "$OPENSSL_PREFIX" || ! -f "$OPENSSL_PREFIX/include/openssl/sha.h" ]]; then
+    cat <<'EOF'
 Error: replay build needs OpenSSL headers on macOS.
 
 If Homebrew is installed, run:
@@ -127,15 +106,15 @@ Otherwise install Homebrew:
 Then rerun:
   ./run_ui.sh
 EOF
-      exit 1
-    fi
+    exit 1
+  fi
 
-    OPENSSL_WRAPPER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/run_ui_openssl.XXXXXX")"
-    for compiler in cc c++ gcc g++ clang clang++; do
-      REAL_COMPILER="$(command -v "$compiler" 2>/dev/null || true)"
-      [[ -n "$REAL_COMPILER" ]] || continue
+  OPENSSL_WRAPPER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/run_ui_openssl.XXXXXX")"
+  for compiler in cc c++ gcc g++ clang clang++; do
+    REAL_COMPILER="$(command -v "$compiler" 2>/dev/null || true)"
+    [[ -n "$REAL_COMPILER" ]] || continue
 
-      cat > "$OPENSSL_WRAPPER_DIR/$compiler" <<EOF
+    cat > "$OPENSSL_WRAPPER_DIR/$compiler" <<EOF
 #!/usr/bin/env bash
 set -e
 for arg in "\$@"; do
@@ -145,17 +124,16 @@ for arg in "\$@"; do
 done
 exec "$REAL_COMPILER" -I"$OPENSSL_PREFIX/include" -L"$OPENSSL_PREFIX/lib" "\$@"
 EOF
-      chmod +x "$OPENSSL_WRAPPER_DIR/$compiler"
-    done
-  fi
+    chmod +x "$OPENSSL_WRAPPER_DIR/$compiler"
+  done
+fi
 
-  echo "Building..."
-  JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-  if [[ -n "$OPENSSL_WRAPPER_DIR" ]]; then
-    PATH="$OPENSSL_WRAPPER_DIR:$PATH" uv run scons -j"$JOBS" msgq_repo common tools/replay/replay
-  else
-    uv run scons -j"$JOBS" msgq_repo common tools/replay/replay
-  fi
+echo "Building..."
+JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+if [[ -n "$OPENSSL_WRAPPER_DIR" ]]; then
+  PATH="$OPENSSL_WRAPPER_DIR:$PATH" uv run scons -j"$JOBS" msgq_repo common tools/replay/replay
+else
+  uv run scons -j"$JOBS" msgq_repo common tools/replay/replay
 fi
 
 export ZMQ=1
