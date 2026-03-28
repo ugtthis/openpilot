@@ -1,12 +1,12 @@
-from openpilot.common.params import Params
 from openpilot.system.ui.widgets.scroller import NavScroller
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton
+from openpilot.selfdrive.ui.mici.layouts.settings.demo_replay import DemoReplayController, DemoButton
 from openpilot.selfdrive.ui.mici.layouts.settings.toggles import TogglesLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.network.network_layout import NetworkLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.device import DeviceLayoutMici, PairBigButton
 from openpilot.selfdrive.ui.mici.layouts.settings.developer import DeveloperLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.firehose import FirehoseLayout
-from openpilot.system.ui.lib.application import gui_app, FontWeight
+from openpilot.system.ui.lib.application import gui_app
 
 
 class SettingsBigButton(BigButton):
@@ -17,7 +17,11 @@ class SettingsBigButton(BigButton):
 class SettingsLayout(NavScroller):
   def __init__(self):
     super().__init__()
-    self._params = Params()
+    self._demo_replay = DemoReplayController()
+
+    dome_texture = gui_app.texture("icons_dac/red_dome_button.png", 150, 150)
+    self._demo_btn = DemoButton(dome_texture)
+    self._demo_btn.set_click_callback(self._demo_replay.toggle)
 
     toggles_panel = TogglesLayoutMici()
     toggles_btn = SettingsBigButton("toggles", "", gui_app.texture("icons_mici/settings.png", 64, 64))
@@ -40,13 +44,15 @@ class SettingsLayout(NavScroller):
     firehose_btn.set_click_callback(lambda: gui_app.push_widget(firehose_panel))
 
     self._scroller.add_widgets([
+      self._demo_btn,
       toggles_btn,
       network_btn,
       device_btn,
       PairBigButton(),
-      #BigDialogButton("manual", "", "icons_mici/settings/manual_icon.png", "Check out the mici user\nmanual at comma.ai/setup"),
       firehose_btn,
       developer_btn,
     ])
 
-    self._font_medium = gui_app.font(FontWeight.MEDIUM)
+  def _update_state(self):
+    super()._update_state()
+    self._demo_btn.set_active(self._demo_replay.is_running)

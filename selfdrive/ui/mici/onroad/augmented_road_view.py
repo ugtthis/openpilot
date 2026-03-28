@@ -100,7 +100,9 @@ class AugmentedRoadView(CameraView):
 
     if self._dac_active:
       self._render_dac_content()
-    else:
+    elif ui_state.started:
+      # Offroad must skip camera rendering entirely or a buffered VisionIPC frame
+      # can linger under the dark overlay after demo replay stops.
       self._render_road_content()
 
     if not self._dac_active:
