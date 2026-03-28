@@ -78,8 +78,7 @@ class AugmentedRoadView(CameraView):
 
   def _handle_mouse_release(self, mouse_pos: MousePos) -> None:
     if not self._action_tray.consume_touch_handled_by_tray():
-      # Taps inside the DAC view are handled by its cells — don't navigate home.
-      if self._dac_active and rl.check_collision_point_rec(mouse_pos, self._content_rect):
+      if self._dac_active and rl.check_collision_point_rec(mouse_pos, self.rect):
         return
       super()._handle_mouse_release(mouse_pos)
 
@@ -91,11 +90,12 @@ class AugmentedRoadView(CameraView):
       self.rect.width - SIDE_PANEL_WIDTH,
       self.rect.height,
     )
+    render_rect = self.rect if self._dac_active else self._content_rect
     rl.begin_scissor_mode(
-      int(self._content_rect.x),
-      int(self._content_rect.y),
-      int(self._content_rect.width),
-      int(self._content_rect.height),
+      int(render_rect.x),
+      int(render_rect.y),
+      int(render_rect.width),
+      int(render_rect.height),
     )
 
     if self._dac_active:
@@ -103,8 +103,13 @@ class AugmentedRoadView(CameraView):
     else:
       self._render_road_content()
 
-    rl.draw_rectangle_rounded_lines_ex(self._content_rect, 0.2 * 1.02, 10, 50, rl.BLACK)
+    if not self._dac_active:
+      rl.draw_rectangle_rounded_lines_ex(self._content_rect, 0.2 * 1.02, 10, 50, rl.BLACK)
     rl.end_scissor_mode()
+
+    if self._dac_active:
+      self._dac_view.draw_status_border(self.rect)
+
     self._render_side_panel()
     if not ui_state.started:
       rl.draw_rectangle(
@@ -149,8 +154,8 @@ class AugmentedRoadView(CameraView):
     self._hud_renderer.render(self._content_rect)
 
   def _render_dac_content(self) -> None:
-    self._dac_view.set_rect(self._content_rect)
-    self._dac_view.render(self._content_rect)
+    self._dac_view.set_rect(self.rect)
+    self._dac_view.render(self.rect)
 
   def _render_side_panel(self) -> None:
     if not self._dac_active:
