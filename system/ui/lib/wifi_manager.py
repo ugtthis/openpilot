@@ -164,9 +164,13 @@ class WifiManager:
       self._conn_monitor = open_dbus_connection_blocking(bus="SYSTEM")  # used by state monitor thread
       self._nm = DBusAddress(NM_PATH, bus_name=NM, interface=NM_IFACE)
     except FileNotFoundError:
-      cloudlog.exception("Failed to connect to system D-Bus")
+      # Local macOS development has no system D-Bus / NetworkManager. Disable
+      # Wi-Fi management cleanly instead of starting worker threads that crash
+      # on None routers during UI startup.
+      cloudlog.warning("WifiManager disabled: system D-Bus unavailable")
       self._router_main = None
       self._conn_monitor = None
+      self._nm = None
       self._exit = True
 
     # Store wifi device path
@@ -200,10 +204,14 @@ class WifiManager:
     self._scan_lock = threading.Lock()
     self._scan_thread = threading.Thread(target=self._network_scanner, daemon=True)
     self._state_thread = threading.Thread(target=self._monitor_state, daemon=True)
-    self._initialize()
+    if self._router_main is not None and self._conn_monitor is not None and self._nm is not None:
+      self._initialize()
     atexit.register(self.stop)
 
   def _initialize(self):
+    if self._router_main is None or self._conn_monitor is None or self._nm is None:
+      return
+
     def worker():
       self._wait_for_wifi_device()
 
@@ -993,6 +1001,8 @@ class WifiManager:
     threading.Thread(target=worker, daemon=True).start()
 
   def _get_lte_connection_path(self) -> str | None:
+    if self._router_main is None:
+      return None
     try:
       settings_addr = DBusAddress(NM_SETTINGS_PATH, bus_name=NM, interface=NM_SETTINGS_IFACE)
       known_connections = self._router_main.send_and_get_reply(new_method_call(settings_addr, 'ListConnections')).body[0]
