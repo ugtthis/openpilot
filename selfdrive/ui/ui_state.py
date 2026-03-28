@@ -133,8 +133,8 @@ class UIState:
     elif not self.sm.alive["wideRoadCameraState"] or not self.sm.valid["wideRoadCameraState"]:
       self.light_sensor = -1
 
-    # Update started state
-    self.started = self.sm["deviceState"].started and self.ignition
+    # Update started state — also true when demo replay is active
+    self.started = (self.sm["deviceState"].started and self.ignition) or self.params.get_bool("DemoReplayActive")
 
     # Update recording audio state
     self.recording_audio = self.params.get_bool("RecordAudio") and self.started

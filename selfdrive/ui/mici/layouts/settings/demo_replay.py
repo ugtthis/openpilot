@@ -1,21 +1,40 @@
 import os
 import subprocess
 import threading
-import time
 from enum import Enum
 
 import pyray as rl
-from cereal import log, messaging
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.filter_simple import BounceFilter
+from openpilot.common.params import Params
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.mici.widgets.button import PRESSED_SCALE
 from openpilot.system.ui.lib.application import gui_app
 
 _REPLAY_BINARY = os.path.join(BASEDIR, "tools", "replay", "replay")
 
-_OFFROAD_FLUSH_FRAMES = 20
-_OFFROAD_FLUSH_DT = 0.05
+# Driving-data messages that replay is allowed to publish during demo.
+#
+# These are exclusively owned by onroad services (controlsd, modeld, selfdrived,
+# etc.) which are NOT running when offroad, so replay can publish them without
+# conflicting with any always-running system process.
+#
+# Intentionally excluded:
+#   deviceState  — owned by hardwared (always running). The UI's onroad state
+#                  is triggered via the DemoReplayActive param instead.
+#   pandaStates  — owned by pandad (always running).
+#   can/sendcan  — raw CAN bus, not needed for UI rendering.
+#   clocks, managerState, logMessage, etc. — system infrastructure.
+_REPLAY_ALLOW_MESSAGES = ",".join([
+  "carState", "carParams", "carControl", "carOutput",
+  "controlsState", "selfdriveState", "onroadEvents",
+  "modelV2", "drivingModelData",
+  "radarState", "liveCalibration", "liveParameters", "livePose",
+  "driverMonitoringState", "driverStateV2",
+  "lateralPlan", "longitudinalPlan",
+  "roadCameraState", "wideRoadCameraState",
+  "gpsLocationExternal",
+])
 
 _DOME_SIZE = 150
 _DOME_RIGHT_MARGIN = 40
@@ -36,10 +55,12 @@ class DemoReplayController:
 
   @property
   def state(self) -> ReplayState:
-    # Detect when replay exited on its own without an explicit stop()
     if self._state == ReplayState.RUNNING and self._replay_proc is not None and self._replay_proc.poll() is not None:
+      # Replay exited on its own (e.g. end of route). Clean up so the UI
+      # doesn't stay stuck in onroad mode.
       self._replay_proc = None
       self._state = ReplayState.OFF
+      self._clear_demo_active()
     return self._state
 
   @property
@@ -56,19 +77,16 @@ class DemoReplayController:
     if self._state != ReplayState.OFF:
       return
 
-    # Block system-level messages published by always-running device services.
-    # Replay would kill their publisher sockets causing those processes to crash.
-    # The UI only needs the driving data messages (carState, modelV2, etc.) from replay.
-    _SYSTEM_BLOCK = "clocks,managerState,peripheralState,logMessage,errorLogMessage,androidLog,procLog,uploaderState"
+    Params().put_bool("DemoReplayActive", True)
     self._replay_proc = subprocess.Popen(
-      [_REPLAY_BINARY, "--demo", "--block", _SYSTEM_BLOCK],
+      [_REPLAY_BINARY, "--demo", "--allow", _REPLAY_ALLOW_MESSAGES],
       env=os.environ,
       stdout=subprocess.DEVNULL,
       stderr=subprocess.DEVNULL,
     )
 
-    # Detect immediate failure (binary missing or instant crash)
     if self._replay_proc.poll() is not None:
+      self._clear_demo_active()
       self._replay_proc = None
       return
 
@@ -91,24 +109,15 @@ class DemoReplayController:
       replay_proc.kill()
       replay_proc.wait()
 
-    self._restore_offroad_state()
+    self._clear_demo_active()
     self._state = ReplayState.OFF
 
-  def _restore_offroad_state(self) -> None:
-    # SubMaster caches the last received message, so when replay stops the UI
-    # stays "onroad" because deviceState.started and ignition are never reset.
-    # Publish explicit offroad messages to flush those cached values.
-    pm = messaging.PubMaster(["deviceState", "pandaStates"])
-    for _ in range(_OFFROAD_FLUSH_FRAMES):
-      ds = messaging.new_message("deviceState")
-      ds.deviceState.started = False
-      pm.send("deviceState", ds)
-
-      ps = messaging.new_message("pandaStates", 1)
-      ps.pandaStates[0].ignitionLine = False
-      ps.pandaStates[0].pandaType = log.PandaState.PandaType.uno
-      pm.send("pandaStates", ps)
-      time.sleep(_OFFROAD_FLUSH_DT)
+  def _clear_demo_active(self) -> None:
+    # Clearing this param causes ui_state.started to go False, transitioning
+    # the UI back to offroad. hardwared and pandad have been publishing
+    # deviceState/pandaStates throughout (replay never touched those channels),
+    # so there is nothing else to flush.
+    Params().put_bool("DemoReplayActive", False)
 
 
 class DemoButton(Widget):
