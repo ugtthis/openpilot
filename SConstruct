@@ -255,7 +255,9 @@ SConscript([
 ])
 
 # Build tools
-if arch != "larch64":
+if arch == "larch64":
+  SConscript(['tools/replay/SConscript'])
+else:
   SConscript([
     'tools/replay/SConscript',
     'tools/cabana/SConscript',
