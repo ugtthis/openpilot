@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 import threading
 from enum import Enum
 
@@ -12,6 +13,9 @@ from openpilot.selfdrive.ui.mici.widgets.button import PRESSED_SCALE
 from openpilot.system.ui.lib.application import gui_app
 
 _REPLAY_BINARY = os.path.join(BASEDIR, "tools", "replay", "replay")
+_FILE_DOWNLOADER_MODULE = "openpilot.tools.lib.file_downloader"
+# Keep in sync with DEMO_ROUTE in tools/replay/replay.h.
+_DEMO_ROUTE = "5beb9b58bd12b691/0000010a--a51155e496"
 
 # Driving-data messages that replay is allowed to publish during demo.
 #
@@ -59,6 +63,7 @@ class DemoReplayController:
   def __init__(self):
     self._state = ReplayState.OFF
     self._replay_proc: subprocess.Popen | None = None
+    self._prefetch_proc: subprocess.Popen | None = None
 
   @property
   def state(self) -> ReplayState:
@@ -84,6 +89,7 @@ class DemoReplayController:
     if self._state != ReplayState.OFF:
       return
 
+    self._start_prefetch()
     Params().put_bool("DemoReplayActive", True)
     self._replay_proc = subprocess.Popen(
       [_REPLAY_BINARY, "--demo", "--allow", _REPLAY_ALLOW_MESSAGES],
@@ -125,6 +131,20 @@ class DemoReplayController:
     # deviceState/pandaStates throughout (replay never touched those channels),
     # so there is nothing else to flush.
     Params().put_bool("DemoReplayActive", False)
+
+  def _start_prefetch(self) -> None:
+    if self._prefetch_proc is not None and self._prefetch_proc.poll() is None:
+      return
+
+    try:
+      self._prefetch_proc = subprocess.Popen(
+        [sys.executable, "-m", _FILE_DOWNLOADER_MODULE, "prefetch-route", _DEMO_ROUTE],
+        env=os.environ,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+      )
+    except OSError:
+      self._prefetch_proc = None
 
 
 class DemoButton(Widget):
