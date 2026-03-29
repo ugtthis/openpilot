@@ -33,7 +33,7 @@ _TILE_GAP = 16
 _TILE_ROUNDNESS = 0.06
 _TILE_SEGMENTS = 12
 _RIGHT_TOP_HEIGHT_RATIO = 0.34
-_RIGHT_TOP_HEIGHT_BOOST = 40
+_RIGHT_TOP_HEIGHT_BOOST = 38
 _SPEED_TEXT_BASELINE_OFFSET = -6
 
 # Signal tuning
@@ -45,6 +45,7 @@ _KPH_TO_MPH = 0.621371
 # Right-top layout
 _RIGHT_TOP_SPLIT_GAP = 10
 _SET_SPEED_WIDTH_RATIO = 0.2
+_SET_SPEED_WIDTH_BOOST = 6
 
 # Set-speed tile layout
 _SET_SPEED_PAD_X = 10
@@ -53,6 +54,7 @@ _SET_SPEED_BOTTOM_PAD = 8
 _SET_SPEED_DIVIDER_GAP = 5
 _SET_SPEED_VALUE_GAP_TOP = 10
 _SET_SPEED_VALUE_TO_UNIT_GAP = 2
+_SET_SPEED_VALUE_TARGET_SIZE = 40
 
 # Speedometer layout
 _SPEEDO_PANEL_PAD_X = 14
@@ -376,7 +378,7 @@ class DACView(Widget):
     self._speed = max(0.0, v_ego * speed_conversion)
 
   def _split_top_right_rect(self, rect: rl.Rectangle) -> tuple[rl.Rectangle, rl.Rectangle]:
-    set_speed_w = (rect.width - _RIGHT_TOP_SPLIT_GAP) * _SET_SPEED_WIDTH_RATIO
+    set_speed_w = (rect.width - _RIGHT_TOP_SPLIT_GAP) * _SET_SPEED_WIDTH_RATIO + _SET_SPEED_WIDTH_BOOST
     speedo_w = rect.width - _RIGHT_TOP_SPLIT_GAP - set_speed_w
     return (
       rl.Rectangle(rect.x, rect.y, set_speed_w, rect.height),
@@ -421,8 +423,8 @@ class DACView(Widget):
     unit_size = _fit_text_size(self._font_medium, unit_text, 14, 10, inner_w, value_height * 0.22)
     unit_text_size = measure_text_cached(self._font_medium, unit_text, unit_size)
 
-    value_max_size = 30 if len(value_text) <= 2 else 28
-    value_size = _fit_text_size(self._font, value_text, value_max_size, 18, inner_w - 4, value_height * 0.55)
+    # Manual control: draw at the requested target size even if it overflows.
+    value_size = _SET_SPEED_VALUE_TARGET_SIZE
     value_text_size = measure_text_cached(self._font, value_text, value_size)
     pair_height = value_text_size.y + _SET_SPEED_VALUE_TO_UNIT_GAP + unit_text_size.y
     pair_top = value_top + max(0.0, (value_height - pair_height) / 2)
