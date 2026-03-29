@@ -32,6 +32,7 @@ _CONTENT_INSET = 8
 _TILE_GAP = 16
 _TILE_ROUNDNESS = 0.06
 _TILE_SEGMENTS = 12
+_LEFT_GROUP_WIDTH_SHRINK = 6
 _RIGHT_TOP_HEIGHT_RATIO = 0.34
 _RIGHT_TOP_HEIGHT_BOOST = 38
 _SPEED_TEXT_BASELINE_OFFSET = -6
@@ -46,6 +47,7 @@ _KPH_TO_MPH = 0.621371
 _RIGHT_TOP_SPLIT_GAP = 10
 _SET_SPEED_WIDTH_RATIO = 0.2
 _SET_SPEED_WIDTH_BOOST = 6
+_BOTTOM_ROW_GAP = 10
 
 # Set-speed tile layout
 _SET_SPEED_PAD_X = 10
@@ -236,7 +238,7 @@ class DACView(Widget):
   def _draw_tiles(self, rect: rl.Rectangle) -> None:
     gap = _TILE_GAP
 
-    left_group_w = rect.width * 0.42
+    left_group_w = rect.width * 0.42 - _LEFT_GROUP_WIDTH_SHRINK
     right_group_w = rect.width - left_group_w - gap
 
     tall_tile_w = (left_group_w - 2 * gap) / 3
@@ -244,7 +246,7 @@ class DACView(Widget):
 
     top_right_h = rect.height * _RIGHT_TOP_HEIGHT_RATIO + _RIGHT_TOP_HEIGHT_BOOST
     bottom_right_h = rect.height - top_right_h - gap
-    bottom_tile_w = (right_group_w - gap) / 2
+    bottom_tile_w = (right_group_w - 2 * _BOTTOM_ROW_GAP) / 3
 
     bar_rects = (
       rl.Rectangle(rect.x, rect.y, tall_tile_w, tall_tile_h),
@@ -253,10 +255,13 @@ class DACView(Widget):
     )
 
     top_right_rect = rl.Rectangle(rect.x + left_group_w + gap, rect.y, right_group_w, top_right_h)
-    bottom_left_rect = rl.Rectangle(rect.x + left_group_w + gap, rect.y + top_right_h + gap,
-                                    bottom_tile_w, bottom_right_h)
-    bottom_right_rect = rl.Rectangle(rect.x + left_group_w + gap + bottom_tile_w + gap, rect.y + top_right_h + gap,
-                                     bottom_tile_w, bottom_right_h)
+    bottom_row_y = rect.y + top_right_h + gap
+    bottom_row_x = rect.x + left_group_w + gap
+    bottom_rects = (
+      rl.Rectangle(bottom_row_x, bottom_row_y, bottom_tile_w, bottom_right_h),
+      rl.Rectangle(bottom_row_x + bottom_tile_w + _BOTTOM_ROW_GAP, bottom_row_y, bottom_tile_w, bottom_right_h),
+      rl.Rectangle(bottom_row_x + 2 * (bottom_tile_w + _BOTTOM_ROW_GAP), bottom_row_y, bottom_tile_w, bottom_right_h),
+    )
 
     bar_configs = (
       (self._steer_filter.x, "S"),
@@ -272,7 +277,7 @@ class DACView(Widget):
     self._draw_set_speed_tile(set_speed_rect)
     self._draw_speedometer_tile(speedo_rect)
 
-    for tile_rect in (bottom_left_rect, bottom_right_rect):
+    for tile_rect in bottom_rects:
       self._draw_placeholder_tile(tile_rect)
 
   def _draw_segment_bar(self, rect: rl.Rectangle, level: float, label: str) -> None:
