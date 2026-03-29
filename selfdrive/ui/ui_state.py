@@ -216,8 +216,8 @@ class Device:
     if self._override_interactive_timeout is not None:
       return self._override_interactive_timeout
 
-    ignition_timeout = 10 if gui_app.big_ui() else 5
-    return ignition_timeout if ui_state.ignition else 30
+    onroad_timeout = 10 if gui_app.big_ui() else 5
+    return onroad_timeout if ui_state.started else 30
 
   def _reset_interactive_timeout(self) -> None:
     self._interaction_time = time.monotonic() + self.interactive_timeout
@@ -276,7 +276,7 @@ class Device:
         callback()
     self._prev_timed_out = interaction_timeout
 
-    self._set_awake(ui_state.ignition or not interaction_timeout or PC)
+    self._set_awake(ui_state.started or not interaction_timeout or PC)
 
   def _set_awake(self, on: bool):
     if on != self._awake:
