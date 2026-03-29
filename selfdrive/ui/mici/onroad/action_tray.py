@@ -53,6 +53,34 @@ class BookmarkActionButton(TrayActionButton):
     rl.draw_texture_ex(self._texture, rl.Vector2(rect.x, rect.y), 0.0, rect.width / self._texture.width, tint)
 
 
+class NavActionButton(TrayActionButton):
+  def __init__(self, primary_click_callback, secondary_click_callback, is_secondary_active):
+    super().__init__()
+    self._primary_click_callback = primary_click_callback
+    self._secondary_click_callback = secondary_click_callback
+    self._is_secondary_active = is_secondary_active
+    self._primary_texture = gui_app.texture("icons_mici/onroad/bookmark.png", BUTTON_SIZE, BUTTON_SIZE)
+    self._secondary_bg = gui_app.texture("icons_mici/buttons/button_circle.png", BUTTON_SIZE, BUTTON_SIZE)
+    self._secondary_bg_pressed = gui_app.texture("icons_mici/buttons/button_circle_pressed.png", BUTTON_SIZE, BUTTON_SIZE)
+    self._secondary_texture = gui_app.texture("icons_mici/settings.png", 64, 64)
+
+  def _handle_mouse_release(self, mouse_pos) -> None:
+    self._click_callback = self._secondary_click_callback if self._is_secondary_active() else self._primary_click_callback
+    super()._handle_mouse_release(mouse_pos)
+
+  def _render(self, _) -> None:
+    rect = self.scaled_rect()
+    tint = rl.Color(220, 220, 220, 255) if self.is_pressed else rl.WHITE
+    if self._is_secondary_active():
+      bg = self._secondary_bg_pressed if self.is_pressed else self._secondary_bg
+      rl.draw_texture_ex(bg, rl.Vector2(rect.x, rect.y), 0.0, rect.width / bg.width, rl.WHITE)
+      x = rect.x + (rect.width - self._secondary_texture.width) / 2
+      y = rect.y + (rect.height - self._secondary_texture.height) / 2
+      rl.draw_texture_ex(self._secondary_texture, rl.Vector2(x, y), 0.0, 1.0, tint)
+    else:
+      rl.draw_texture_ex(self._primary_texture, rl.Vector2(rect.x, rect.y), 0.0, rect.width / self._primary_texture.width, tint)
+
+
 class DACActionButton(TrayActionButton):
   def __init__(self, click_callback, is_dac_active):
     super().__init__(click_callback)
@@ -74,7 +102,7 @@ class DACActionButton(TrayActionButton):
 
 
 class SidePanelActionTray(Widget):
-  def __init__(self, bookmark_callback, dac_callback, is_dac_active):
+  def __init__(self, bookmark_callback, settings_callback, dac_callback, is_dac_active):
     super().__init__()
     self._state = TrayState.COLLAPSED
     self._open_filter = BounceFilter(0.0, 0.1, 1 / gui_app.target_fps)
@@ -85,9 +113,10 @@ class SidePanelActionTray(Widget):
     self._touch_handled_by_tray = False
     self._dismiss_tray_on_release = False
 
-    self._bookmark_button = self._child(BookmarkActionButton(self._on_bookmark_clicked))
+    self._bookmark_button = self._child(NavActionButton(self._on_bookmark_clicked, self._on_settings_clicked, is_dac_active))
     self._dac_button = self._child(DACActionButton(self._on_dac_clicked, is_dac_active))
     self._bookmark_callback = bookmark_callback
+    self._settings_callback = settings_callback
     self._dac_callback = dac_callback
 
     for button in (self._bookmark_button, self._dac_button):
@@ -139,6 +168,11 @@ class SidePanelActionTray(Widget):
     self._touch_handled_by_tray = True
     self.collapse()
     self._bookmark_callback()
+
+  def _on_settings_clicked(self) -> None:
+    self._touch_handled_by_tray = True
+    self.collapse()
+    self._settings_callback()
 
   def _on_dac_clicked(self) -> None:
     self._touch_handled_by_tray = True

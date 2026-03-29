@@ -29,7 +29,7 @@ CAM_Y_OFFSET = 20
 
 
 class AugmentedRoadView(CameraView):
-  def __init__(self, bookmark_callback=None, stream_type: VisionStreamType = VisionStreamType.VISION_STREAM_ROAD):
+  def __init__(self, bookmark_callback=None, settings_callback=None, stream_type: VisionStreamType = VisionStreamType.VISION_STREAM_ROAD):
     super().__init__("camerad", stream_type)
     self._set_placeholder_color(rl.BLACK)
 
@@ -51,7 +51,7 @@ class AugmentedRoadView(CameraView):
     self._fade_texture          = gui_app.texture("icons_mici/onroad/onroad_fade.png")
     self._dac_view = DACView(bookmark_callback)
     self._confidence_ball = ConfidenceBall()
-    self._action_tray = SidePanelActionTray(bookmark_callback, self._toggle_dac, lambda: self._dac_active)
+    self._action_tray = SidePanelActionTray(bookmark_callback, settings_callback, self._toggle_dac, lambda: self._dac_active)
     self._offroad_label = UnifiedLabel(
       "start the car to\nuse openpilot", 54, FontWeight.DISPLAY,
       text_color=rl.Color(255, 255, 255, int(255 * 0.9)),
