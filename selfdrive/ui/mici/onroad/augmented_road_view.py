@@ -109,9 +109,6 @@ class AugmentedRoadView(CameraView):
       rl.draw_rectangle_rounded_lines_ex(self._content_rect, 0.2 * 1.02, 10, 50, rl.BLACK)
     rl.end_scissor_mode()
 
-    if self._dac_active:
-      self._dac_view.draw_status_border(self.rect)
-
     self._render_side_panel()
     if not ui_state.started:
       rl.draw_rectangle(

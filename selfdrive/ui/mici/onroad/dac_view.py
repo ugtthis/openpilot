@@ -30,8 +30,8 @@ from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
 _DAC_BG_COLOR = rl.BLACK
 _PLACEHOLDER_TILE_COLOR = rl.Color(210, 210, 210, 255)
 
-_BORDER_SIZE = 10
-_BORDER_ROUNDNESS = 0.05
+_BORDER_SIZE = 7
+_BORDER_ROUNDNESS = 0.11
 _BORDER_SEGMENTS = 24
 
 _CONTENT_INSET = 8
@@ -174,6 +174,17 @@ def _blend_seg(on: rl.Color, fill: float) -> rl.Color:
 def _top_row_number_center_y(rect: rl.Rectangle) -> float:
   """Shared vertical anchor for the set-speed and speedometer values."""
   return rect.y + rect.height * _TOP_ROW_NUMBER_CENTER_Y_RATIO
+
+
+def _rounded_corner_radius_px(rect: rl.Rectangle, roundness: float) -> float:
+  return max(0.0, min(rect.width, rect.height) * roundness * 0.5)
+
+
+def _roundness_for_radius(rect: rl.Rectangle, radius_px: float) -> float:
+  min_dim = min(rect.width, rect.height)
+  if min_dim <= 0.0:
+    return 0.0
+  return max(0.0, min(1.0, (2.0 * radius_px) / min_dim))
 
 
 def _experimental_mode_dialog_content() -> str:
@@ -482,7 +493,7 @@ class DACView(Widget):
     self._update_speed_state(car_state)
 
   def _render(self, rect: rl.Rectangle) -> None:
-    rl.draw_rectangle_rec(rect, _DAC_BG_COLOR)
+    self.draw_status_border(rect)
     self._draw_tiles(self._content_rect(rect))
 
   def _handle_mouse_release(self, mouse_pos) -> None:
@@ -714,18 +725,17 @@ class DACView(Widget):
     rl.draw_text_ex(self._font_medium, unit_text, unit_pos, unit_size, 0, rl.Color(235, 235, 235, 230))
 
   def draw_status_border(self, rect: rl.Rectangle) -> None:
-    inset = _BORDER_SIZE / 2
-    border_rect = rl.Rectangle(
-      rect.x + inset,
-      rect.y + inset,
-      rect.width - 2 * inset,
-      rect.height - 2 * inset,
-    )
+    border_rect = rl.Rectangle(rect.x, rect.y, rect.width, rect.height)
     border_color = _BORDER_COLORS.get(ui_state.status, _BORDER_COLORS[UIStatus.DISENGAGED])
-    rl.draw_rectangle_rounded_lines_ex(
-      border_rect,
-      _BORDER_ROUNDNESS,
-      _BORDER_SEGMENTS,
-      _BORDER_SIZE,
-      border_color,
+    rl.draw_rectangle_rounded(border_rect, _BORDER_ROUNDNESS, _BORDER_SEGMENTS, border_color)
+
+    inner_rect = rl.Rectangle(
+      rect.x + _BORDER_SIZE,
+      rect.y + _BORDER_SIZE,
+      rect.width - 2 * _BORDER_SIZE,
+      rect.height - 2 * _BORDER_SIZE,
     )
+    outer_radius_px = _rounded_corner_radius_px(border_rect, _BORDER_ROUNDNESS)
+    inner_radius_px = max(0.0, outer_radius_px - _BORDER_SIZE)
+    inner_roundness = _roundness_for_radius(inner_rect, inner_radius_px)
+    rl.draw_rectangle_rounded(inner_rect, inner_roundness, _BORDER_SEGMENTS, _DAC_BG_COLOR)
