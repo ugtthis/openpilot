@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 
 import numpy as np
@@ -6,10 +7,13 @@ import pyray as rl
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import BounceFilter, FirstOrderFilter
+from openpilot.common.params import Params
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.ui.lib.application import FontWeight, gui_app
+from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.text_measure import measure_text_cached
-from openpilot.system.ui.widgets import Widget
+from openpilot.system.ui.widgets import DialogResult, Widget
+from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
 
 
 # DAC view: solid background + tici-style status border.
@@ -21,7 +25,7 @@ from openpilot.system.ui.widgets import Widget
 #
 # All three bars read the same way: height = disengage risk contribution.
 # The top-right tile is split into bookmark button + retro speedometer.
-# The two lower right tiles are still placeholders.
+# The lower-left tile toggles chill/experimental mode; the lower-right remains a placeholder.
 
 _DAC_BG_COLOR = rl.BLACK
 _PLACEHOLDER_TILE_COLOR = rl.Color(210, 210, 210, 255)
@@ -56,6 +60,11 @@ _BOTTOM_ROW_GAP = 10
 _BOOKMARK_ICON_PAD = 18
 _BOOKMARK_ICON_SIZE_BOOST = 8
 _BOOKMARK_FILLED_LINGER_S = 0.48
+
+# Experimental tile layout
+_EXP_TILE_ICON_PAD = 10
+_EXP_TILE_STATE_HOLD_S = 2.0
+_EXP_TILE_ACTIVE_SCALE_BOOST = 0.03
 
 # Speedometer layout
 _SPEEDO_PANEL_PAD_X = 14
@@ -158,6 +167,29 @@ def _top_row_number_center_y(rect: rl.Rectangle) -> float:
   return rect.y + rect.height * _TOP_ROW_NUMBER_CENTER_Y_RATIO
 
 
+def _experimental_mode_dialog_content() -> str:
+  return (
+    f"<h1>{tr('Experimental Mode')}</h1><br>"
+    + tr(
+      "openpilot defaults to driving in chill mode. Experimental mode enables alpha-level features that aren't "
+      + "ready for chill mode. Experimental features are listed below:"
+    )
+    + "<br>"
+    + f"<h4>{tr('End-to-End Longitudinal Control')}</h4><br>"
+    + tr(
+      "Let the driving model control the gas and brakes. openpilot will drive as it thinks a human would, "
+      + "including stopping for red lights and stop signs. Since the driving model decides the speed to drive, "
+      + "the set speed will only act as an upper bound. This is an alpha quality feature; mistakes should be expected."
+    )
+    + "<br>"
+    + f"<h4>{tr('New Driving Visualization')}</h4><br>"
+    + tr(
+      "The driving visualization will transition to the road-facing wide-angle camera at low speeds to better "
+      + "show some turns. The Experimental mode logo will also be shown in the top right corner."
+    )
+  )
+
+
 class BookmarkTileButton(Widget):
   def __init__(self, click_callback: Callable[[], None] | None):
     super().__init__()
@@ -204,6 +236,120 @@ class BookmarkTileButton(Widget):
       )
 
 
+class ExperimentalModeTileButton(Widget):
+  def __init__(self):
+    super().__init__()
+    self._click_delay = 0.075
+    self._params = Params()
+    self._actual_mode = False
+    self._requested_mode = False
+    self._held_mode: bool | None = None
+    self._hold_end_time: float | None = None
+    self._experimental_texture = gui_app.texture("icons/experimental.png", 144, 144)
+    dt = 1.0 / gui_app.target_fps
+    self._scale_filter = BounceFilter(1.0, 0.1, dt)
+    self._enabled_filter = FirstOrderFilter(0.0, 0.08, dt)
+
+    # Match current system gating: experimental mode only exists when OP longitudinal is available.
+    self.set_enabled(lambda: ui_state.has_longitudinal_control)
+
+  def _update_state(self) -> None:
+    self._actual_mode = ui_state.sm["selfdriveState"].experimentalMode
+    self._requested_mode = self._params.get_bool("ExperimentalMode")
+
+  def _handle_mouse_release(self, mouse_pos) -> None:
+    super()._handle_mouse_release(mouse_pos)
+
+    if self._visual_mode():
+      self._apply_mode(False)
+      return
+
+    if self._params.get_bool("ExperimentalModeConfirmed"):
+      self._apply_mode(True)
+      return
+
+    self._show_confirm_dialog()
+
+  def _apply_mode(self, enabled: bool) -> None:
+    self._params.put_bool("ExperimentalMode", enabled)
+    self._held_mode = enabled
+    self._hold_end_time = time.monotonic() + _EXP_TILE_STATE_HOLD_S
+
+  def _visual_mode(self) -> bool:
+    # Prefer the temporary held state right after a click, then fall back to the
+    # requested param while the backend catches up, and finally settle on actual state.
+    now = time.monotonic()
+    if self._hold_end_time is not None:
+      if now < self._hold_end_time and self._held_mode is not None:
+        return self._held_mode
+      self._hold_end_time = None
+      self._held_mode = None
+    if self._requested_mode != self._actual_mode:
+      return self._requested_mode
+    return self._actual_mode
+
+  def _show_confirm_dialog(self) -> None:
+    def confirm_callback(result: DialogResult) -> None:
+      if result == DialogResult.CONFIRM:
+        self._params.put_bool("ExperimentalModeConfirmed", True)
+        self._apply_mode(True)
+
+    gui_app.push_widget(ConfirmDialog(_experimental_mode_dialog_content(), tr("Enable"), rich=True, callback=confirm_callback))
+
+  def _render(self, rect: rl.Rectangle) -> None:
+    enabled_visual = self._enabled_filter.update(1.0 if self._visual_mode() else 0.0)
+    scale_anim = self._scale_filter.update(0.94 if self.is_pressed else 1.0)
+
+    bg = rl.Color(30, 30, 30, 255) if self.is_pressed else _RETRO_PANEL_BG
+    if enabled_visual > 0.5:
+      bg = rl.Color(30, 20, 16, 255) if self.is_pressed else rl.Color(24, 18, 16, 255)
+
+    rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, bg)
+    if enabled_visual > 0.0:
+      glow = rl.Color(255, 112, 36, int(45 * enabled_visual))
+      rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, glow)
+
+    border_color = rl.Color(
+      int(_BAR_FRAME_COLOR.r + enabled_visual * (255 - _BAR_FRAME_COLOR.r)),
+      int(_BAR_FRAME_COLOR.g + enabled_visual * (122 - _BAR_FRAME_COLOR.g)),
+      int(_BAR_FRAME_COLOR.b + enabled_visual * (62 - _BAR_FRAME_COLOR.b)),
+      int(_BAR_FRAME_COLOR.a + enabled_visual * (235 - _BAR_FRAME_COLOR.a)),
+    )
+    rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5 + enabled_visual, border_color)
+
+    content_alpha = 255 if self.enabled else 115
+    self._draw_experimental_icon(rect, content_alpha, enabled_visual, scale_anim)
+
+  def _draw_experimental_icon(self, rect: rl.Rectangle, alpha: int, enabled_visual: float, scale_anim: float) -> None:
+    icon_w = max(1.0, rect.width - 2 * _EXP_TILE_ICON_PAD)
+    icon_h = max(1.0, rect.height - 2 * _EXP_TILE_ICON_PAD)
+    base_scale = min(icon_w / self._experimental_texture.width, icon_h / self._experimental_texture.height)
+    scale = base_scale * scale_anim * (1.0 + enabled_visual * _EXP_TILE_ACTIVE_SCALE_BOOST)
+    draw_w = self._experimental_texture.width * scale
+    draw_h = self._experimental_texture.height * scale
+    draw_x = rect.x + (rect.width - draw_w) / 2
+    draw_y = rect.y + (rect.height - draw_h) / 2
+
+    off_tint = rl.Color(132, 132, 132, int(alpha * (0.74 - 0.32 * enabled_visual)))
+    on_tint = rl.Color(255, 255, 255, int(alpha * enabled_visual))
+
+    rl.draw_texture_ex(
+      self._experimental_texture,
+      rl.Vector2(draw_x, draw_y),
+      0.0,
+      scale,
+      off_tint,
+    )
+    if on_tint.a > 0:
+      rl.draw_texture_ex(
+        self._experimental_texture,
+        rl.Vector2(draw_x, draw_y),
+        0.0,
+        scale,
+        on_tint,
+      )
+
+
 class DACView(Widget):
   def __init__(self, bookmark_callback: Callable[[], None] | None = None):
     super().__init__()
@@ -216,6 +362,7 @@ class DACView(Widget):
     self._speed_display_filter = FirstOrderFilter(0.0, 0.12, dt)
     self._v_ego_cluster_seen = False
     self._bookmark_button = self._child(BookmarkTileButton(bookmark_callback))
+    self._experimental_button = self._child(ExperimentalModeTileButton())
 
     self._font = gui_app.font(FontWeight.BOLD)
     self._font_medium = gui_app.font(FontWeight.MEDIUM)
@@ -315,8 +462,8 @@ class DACView(Widget):
     self._bookmark_button.render(bookmark_rect)
     self._draw_speedometer_tile(speedo_rect)
 
-    for tile_rect in bottom_rects:
-      self._draw_placeholder_tile(tile_rect)
+    self._experimental_button.render(bottom_rects[0])
+    self._draw_placeholder_tile(bottom_rects[1])
 
   def _draw_segment_bar(self, rect: rl.Rectangle, level: float, label: str) -> None:
     rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, _BAR_BG_COLOR)
