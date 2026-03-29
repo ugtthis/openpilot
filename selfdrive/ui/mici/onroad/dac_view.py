@@ -66,6 +66,14 @@ _EXP_TILE_ICON_PAD = 10
 _EXP_TILE_STATE_HOLD_S = 2.0
 _EXP_TILE_ACTIVE_SCALE_BOOST = 0.03
 
+# Lead tile layout
+_LEAD_TILE_ICON_LEFT_PAD = 11
+_LEAD_TILE_ICON_RIGHT_PAD = 10
+_LEAD_TILE_ICON_PAD_Y = 10
+_LEAD_TILE_DOT_RADIUS = 6
+_LEAD_TILE_DOT_RIGHT_PAD = 26
+_LEAD_TILE_DOT_STROKE = 2
+
 # Speedometer layout
 _SPEEDO_PANEL_PAD_X = 14
 _SPEEDO_PANEL_PAD_Y = 8
@@ -356,6 +364,60 @@ class ExperimentalModeTileButton(Widget):
       )
 
 
+class LeadCarTile(Widget):
+  def __init__(self):
+    super().__init__()
+    self._lead_detected = False
+    dt = 1.0 / gui_app.target_fps
+    self._lead_filter = FirstOrderFilter(0.0, 0.08, dt)
+    self._lead_texture = gui_app.texture("icons_dac/lead-car.png", 96, 96)
+
+  def _update_state(self) -> None:
+    radar_state = ui_state.sm['radarState'] if ui_state.sm.valid['radarState'] else None
+    leads = (radar_state.leadOne, radar_state.leadTwo) if radar_state is not None else ()
+    self._lead_detected = any(lead.status for lead in leads)
+
+  def _render(self, rect: rl.Rectangle) -> None:
+    self._draw_panel(rect)
+    lead_visual = self._lead_filter.update(1.0 if self._lead_detected else 0.0)
+    self._draw_icon_and_indicator(rect, lead_visual)
+
+  def _draw_panel(self, rect: rl.Rectangle) -> None:
+    bg = rl.Color(22, 22, 22, 255)
+    rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, bg)
+    rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5, _BAR_FRAME_COLOR)
+
+  def _draw_icon_and_indicator(self, rect: rl.Rectangle, lead_visual: float) -> None:
+    icon_w = max(1.0, rect.width - _LEAD_TILE_ICON_LEFT_PAD - _LEAD_TILE_ICON_RIGHT_PAD)
+    icon_h = max(1.0, rect.height - 2 * _LEAD_TILE_ICON_PAD_Y)
+    base_scale = min(icon_w / self._lead_texture.width, icon_h / self._lead_texture.height)
+    icon_x = rect.x + _LEAD_TILE_ICON_LEFT_PAD
+    icon_y = rect.y + (rect.height - self._lead_texture.height * base_scale) / 2
+
+    off_tint = rl.Color(118, 118, 118, 220)
+    on_tint = rl.Color(255, 255, 255, int(255 * lead_visual))
+    rl.draw_texture_ex(self._lead_texture, rl.Vector2(icon_x, icon_y), 0.0, base_scale, off_tint)
+    if on_tint.a > 0:
+      rl.draw_texture_ex(self._lead_texture, rl.Vector2(icon_x, icon_y), 0.0, base_scale, on_tint)
+
+    dot_cx = rect.x + rect.width - _LEAD_TILE_DOT_RIGHT_PAD - _LEAD_TILE_DOT_RADIUS
+    dot_cy = rect.y + rect.height / 2
+    dot_off = rl.Color(118, 118, 118, 255)
+    dot_on = rl.Color(255, 255, 255, int(255 * lead_visual))
+    rl.draw_ring(
+      rl.Vector2(int(dot_cx), int(dot_cy)),
+      _LEAD_TILE_DOT_RADIUS - _LEAD_TILE_DOT_STROKE,
+      _LEAD_TILE_DOT_RADIUS,
+      0,
+      360,
+      24,
+      dot_off,
+    )
+    if dot_on.a > 0:
+      rl.draw_circle(int(dot_cx), int(dot_cy), _LEAD_TILE_DOT_RADIUS + 7 * lead_visual, rl.Color(255, 255, 255, int(42 * lead_visual)))
+      rl.draw_circle(int(dot_cx), int(dot_cy), _LEAD_TILE_DOT_RADIUS, dot_on)
+
+
 class DACView(Widget):
   def __init__(self, bookmark_callback: Callable[[], None] | None = None):
     super().__init__()
@@ -369,6 +431,7 @@ class DACView(Widget):
     self._v_ego_cluster_seen = False
     self._bookmark_button = self._child(BookmarkTileButton(bookmark_callback))
     self._experimental_button = self._child(ExperimentalModeTileButton())
+    self._lead_tile = self._child(LeadCarTile())
     self._bookmark_hit_rect = rl.Rectangle()
 
     self._font = gui_app.font(FontWeight.BOLD)
@@ -476,7 +539,7 @@ class DACView(Widget):
     self._draw_speedometer_tile(speedo_rect)
 
     self._experimental_button.render(bottom_rects[0])
-    self._draw_placeholder_tile(bottom_rects[1])
+    self._lead_tile.render(bottom_rects[1])
 
   def _draw_segment_bar(self, rect: rl.Rectangle, level: float, label: str) -> None:
     rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, _BAR_BG_COLOR)
