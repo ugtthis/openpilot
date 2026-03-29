@@ -49,7 +49,7 @@ class AugmentedRoadView(CameraView):
     self._alert_renderer       = AlertRenderer()
     self._driver_state_renderer = DriverStateRenderer()
     self._fade_texture          = gui_app.texture("icons_mici/onroad/onroad_fade.png")
-    self._dac_view = DACView()
+    self._dac_view = DACView(bookmark_callback)
     self._confidence_ball = ConfidenceBall()
     self._action_tray = SidePanelActionTray(bookmark_callback, self._toggle_dac, lambda: self._dac_active)
     self._offroad_label = UnifiedLabel(

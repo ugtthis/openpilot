@@ -1,9 +1,11 @@
+from collections.abc import Callable
+
 import numpy as np
 import pyray as rl
 
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY
 from openpilot.common.constants import CV
-from openpilot.common.filter_simple import FirstOrderFilter
+from openpilot.common.filter_simple import BounceFilter, FirstOrderFilter
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.lib.text_measure import measure_text_cached
@@ -18,7 +20,7 @@ from openpilot.system.ui.widgets import Widget
 #   DM  — driver distraction    (higher = less aware, closer to takeover event)
 #
 # All three bars read the same way: height = disengage risk contribution.
-# The top-right tile is split into set-speed + retro speedometer.
+# The top-right tile is split into bookmark button + retro speedometer.
 # The two lower right tiles are still placeholders.
 
 _DAC_BG_COLOR = rl.BLACK
@@ -42,24 +44,18 @@ _SPEEDO_VALUE_Y_OFFSET = 6
 # Signal tuning
 _MAX_DECEL = 3.5              # m/s² — brake bar saturates here
 _DEFAULT_MAX_LAT_ACCEL = 3.0  # m/s² — steering ceiling without CP.maxLateralAccel
-_SET_SPEED_NA = 255
-_KPH_TO_MPH = 0.621371
 
 # Right-top layout
 _RIGHT_TOP_SPLIT_GAP = 13
 _RIGHT_ROW_GAP = _RIGHT_TOP_SPLIT_GAP
-_SET_SPEED_WIDTH_RATIO = 0.2
-_SET_SPEED_WIDTH_BOOST = 10
+_BOOKMARK_WIDTH_RATIO = 0.2
+_BOOKMARK_WIDTH_BOOST = 10
 _BOTTOM_ROW_GAP = 10
 
-# Set-speed tile layout
-_SET_SPEED_PAD_X = 10
-_SET_SPEED_TOP_PAD = 8
-_SET_SPEED_BOTTOM_PAD = 8
-_SET_SPEED_DIVIDER_GAP = 5
-_SET_SPEED_VALUE_GAP_TOP = 10
-_SET_SPEED_VALUE_TO_UNIT_GAP = 2
-_SET_SPEED_VALUE_TARGET_SIZE = 40
+# Bookmark tile layout
+_BOOKMARK_ICON_PAD = 18
+_BOOKMARK_ICON_SIZE_BOOST = 8
+_BOOKMARK_FILLED_LINGER_S = 0.18
 
 # Speedometer layout
 _SPEEDO_PANEL_PAD_X = 14
@@ -99,8 +95,6 @@ _SPEEDO_PANEL_BG = rl.BLACK
 _RETRO_PANEL_GLOW = rl.Color(230, 230, 230, 255)
 _RETRO_PANEL_GLOW_DIM = rl.Color(120, 88, 32, 255)
 _RETRO_TEXT_DIM = rl.Color(185, 150, 90, 255)
-_SET_SPEED_ACCENT = rl.Color(210, 210, 210, 255)
-_SET_SPEED_DIM = rl.Color(145, 145, 145, 255)
 
 # LED segment colors: 5 pairs × 2 blocks, index 0 = bottom, 9 = top.
 # Each pair shares one flat color. The hue jump between pairs is deliberately
@@ -157,23 +151,59 @@ def _blend_seg(on: rl.Color, fill: float) -> rl.Color:
   )
 
 
-def _fit_text_size(font: rl.Font, text: str, max_size: int, min_size: int,
-                   max_width: float, max_height: float) -> int:
-  """Largest font size that fits within the given bounds."""
-  for size in range(max_size, min_size - 1, -1):
-    text_size = measure_text_cached(font, text, size)
-    if text_size.x <= max_width and text_size.y <= max_height:
-      return size
-  return min_size
-
-
 def _top_row_number_center_y(rect: rl.Rectangle) -> float:
   """Shared vertical anchor for the set-speed and speedometer values."""
   return rect.y + rect.height * _TOP_ROW_NUMBER_CENTER_Y_RATIO
 
 
+class BookmarkTileButton(Widget):
+  def __init__(self, click_callback: Callable[[], None] | None):
+    super().__init__()
+    self._click_delay = 0.075
+    self.set_click_callback(click_callback)
+    self._outline_texture = gui_app.texture("icons_dac/bookmark-1.png", 48, 48)
+    self._filled_texture = gui_app.texture("icons_dac/bookmark-filled-1.png", 48, 48)
+    dt = 1.0 / gui_app.target_fps
+    self._scale_filter = BounceFilter(1.0, 0.1, dt)
+    self._filled_alpha_filter = FirstOrderFilter(0.0, 0.06, dt)
+    self._filled_linger_until = 0.0
+
+  def _handle_mouse_release(self, mouse_pos) -> None:
+    self._filled_linger_until = rl.get_time() + _BOOKMARK_FILLED_LINGER_S
+    super()._handle_mouse_release(mouse_pos)
+
+  def _render(self, rect: rl.Rectangle) -> None:
+    bg = rl.Color(34, 34, 34, 255) if self.is_pressed else _RETRO_PANEL_BG
+    rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, bg)
+    rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5, _BAR_FRAME_COLOR)
+
+    scale_anim = self._scale_filter.update(0.94 if self.is_pressed else 1.0)
+    filled_active = self.is_pressed or rl.get_time() < self._filled_linger_until
+    filled_alpha = self._filled_alpha_filter.update(1.0 if filled_active else 0.0)
+
+    icon_w = max(1.0, rect.width - 2 * _BOOKMARK_ICON_PAD + _BOOKMARK_ICON_SIZE_BOOST)
+    icon_h = max(1.0, rect.height - 2 * _BOOKMARK_ICON_PAD + _BOOKMARK_ICON_SIZE_BOOST)
+    base_scale = min(icon_w / self._outline_texture.width, icon_h / self._outline_texture.height)
+    scale = base_scale * scale_anim
+    draw_w = self._outline_texture.width * scale
+    draw_h = self._outline_texture.height * scale
+    draw_x = rect.x + (rect.width - draw_w) / 2
+    draw_y = rect.y + (rect.height - draw_h) / 2
+
+    outline_alpha = int(255 * (1.0 - filled_alpha))
+    filled_alpha_int = int(255 * filled_alpha)
+    if outline_alpha > 0:
+      rl.draw_texture_ex(
+        self._outline_texture, rl.Vector2(draw_x, draw_y), 0.0, scale, rl.Color(255, 255, 255, outline_alpha)
+      )
+    if filled_alpha_int > 0:
+      rl.draw_texture_ex(
+        self._filled_texture, rl.Vector2(draw_x, draw_y), 0.0, scale, rl.Color(255, 255, 255, filled_alpha_int)
+      )
+
+
 class DACView(Widget):
-  def __init__(self):
+  def __init__(self, bookmark_callback: Callable[[], None] | None = None):
     super().__init__()
     dt = 1.0 / gui_app.target_fps
     self._steer_filter = FirstOrderFilter(0.0, 0.1, dt)   # RC from research notes
@@ -182,9 +212,8 @@ class DACView(Widget):
     self._dm_filter = FirstOrderFilter(0.0, 0.5, dt)
     self._speed = 0.0
     self._speed_display_filter = FirstOrderFilter(0.0, 0.12, dt)
-    self._set_speed = _SET_SPEED_NA
-    self._is_cruise_set = False
     self._v_ego_cluster_seen = False
+    self._bookmark_button = self._child(BookmarkTileButton(bookmark_callback))
 
     self._font = gui_app.font(FontWeight.BOLD)
     self._font_medium = gui_app.font(FontWeight.MEDIUM)
@@ -228,7 +257,7 @@ class DACView(Widget):
     awareness = sm['driverMonitoringState'].awarenessStatus
     self._dm_filter.update(1.0 - max(min(awareness, 1.0), 0.0))
 
-    self._update_speed_state(controls_state, car_state)
+    self._update_speed_state(car_state)
 
   def _render(self, rect: rl.Rectangle) -> None:
     rl.draw_rectangle_rec(rect, _DAC_BG_COLOR)
@@ -279,9 +308,9 @@ class DACView(Widget):
     for tile_rect, (level, label) in zip(bar_rects, bar_configs, strict=True):
       self._draw_segment_bar(tile_rect, level, label)
 
-    set_speed_rect, speedo_rect = self._split_top_right_rect(top_right_rect)
+    bookmark_rect, speedo_rect = self._split_top_right_rect(top_right_rect)
 
-    self._draw_set_speed_tile(set_speed_rect)
+    self._bookmark_button.render(bookmark_rect)
     self._draw_speedometer_tile(speedo_rect)
 
     for tile_rect in bottom_rects:
@@ -377,12 +406,8 @@ class DACView(Widget):
         _SEG_ROUNDNESS, _SEG_ROUND_SEGS, _blend_seg(color, top_fill),
       )
 
-  def _update_speed_state(self, controls_state, car_state) -> None:
-    """Mirror hud_renderer's displayed set-speed and cluster-speed behavior."""
-    v_cruise_cluster = car_state.vCruiseCluster
-    self._set_speed = controls_state.vCruiseDEPRECATED if v_cruise_cluster == 0.0 else v_cruise_cluster
-    self._is_cruise_set = 0 < self._set_speed < _SET_SPEED_NA
-
+  def _update_speed_state(self, car_state) -> None:
+    """Mirror hud_renderer's displayed cluster-speed behavior."""
     v_ego_cluster = car_state.vEgoCluster
     self._v_ego_cluster_seen = self._v_ego_cluster_seen or v_ego_cluster != 0.0
     v_ego = v_ego_cluster if self._v_ego_cluster_seen else car_state.vEgo
@@ -391,11 +416,11 @@ class DACView(Widget):
     self._speed_display_filter.update(self._speed)
 
   def _split_top_right_rect(self, rect: rl.Rectangle) -> tuple[rl.Rectangle, rl.Rectangle]:
-    set_speed_w = (rect.width - _RIGHT_TOP_SPLIT_GAP) * _SET_SPEED_WIDTH_RATIO + _SET_SPEED_WIDTH_BOOST
-    speedo_w = rect.width - _RIGHT_TOP_SPLIT_GAP - set_speed_w
+    bookmark_w = (rect.width - _RIGHT_TOP_SPLIT_GAP) * _BOOKMARK_WIDTH_RATIO + _BOOKMARK_WIDTH_BOOST
+    speedo_w = rect.width - _RIGHT_TOP_SPLIT_GAP - bookmark_w
     return (
-      rl.Rectangle(rect.x, rect.y, set_speed_w, rect.height),
-      rl.Rectangle(rect.x + set_speed_w + _RIGHT_TOP_SPLIT_GAP, rect.y, speedo_w, rect.height),
+      rl.Rectangle(rect.x, rect.y, bookmark_w, rect.height),
+      rl.Rectangle(rect.x + bookmark_w + _RIGHT_TOP_SPLIT_GAP, rect.y, speedo_w, rect.height),
     )
 
   def _draw_panel(self, rect: rl.Rectangle, bg_color: rl.Color) -> None:
@@ -404,50 +429,6 @@ class DACView(Widget):
 
   def _draw_placeholder_tile(self, rect: rl.Rectangle) -> None:
     rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, _PLACEHOLDER_TILE_COLOR)
-
-  def _draw_set_speed_tile(self, rect: rl.Rectangle) -> None:
-    self._draw_panel(rect, _RETRO_PANEL_BG)
-
-    inner_w = rect.width - 2 * _SET_SPEED_PAD_X
-
-    title = "SET"
-    title_size = _fit_text_size(self._font_medium, title, 18, 12, inner_w, rect.height * 0.14)
-    title_text_size = measure_text_cached(self._font_medium, title, title_size)
-    title_pos = rl.Vector2(rect.x + rect.width / 2 - title_text_size.x / 2, rect.y + _SET_SPEED_TOP_PAD)
-    rl.draw_text_ex(self._font_medium, title, title_pos, title_size, 0, _SET_SPEED_DIM)
-
-    accent_y = title_pos.y + title_text_size.y + _SET_SPEED_DIVIDER_GAP
-    rl.draw_line_ex(
-      rl.Vector2(rect.x + _SET_SPEED_PAD_X + 2, accent_y),
-      rl.Vector2(rect.x + rect.width - _SET_SPEED_PAD_X - 2, accent_y),
-      2,
-      rl.Color(_SET_SPEED_ACCENT.r, _SET_SPEED_ACCENT.g, _SET_SPEED_ACCENT.b, 110),
-    )
-
-    set_speed = self._set_speed
-    if self._is_cruise_set and not ui_state.is_metric:
-      set_speed *= _KPH_TO_MPH
-
-    value_text = "--" if not self._is_cruise_set else str(round(set_speed))
-    unit_text = "km/h" if ui_state.is_metric else "mph"
-    value_top = accent_y + _SET_SPEED_VALUE_GAP_TOP
-    value_bottom = rect.y + rect.height - _SET_SPEED_BOTTOM_PAD
-    value_height = max(20.0, value_bottom - value_top)
-    unit_size = _fit_text_size(self._font_medium, unit_text, 14, 10, inner_w, value_height * 0.22)
-    unit_text_size = measure_text_cached(self._font_medium, unit_text, unit_size)
-
-    # Manual control: draw at the requested target size even if it overflows.
-    value_size = _SET_SPEED_VALUE_TARGET_SIZE
-    value_text_size = measure_text_cached(self._font, value_text, value_size)
-    value_center_y = _top_row_number_center_y(rect)
-    value_pos = rl.Vector2(rect.x + rect.width / 2 - value_text_size.x / 2,
-                           value_center_y - value_text_size.y / 2)
-    value_color = _SET_SPEED_ACCENT if self._is_cruise_set else _SET_SPEED_DIM
-    rl.draw_text_ex(self._font, value_text, value_pos, value_size, 0, value_color)
-
-    unit_pos = rl.Vector2(rect.x + rect.width / 2 - unit_text_size.x / 2,
-                          value_pos.y + value_text_size.y + _SET_SPEED_VALUE_TO_UNIT_GAP)
-    rl.draw_text_ex(self._font_medium, unit_text, unit_pos, unit_size, 0, _SET_SPEED_DIM)
 
   def _draw_speedometer_tile(self, rect: rl.Rectangle) -> None:
     self._draw_panel(rect, _SPEEDO_PANEL_BG)
