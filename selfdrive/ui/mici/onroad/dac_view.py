@@ -67,6 +67,19 @@ _EXP_TILE_ICON_PAD = 10
 _EXP_TILE_STATE_HOLD_S = 2.0
 _EXP_TILE_ACTIVE_SCALE_BOOST = 0.03
 
+# DM bar: awareness zone thresholds and label colors
+_DM_AWARENESS_PRE_ALERT = 0.727   # green pre-alert starts here (8s remaining)
+_DM_AWARENESS_PROMPT = 0.545      # orange prompt starts here (6s remaining)
+_DM_AWARENESS_PRE_ALERT_PASSIVE = 0.5
+_DM_AWARENESS_PROMPT_PASSIVE = 0.2
+_DM_LABEL_DEFAULT_COLOR = rl.Color(155, 155, 155, 255)
+_DM_LABEL_GREEN = rl.Color(0, 228, 82, 255)
+_DM_LABEL_YELLOW = rl.Color(255, 215, 0, 255)
+_DM_LABEL_ORANGE = rl.Color(255, 85, 0, 255)
+_DM_LABEL_RED = rl.Color(232, 0, 52, 255)
+_DM_ICON_SIZE = 28                # px — fits within _LABEL_AREA_H (40px)
+_DM_ICON_SWITCH_DELAY_S = 0.18    # require a brief stable classification before swapping icons
+
 # Lead tile layout
 _LEAD_TILE_ICON_LEFT_PAD = 11
 _LEAD_TILE_ICON_RIGHT_PAD = 10
@@ -448,6 +461,21 @@ class DACView(Widget):
     self._lead_tile = self._child(LeadCarTile())
     self._bookmark_hit_rect = rl.Rectangle()
 
+    self._dm_awareness = 1.0
+    self._dm_distracted_type = 0
+    self._dm_is_active_mode = True
+    self._dm_step_change = 0.0
+    self._dm_event_name = ""
+    self._dm_standstill = False
+    self._dm_visual_icon_bit = 0
+    self._dm_pending_icon_bit = 0
+    self._dm_icon_switch_at: float | None = None
+    self._dm_icons = {
+      4: gui_app.texture("icons_dac/phone.png", _DM_ICON_SIZE, _DM_ICON_SIZE),
+      2: gui_app.texture("icons/eye_closed.png", _DM_ICON_SIZE, _DM_ICON_SIZE),
+      1: gui_app.texture("icons_mici/onroad/driver_monitoring/dm_person.png", _DM_ICON_SIZE, _DM_ICON_SIZE),
+    }
+
     self._font = gui_app.font(FontWeight.BOLD)
     self._font_medium = gui_app.font(FontWeight.MEDIUM)
     self._font_display = gui_app.font(FontWeight.DISPLAY)
@@ -487,8 +515,16 @@ class DACView(Widget):
     self._brake_filter.update(min(max(-a_ego, 0.0) / _MAX_DECEL, 1.0))
 
     # --- DM bar: awarenessStatus 1.0=attentive → risk 0.0, 0.0=terminal → risk 1.0 ---
-    awareness = sm['driverMonitoringState'].awarenessStatus
+    dm_state = sm['driverMonitoringState']
+    awareness = dm_state.awarenessStatus
     self._dm_filter.update(1.0 - max(min(awareness, 1.0), 0.0))
+    self._dm_awareness = max(min(awareness, 1.0), 0.0)
+    self._dm_distracted_type = dm_state.distractedType
+    self._dm_is_active_mode = dm_state.isActiveMode
+    self._dm_step_change = dm_state.stepChange
+    self._dm_event_name = str(dm_state.events[0].name).split('.')[-1] if len(dm_state.events) else ""
+    self._dm_standstill = car_state.standstill
+    self._update_dm_visual_icon()
 
     self._update_speed_state(car_state)
 
@@ -537,14 +573,16 @@ class DACView(Widget):
       rl.Rectangle(bottom_row_x + bottom_tile_w + _BOTTOM_ROW_GAP, bottom_row_y, bottom_tile_w, bottom_right_h),
     )
 
+    dm_label, dm_label_color, dm_icon = self._dm_bar_label_info()
+
     bar_configs = (
-      (self._steer_filter.x, "S"),
-      (self._brake_filter.x, "B"),
-      (self._dm_filter.x,    "DM"),
+      (self._steer_filter.x, "S",       None, None),
+      (self._brake_filter.x, "B",       None, None),
+      (self._dm_filter.x,    dm_label,  dm_label_color, dm_icon),
     )
 
-    for tile_rect, (level, label) in zip(bar_rects, bar_configs, strict=True):
-      self._draw_segment_bar(tile_rect, level, label)
+    for tile_rect, (level, label, label_color, icon) in zip(bar_rects, bar_configs, strict=True):
+      self._draw_segment_bar(tile_rect, level, label, label_color, icon)
 
     bookmark_rect, speedo_rect = self._split_top_right_rect(top_right_rect)
     self._bookmark_hit_rect = top_right_rect
@@ -555,44 +593,87 @@ class DACView(Widget):
     self._experimental_button.render(bottom_rects[0])
     self._lead_tile.render(bottom_rects[1])
 
-  def _draw_segment_bar(self, rect: rl.Rectangle, level: float, label: str) -> None:
+  def _dm_prompt_threshold(self) -> float:
+    return _DM_AWARENESS_PROMPT if self._dm_is_active_mode else _DM_AWARENESS_PROMPT_PASSIVE
+
+  def _dm_visual_color(self) -> rl.Color:
+    event_name = self._dm_event_name
+
+    if event_name in ("driverDistracted", "driverUnresponsive"):
+      return _DM_LABEL_RED
+    if event_name in ("promptDriverDistracted", "promptDriverUnresponsive"):
+      return _DM_LABEL_ORANGE
+
+    # Match DM policy's "reaching audible" concept: one step before prompt.
+    prompt_threshold = self._dm_prompt_threshold()
+    about_to_prompt = (
+      not self._dm_standstill
+      and self._dm_step_change > 0.0
+      and self._dm_awareness > prompt_threshold
+      and self._dm_awareness - self._dm_step_change <= prompt_threshold
+    )
+    if about_to_prompt:
+      return _DM_LABEL_YELLOW
+
+    if event_name in ("preDriverDistracted", "preDriverUnresponsive"):
+      return _DM_LABEL_GREEN
+
+    return _DM_LABEL_DEFAULT_COLOR
+
+  def _dm_target_icon_bit(self) -> int:
+    dtype = self._dm_distracted_type
+    for bit in (4, 2, 1):
+      if dtype & bit:
+        return bit
+    return 0
+
+  def _update_dm_visual_icon(self) -> None:
+    now = time.monotonic()
+    target_bit = self._dm_target_icon_bit()
+
+    if target_bit != self._dm_pending_icon_bit:
+      self._dm_pending_icon_bit = target_bit
+      self._dm_icon_switch_at = now + _DM_ICON_SWITCH_DELAY_S
+
+    if self._dm_icon_switch_at is not None and now >= self._dm_icon_switch_at:
+      self._dm_visual_icon_bit = self._dm_pending_icon_bit
+      self._dm_icon_switch_at = None
+
+  def _dm_bar_label_info(self):
+    """Return (label_text, label_color, icon_texture_or_None) for the DM bar."""
+    color = self._dm_visual_color()
+
+    # Priority: PHONE > BLINK > POSE; icon replaces the text label when active
+    if self._dm_visual_icon_bit:
+      return ("", color, self._dm_icons[self._dm_visual_icon_bit])
+
+    return ("DM", color, None)
+
+  def _draw_segment_bar(self, rect: rl.Rectangle, level: float, label: str,
+                        label_color=None, label_icon=None) -> None:
     rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, _BAR_BG_COLOR)
     rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5, _BAR_FRAME_COLOR)
 
     seg_x = rect.x + _BAR_H_PAD
     seg_w = rect.width - 2 * _BAR_H_PAD
 
-    # The block stack occupies the space between the top padding and the label area.
-    # seg_area_h is the height available for blocks + gaps.
-    # seg_area_bottom is the y-coordinate of the bottom edge of block 0 (the baseline).
     seg_area_h = rect.height - _BAR_V_PAD_TOP - _LABEL_AREA_H
     seg_area_bottom = rect.y + _BAR_V_PAD_TOP + seg_area_h
 
-    # Divide the available height evenly: 10 blocks + 9 within-pair gaps + 4 between-pair gaps
     total_gap_h = (_N_SEGS - 1) * _SEG_GAP + (_N_PAIRS - 1) * _PAIR_EXTRA_GAP
     seg_h = max(4.0, (seg_area_h - total_gap_h) / _N_SEGS)
 
-    n_lit = level * _N_SEGS  # float block count (0.0 – 10.0)
+    n_lit = level * _N_SEGS
 
-    # --- Cross-zone collapse ---
-    # When a pair is fully complete (n_lit >= 2*(pair+1)), all pairs from 0 up to
-    # that pair collapse into one tall block using the topmost completed pair's color.
-    # Collapse only starts at _COLLAPSE_STARTS_AT_PAIR (yellow, pair 2).
-    #
-    #  n_lit ≥ 6   yellow done  → pairs 0+1+2 → one yellow block
-    #  n_lit ≥ 8   orange done  → pairs 0+1+2+3 → one orange block
-    #  n_lit ≥ 10  red done     → all 5 pairs → one red block
     collapse_until = -1
     for p in range(_COLLAPSE_STARTS_AT_PAIR, _N_PAIRS):
       if n_lit >= 2 * (p + 1):
         collapse_until = p
 
     if collapse_until >= 0:
-      # The collapsed block's top is the top of its highest block; its bottom is
-      # the bottom of block 0 — which is exactly seg_area_bottom by definition.
-      top_block_of_collapse = 2 * (collapse_until + 1) - 1  # = highest block index
+      top_block_of_collapse = 2 * (collapse_until + 1) - 1
       c_y = _block_top_y(top_block_of_collapse, seg_h, seg_area_bottom)
-      c_h = seg_area_bottom - c_y                            # extends to the bottom of the stack
+      c_h = seg_area_bottom - c_y
       rl.draw_rectangle_rounded(
         rl.Rectangle(seg_x, c_y, seg_w, c_h),
         _SEG_ROUNDNESS, _SEG_ROUND_SEGS,
@@ -605,16 +686,26 @@ class DACView(Widget):
     for pair in range(first_normal_pair, _N_PAIRS):
       self._draw_pair(pair, n_lit, seg_h, seg_x, seg_w, seg_area_bottom)
 
-    # Label centered in the reserved area below the segments
-    text_size = measure_text_cached(self._font, label, _LABEL_FONT_SIZE)
     label_cx = rect.x + rect.width / 2
     label_cy = rect.y + rect.height - _LABEL_AREA_H / 2
-    rl.draw_text_ex(
-      self._font, label,
-      rl.Vector2(int(label_cx - text_size.x / 2), int(label_cy - text_size.y / 2)),
-      _LABEL_FONT_SIZE, 0,
-      rl.Color(155, 155, 155, 255),
-    )
+    color = label_color if label_color is not None else _DM_LABEL_DEFAULT_COLOR
+
+    if label_icon is not None:
+      scale = min(_DM_ICON_SIZE / label_icon.width, _DM_ICON_SIZE / label_icon.height)
+      draw_w = label_icon.width * scale
+      draw_h = label_icon.height * scale
+      rl.draw_texture_ex(
+        label_icon,
+        rl.Vector2(int(label_cx - draw_w / 2), int(label_cy - draw_h / 2)),
+        0.0, scale, color,
+      )
+    elif label:
+      text_size = measure_text_cached(self._font, label, _LABEL_FONT_SIZE)
+      rl.draw_text_ex(
+        self._font, label,
+        rl.Vector2(int(label_cx - text_size.x / 2), int(label_cy - text_size.y / 2)),
+        _LABEL_FONT_SIZE, 0, color,
+      )
 
   def _draw_pair(self, pair: int, n_lit: float, seg_h: float,
                  seg_x: float, seg_w: float, seg_area_bottom: float) -> None:
