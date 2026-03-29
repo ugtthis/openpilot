@@ -36,6 +36,8 @@ _LEFT_GROUP_WIDTH_SHRINK = 6
 _RIGHT_TOP_HEIGHT_RATIO = 0.34
 _RIGHT_TOP_HEIGHT_BOOST = 38
 _SPEED_TEXT_BASELINE_OFFSET = -6
+_TOP_ROW_NUMBER_CENTER_Y_RATIO = 0.62
+_SPEEDO_VALUE_Y_OFFSET = 6
 
 # Signal tuning
 _MAX_DECEL = 3.5              # m/s² — brake bar saturates here
@@ -46,7 +48,7 @@ _KPH_TO_MPH = 0.621371
 # Right-top layout
 _RIGHT_TOP_SPLIT_GAP = 10
 _SET_SPEED_WIDTH_RATIO = 0.2
-_SET_SPEED_WIDTH_BOOST = 6
+_SET_SPEED_WIDTH_BOOST = 10
 _BOTTOM_ROW_GAP = 10
 
 # Set-speed tile layout
@@ -60,12 +62,13 @@ _SET_SPEED_VALUE_TARGET_SIZE = 40
 
 # Speedometer layout
 _SPEEDO_PANEL_PAD_X = 14
-_SPEEDO_PANEL_PAD_Y = 12
+_SPEEDO_PANEL_PAD_Y = 8
 _SPEEDO_SEGMENTS = 42
 _SPEEDO_SEG_GAP = 2
 _SPEEDO_RED_ZONE_START_RATIO = 0.8
-_SPEEDO_SWEEP_TOP_INSET = 4
+_SPEEDO_SWEEP_TOP_INSET = 1
 _SPEEDO_SWEEP_HEIGHT_RATIO = 0.26
+_SPEEDO_VALUE_MIN_SIZE = 40
 
 # Segmented bar geometry
 _N_PAIRS = 5          # color zones (green / lime / yellow / orange / red)
@@ -161,6 +164,11 @@ def _fit_text_size(font: rl.Font, text: str, max_size: int, min_size: int,
     if text_size.x <= max_width and text_size.y <= max_height:
       return size
   return min_size
+
+
+def _top_row_number_center_y(rect: rl.Rectangle) -> float:
+  """Shared vertical anchor for the set-speed and speedometer values."""
+  return rect.y + rect.height * _TOP_ROW_NUMBER_CENTER_Y_RATIO
 
 
 class DACView(Widget):
@@ -429,10 +437,9 @@ class DACView(Widget):
     # Manual control: draw at the requested target size even if it overflows.
     value_size = _SET_SPEED_VALUE_TARGET_SIZE
     value_text_size = measure_text_cached(self._font, value_text, value_size)
-    pair_height = value_text_size.y + _SET_SPEED_VALUE_TO_UNIT_GAP + unit_text_size.y
-    pair_top = value_top + max(0.0, (value_height - pair_height) / 2)
-
-    value_pos = rl.Vector2(rect.x + rect.width / 2 - value_text_size.x / 2, pair_top)
+    value_center_y = _top_row_number_center_y(rect)
+    value_pos = rl.Vector2(rect.x + rect.width / 2 - value_text_size.x / 2,
+                           value_center_y - value_text_size.y / 2)
     value_color = _SET_SPEED_ACCENT if self._is_cruise_set else _SET_SPEED_DIM
     rl.draw_text_ex(self._font, value_text, value_pos, value_size, 0, value_color)
 
@@ -481,10 +488,11 @@ class DACView(Widget):
     side_inset = panel_rect.x + 2
 
     speed_text = str(round(self._speed))
-    speed_size = max(36, int(rect.height * 0.50))
+    speed_size = max(_SPEEDO_VALUE_MIN_SIZE, int(rect.height * 0.50))
     speed_text_size = measure_text_cached(self._font_display, speed_text, speed_size)
+    speed_center_y = _top_row_number_center_y(rect)
     speed_pos = rl.Vector2(rect.x + rect.width * 0.5 - speed_text_size.x / 2,
-                           baseline_y + unit_text_size.y - speed_text_size.y - _SPEED_TEXT_BASELINE_OFFSET)
+                           speed_center_y - speed_text_size.y / 2 - _SPEED_TEXT_BASELINE_OFFSET - _SPEEDO_VALUE_Y_OFFSET)
     rl.draw_text_ex(self._font_display, speed_text, speed_pos, speed_size, 0, rl.WHITE)
 
     unit_pos = rl.Vector2(rect.x + rect.width - _SPEEDO_PANEL_PAD_X - 2 - unit_text_size.x, baseline_y)
