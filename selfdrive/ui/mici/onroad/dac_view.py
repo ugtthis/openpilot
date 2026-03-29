@@ -48,6 +48,9 @@ _SPEEDO_VALUE_Y_OFFSET = 9
 # Signal tuning
 _MAX_DECEL = 3.5              # m/s² — brake bar saturates here
 _DEFAULT_MAX_LAT_ACCEL = 3.0  # m/s² — steering ceiling without CP.maxLateralAccel
+_STEER_PROB_SENSITIVITY_CEILING = 0.5  # S bar saturates at 50% raw steerOverrideProb
+_STEER_BLEND_DOMINANT_WEIGHT = 0.65    # weighted blend: emphasize earliest/strongest source
+_STEER_BLEND_AGREEMENT_WEIGHT = 0.35   # weighted blend: add confidence when both sources agree
 
 # Right-top layout
 _RIGHT_TOP_SPLIT_GAP = 13
@@ -449,7 +452,8 @@ class DACView(Widget):
   def __init__(self, bookmark_callback: Callable[[], None] | None = None):
     super().__init__()
     dt = 1.0 / gui_app.target_fps
-    self._steer_filter = FirstOrderFilter(0.0, 0.1, dt)   # RC from research notes
+    self._steer_prediction_filter = FirstOrderFilter(0.0, 0.5, dt)  # S: model steerOverrideProb
+    self._steer_actuator_filter = FirstOrderFilter(0.0, 0.1, dt)    # SA: steering utilization
     self._brake_filter = FirstOrderFilter(0.0, 0.15, dt)
     # DM stores *distraction risk* (1 - awarenessStatus), so 0.0 = safe, 1.0 = terminal
     self._dm_filter = FirstOrderFilter(0.0, 0.5, dt)
@@ -485,30 +489,7 @@ class DACView(Widget):
     controls_state = sm['controlsState']
     car_state = sm['carState']
 
-    # --- Steering bar: mirrors torque_bar.py angle vs torque branching ---
-    if controls_state.lateralControlState.which() == 'angleState':
-      live_params = sm['liveParameters']
-      car_control = sm['carControl']
-
-      actual_lat_accel = controls_state.curvature * car_state.vEgo ** 2
-      desired_lat_accel = controls_state.desiredCurvature * car_state.vEgo ** 2
-      accel_diff = desired_lat_accel - actual_lat_accel
-
-      # Roll compensation ramps in between 5–15 m/s (noisy near standstill)
-      roll_comp = (live_params.roll * ACCELERATION_DUE_TO_GRAVITY *
-                   float(np.interp(car_state.vEgo, [5, 15], [0.0, 1.0])))
-      lateral_accel = actual_lat_accel - roll_comp
-      max_lat_accel = ui_state.CP.maxLateralAccel if ui_state.CP else _DEFAULT_MAX_LAT_ACCEL
-
-      if not car_control.latActive:
-        self._steer_filter.update(0.0)
-      else:
-        self._steer_filter.update(
-          float(np.clip(abs(lateral_accel + accel_diff) / max_lat_accel, 0.0, 1.0))
-        )
-    else:
-      # Torque-based cars: normalized EPS command, strip direction with abs()
-      self._steer_filter.update(abs(sm['carOutput'].actuatorsOutput.torque))
+    self._update_steering_warning_state(sm, controls_state, car_state)
 
     # --- Brake bar: present-tense deceleration via aEgo ---
     a_ego = car_state.aEgo
@@ -576,13 +557,13 @@ class DACView(Widget):
     dm_label, dm_label_color, dm_icon = self._dm_bar_label_info()
 
     bar_configs = (
-      (self._steer_filter.x, "S",       None, None),
-      (self._brake_filter.x, "B",       None, None),
-      (self._dm_filter.x,    dm_label,  dm_label_color, dm_icon),
+      (self._combined_steering_warning(), "S",       None, None, None),
+      (self._brake_filter.x, "B",       None, None, None),
+      (self._dm_filter.x,    dm_label,  dm_label_color, dm_icon, None),
     )
 
-    for tile_rect, (level, label, label_color, icon) in zip(bar_rects, bar_configs, strict=True):
-      self._draw_segment_bar(tile_rect, level, label, label_color, icon)
+    for tile_rect, (level, label, label_color, icon, segment_color) in zip(bar_rects, bar_configs, strict=True):
+      self._draw_segment_bar(tile_rect, level, label, label_color, icon, segment_color)
 
     bookmark_rect, speedo_rect = self._split_top_right_rect(top_right_rect)
     self._bookmark_hit_rect = top_right_rect
@@ -592,6 +573,68 @@ class DACView(Widget):
 
     self._experimental_button.render(bottom_rects[0])
     self._lead_tile.render(bottom_rects[1])
+
+  def _update_steering_warning_state(self, sm, controls_state, car_state) -> None:
+    """Combine model-predicted steer takeover risk (S) and actuator effort (SA).
+
+    S uses the same stock signal as the classic bar: max steerOverrideProbs, which is
+    effectively the 10-second cumulative steer override probability.
+    SA is the current steering actuator utilization: torque on torque-control cars,
+    or normalized lateral-accel effort on angle-control cars.
+    """
+    self._steer_prediction_filter.update(self._raw_steer_override_probability(sm))
+    self._steer_actuator_filter.update(self._steer_actuator_utilization(sm, controls_state, car_state))
+
+  def _raw_steer_override_probability(self, sm) -> float:
+    steer_probs = sm['modelV2'].meta.disengagePredictions.steerOverrideProbs or [0.0]
+    return float(max(steer_probs))
+
+  def _normalized_steer_prediction(self) -> float:
+    return float(np.clip(self._steer_prediction_filter.x / _STEER_PROB_SENSITIVITY_CEILING, 0.0, 1.0))
+
+  def _steer_actuator_utilization(self, sm, controls_state, car_state) -> float:
+    if controls_state.lateralControlState.which() == 'angleState':
+      live_params = sm['liveParameters']
+      car_control = sm['carControl']
+
+      if not car_control.latActive:
+        return 0.0
+
+      actual_lat_accel = controls_state.curvature * car_state.vEgo ** 2
+      desired_lat_accel = controls_state.desiredCurvature * car_state.vEgo ** 2
+      accel_diff = desired_lat_accel - actual_lat_accel
+
+      # Roll compensation ramps in between 5–15 m/s because low-speed roll is noisy.
+      roll_comp = (live_params.roll * ACCELERATION_DUE_TO_GRAVITY *
+                   float(np.interp(car_state.vEgo, [5, 15], [0.0, 1.0])))
+      lateral_accel = actual_lat_accel - roll_comp
+      max_lat_accel = ui_state.CP.maxLateralAccel if ui_state.CP else _DEFAULT_MAX_LAT_ACCEL
+      return float(np.clip(abs(lateral_accel + accel_diff) / max_lat_accel, 0.0, 1.0))
+
+    # Torque-control cars publish normalized steering effort directly in [-1, 1].
+    return float(abs(sm['carOutput'].actuatorsOutput.torque))
+
+  def _combined_steering_warning(self) -> float:
+    """Single lateral warning bar using a weighted blend of dominance and agreement.
+
+    We want something calmer than pure max(S, SA), but more responsive than
+    product-only overlap logic. So we blend:
+
+      dominant = max(S, SA)
+      agreement = S * SA
+      combined = 0.65 * dominant + 0.35 * agreement
+
+    This keeps single-source warnings visible while still rewarding convergence
+    when both the model and the steering system are elevated.
+    """
+    steer_prediction = self._normalized_steer_prediction()
+    steer_actuator = self._steer_actuator_filter.x
+    dominant = max(steer_prediction, steer_actuator)
+    agreement = steer_prediction * steer_actuator
+    return (
+      _STEER_BLEND_DOMINANT_WEIGHT * dominant
+      + _STEER_BLEND_AGREEMENT_WEIGHT * agreement
+    )
 
   def _dm_prompt_threshold(self) -> float:
     return _DM_AWARENESS_PROMPT if self._dm_is_active_mode else _DM_AWARENESS_PROMPT_PASSIVE
@@ -650,7 +693,7 @@ class DACView(Widget):
     return ("DM", color, None)
 
   def _draw_segment_bar(self, rect: rl.Rectangle, level: float, label: str,
-                        label_color=None, label_icon=None) -> None:
+                        label_color=None, label_icon=None, segment_color=None) -> None:
     rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, _BAR_BG_COLOR)
     rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5, _BAR_FRAME_COLOR)
 
@@ -677,14 +720,14 @@ class DACView(Widget):
       rl.draw_rectangle_rounded(
         rl.Rectangle(seg_x, c_y, seg_w, c_h),
         _SEG_ROUNDNESS, _SEG_ROUND_SEGS,
-        _SEG_ON[top_block_of_collapse],
+        segment_color if segment_color is not None else _SEG_ON[top_block_of_collapse],
       )
       first_normal_pair = collapse_until + 1
     else:
       first_normal_pair = 0
 
     for pair in range(first_normal_pair, _N_PAIRS):
-      self._draw_pair(pair, n_lit, seg_h, seg_x, seg_w, seg_area_bottom)
+      self._draw_pair(pair, n_lit, seg_h, seg_x, seg_w, seg_area_bottom, segment_color)
 
     label_cx = rect.x + rect.width / 2
     label_cy = rect.y + rect.height - _LABEL_AREA_H / 2
@@ -708,11 +751,12 @@ class DACView(Widget):
       )
 
   def _draw_pair(self, pair: int, n_lit: float, seg_h: float,
-                 seg_x: float, seg_w: float, seg_area_bottom: float) -> None:
+                 seg_x: float, seg_w: float, seg_area_bottom: float,
+                 segment_color=None) -> None:
     """Draw one pair of blocks. Within-pair snap occurs when top block crosses _MERGE_THRESHOLD."""
     i_bot = pair * 2
     i_top = pair * 2 + 1
-    color = _SEG_ON[i_bot]  # both blocks in a pair share one color
+    color = segment_color if segment_color is not None else _SEG_ON[i_bot]
 
     bot_fill = min(max(n_lit - i_bot, 0.0), 1.0)
     top_fill = min(max(n_lit - i_top, 0.0), 1.0)
