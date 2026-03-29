@@ -34,7 +34,7 @@ _TILE_ROUNDNESS = 0.06
 _TILE_SEGMENTS = 12
 _LEFT_GROUP_WIDTH_SHRINK = 6
 _RIGHT_TOP_HEIGHT_RATIO = 0.34
-_RIGHT_TOP_HEIGHT_BOOST = 38
+_RIGHT_TOP_HEIGHT_BOOST = 46
 _SPEED_TEXT_BASELINE_OFFSET = -6
 _TOP_ROW_NUMBER_CENTER_Y_RATIO = 0.62
 _SPEEDO_VALUE_Y_OFFSET = 6
@@ -46,7 +46,8 @@ _SET_SPEED_NA = 255
 _KPH_TO_MPH = 0.621371
 
 # Right-top layout
-_RIGHT_TOP_SPLIT_GAP = 10
+_RIGHT_TOP_SPLIT_GAP = 13
+_RIGHT_ROW_GAP = _RIGHT_TOP_SPLIT_GAP
 _SET_SPEED_WIDTH_RATIO = 0.2
 _SET_SPEED_WIDTH_BOOST = 10
 _BOTTOM_ROW_GAP = 10
@@ -252,8 +253,8 @@ class DACView(Widget):
     tall_tile_h = rect.height
 
     top_right_h = rect.height * _RIGHT_TOP_HEIGHT_RATIO + _RIGHT_TOP_HEIGHT_BOOST
-    bottom_right_h = rect.height - top_right_h - gap
-    bottom_tile_w = (right_group_w - 2 * _BOTTOM_ROW_GAP) / 3
+    bottom_right_h = rect.height - top_right_h - _RIGHT_ROW_GAP
+    bottom_tile_w = (right_group_w - _BOTTOM_ROW_GAP) / 2
 
     bar_rects = (
       rl.Rectangle(rect.x, rect.y, tall_tile_w, tall_tile_h),
@@ -262,12 +263,11 @@ class DACView(Widget):
     )
 
     top_right_rect = rl.Rectangle(rect.x + left_group_w + gap, rect.y, right_group_w, top_right_h)
-    bottom_row_y = rect.y + top_right_h + gap
+    bottom_row_y = rect.y + top_right_h + _RIGHT_ROW_GAP
     bottom_row_x = rect.x + left_group_w + gap
     bottom_rects = (
       rl.Rectangle(bottom_row_x, bottom_row_y, bottom_tile_w, bottom_right_h),
       rl.Rectangle(bottom_row_x + bottom_tile_w + _BOTTOM_ROW_GAP, bottom_row_y, bottom_tile_w, bottom_right_h),
-      rl.Rectangle(bottom_row_x + 2 * (bottom_tile_w + _BOTTOM_ROW_GAP), bottom_row_y, bottom_tile_w, bottom_right_h),
     )
 
     bar_configs = (
