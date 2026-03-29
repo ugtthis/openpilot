@@ -60,6 +60,7 @@ _BOTTOM_ROW_GAP = 13
 _BOOKMARK_ICON_PAD = 18
 _BOOKMARK_ICON_SIZE_BOOST = 8
 _BOOKMARK_FILLED_LINGER_S = 0.48
+_BOOKMARK_ICON_TINT = rl.Color(205, 205, 205, 255) # TODO: use dimmer png
 
 # Experimental tile layout
 _EXP_TILE_ICON_PAD = 10
@@ -242,11 +243,13 @@ class BookmarkTileButton(Widget):
     filled_alpha_int = int(255 * filled_alpha)
     if outline_alpha > 0:
       rl.draw_texture_ex(
-        self._outline_texture, rl.Vector2(draw_x, draw_y), 0.0, scale, rl.Color(255, 255, 255, outline_alpha)
+        self._outline_texture, rl.Vector2(draw_x, draw_y), 0.0, scale,
+        rl.Color(_BOOKMARK_ICON_TINT.r, _BOOKMARK_ICON_TINT.g, _BOOKMARK_ICON_TINT.b, outline_alpha)
       )
     if filled_alpha_int > 0:
       rl.draw_texture_ex(
-        self._filled_texture, rl.Vector2(draw_x, draw_y), 0.0, scale, rl.Color(255, 255, 255, filled_alpha_int)
+        self._filled_texture, rl.Vector2(draw_x, draw_y), 0.0, scale,
+        rl.Color(_BOOKMARK_ICON_TINT.r, _BOOKMARK_ICON_TINT.g, _BOOKMARK_ICON_TINT.b, filled_alpha_int)
       )
 
 
