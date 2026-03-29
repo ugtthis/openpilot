@@ -80,6 +80,8 @@ class UIState:
     self.CP: car.CarParams | None = None
     self.light_sensor: float = -1.0
     self._param_update_time: float = 0.0
+    self._fast_param_time: float = 0.0
+    self._demo_replay_active: bool = False
 
     # Callbacks
     self._offroad_transition_callbacks: list[Callable[[], None]] = []
@@ -108,7 +110,11 @@ class UIState:
     self.sm.update(0)
     self._update_state()
     self._update_status()
-    if time.monotonic() - self._param_update_time > 5.0:
+    now = time.monotonic()
+    if now - self._fast_param_time > 0.5:
+      self._demo_replay_active = self.params.get_bool("DemoReplayActive")
+      self._fast_param_time = now
+    if now - self._param_update_time > 5.0:
       self.update_params()
     device.update()
 
@@ -133,14 +139,11 @@ class UIState:
     elif not self.sm.alive["wideRoadCameraState"] or not self.sm.valid["wideRoadCameraState"]:
       self.light_sensor = -1
 
-    # Update started state — also true when demo replay is active
-    self.started = (self.sm["deviceState"].started and self.ignition) or self.params.get_bool("DemoReplayActive")
-
-    # Update recording audio state
-    self.recording_audio = self.params.get_bool("RecordAudio") and self.started
-
-    self.is_metric = self.params.get_bool("IsMetric")
-    self.always_on_dm = self.params.get_bool("AlwaysOnDM")
+    # Update started state — also true when demo replay is active.
+    # _demo_replay_active is refreshed every 0.5s (not per-frame) to avoid
+    # hammering the filesystem on flash storage while the replay process is
+    # simultaneously doing heavy I/O for video decode and segment reads.
+    self.started = (self.sm["deviceState"].started and self.ignition) or self._demo_replay_active
 
   def _update_status(self) -> None:
     if self.started and self.sm.updated["selfdriveState"]:
@@ -171,8 +174,10 @@ class UIState:
       self._started_prev = self.started
 
   def update_params(self) -> None:
-    # For slower operations
-    # Update longitudinal control state
+    self.is_metric = self.params.get_bool("IsMetric")
+    self.always_on_dm = self.params.get_bool("AlwaysOnDM")
+    self.recording_audio = self.params.get_bool("RecordAudio") and self.started
+
     CP_bytes = self.params.get("CarParamsPersistent")
     if CP_bytes is not None:
       self.CP = messaging.log_from_bytes(CP_bytes, car.CarParams)

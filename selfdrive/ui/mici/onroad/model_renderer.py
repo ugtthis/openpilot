@@ -90,7 +90,10 @@ class ModelRenderer(Widget):
       self._longitudinal_control = cp.openpilotLongitudinalControl
 
   def set_transform(self, transform: np.ndarray):
-    self._car_space_transform = transform.astype(np.float32)
+    new_transform = transform.astype(np.float32)
+    if np.allclose(new_transform, self._car_space_transform, atol=1e-4):
+      return
+    self._car_space_transform = new_transform
     self._transform_dirty = True
 
   def _render(self, rect: rl.Rectangle):
