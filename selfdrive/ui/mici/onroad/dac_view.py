@@ -64,10 +64,8 @@ _SPEEDO_PANEL_PAD_Y = 12
 _SPEEDO_SEGMENTS = 42
 _SPEEDO_SEG_GAP = 2
 _SPEEDO_RED_ZONE_START_RATIO = 0.8
-_SPEEDO_SWEEP_BASE_RATIO = 0.50
-_SPEEDO_SWEEP_PEAK_RATIO = 0.27
-_SPEEDO_SWEEP_THICKNESS_RATIO = 0.24
-_SPEEDO_SWEEP_EXTRA_HEIGHT_RATIO = 0.10
+_SPEEDO_SWEEP_TOP_INSET = 4
+_SPEEDO_SWEEP_HEIGHT_RATIO = 0.26
 
 # Segmented bar geometry
 _N_PAIRS = 5          # color zones (green / lime / yellow / orange / red)
@@ -461,18 +459,12 @@ class DACView(Widget):
     seg_w = max(2.0, (panel_rect.width - (_SPEEDO_SEGMENTS - 1) * _SPEEDO_SEG_GAP) / _SPEEDO_SEGMENTS)
     lit_segments = speed_frac * _SPEEDO_SEGMENTS
     red_zone_start = int(_SPEEDO_SEGMENTS * _SPEEDO_RED_ZONE_START_RATIO)
-
-    sweep_base_y = panel_rect.y + panel_rect.height * _SPEEDO_SWEEP_BASE_RATIO
-    sweep_peak = panel_rect.height * _SPEEDO_SWEEP_PEAK_RATIO
-    sweep_thickness = panel_rect.height * _SPEEDO_SWEEP_THICKNESS_RATIO
+    sweep_y = panel_rect.y + _SPEEDO_SWEEP_TOP_INSET
+    sweep_h = max(10.0, panel_rect.height * _SPEEDO_SWEEP_HEIGHT_RATIO)
 
     for idx in range(_SPEEDO_SEGMENTS):
       x = panel_rect.x + idx * (seg_w + _SPEEDO_SEG_GAP)
-      frac = idx / max(_SPEEDO_SEGMENTS - 1, 1)
-      dome = np.sqrt(max(0.0, 1.0 - ((frac - 0.5) / 0.5) ** 2))
-      bottom_y = sweep_base_y - dome * sweep_peak
-      top_y = bottom_y - (sweep_thickness + dome * panel_rect.height * _SPEEDO_SWEEP_EXTRA_HEIGHT_RATIO)
-      seg_rect = rl.Rectangle(x, top_y, seg_w, bottom_y - top_y)
+      seg_rect = rl.Rectangle(x, sweep_y, seg_w, sweep_h)
 
       if idx < lit_segments:
         color = _RETRO_PANEL_GLOW if idx < red_zone_start else rl.Color(210, 32, 24, 255)
