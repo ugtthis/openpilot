@@ -36,10 +36,10 @@ _TILE_ROUNDNESS = 0.06
 _TILE_SEGMENTS = 12
 _LEFT_GROUP_WIDTH_SHRINK = 8
 _RIGHT_TOP_HEIGHT_RATIO = 0.34
-_RIGHT_TOP_HEIGHT_BOOST = 46
+_RIGHT_TOP_HEIGHT_BOOST = 59
 _SPEED_TEXT_BASELINE_OFFSET = -6
 _TOP_ROW_NUMBER_CENTER_Y_RATIO = 0.62
-_SPEEDO_VALUE_Y_OFFSET = 6
+_SPEEDO_VALUE_Y_OFFSET = 9
 
 # Signal tuning
 _MAX_DECEL = 3.5              # m/s² — brake bar saturates here
@@ -65,7 +65,9 @@ _SPEEDO_SEG_GAP = 2
 _SPEEDO_RED_ZONE_START_RATIO = 0.8
 _SPEEDO_SWEEP_TOP_INSET = 1
 _SPEEDO_SWEEP_HEIGHT_RATIO = 0.15
-_SPEEDO_VALUE_MIN_SIZE = 77
+_SPEEDO_VALUE_MIN_SIZE = 80
+_SPEEDO_READOUT_X_OFFSET = -15
+_SPEEDO_UNIT_X_GAP = -19
 
 # Segmented bar geometry
 _N_PAIRS = 5          # color zones (green / lime / yellow / orange / red)
@@ -465,21 +467,24 @@ class DACView(Widget):
 
   def _draw_speedometer_readout(self, rect: rl.Rectangle, panel_rect: rl.Rectangle) -> None:
     unit_text = "km/h" if ui_state.is_metric else "mph"
-    unit_size = 20
+    unit_size = 27
     unit_text_size = measure_text_cached(self._font_medium, unit_text, unit_size)
-    baseline_y = rect.y + rect.height - _SPEEDO_PANEL_PAD_Y - unit_text_size.y
 
     speed_text = str(round(self._speed_display_filter.x))
     speed_size = max(_SPEEDO_VALUE_MIN_SIZE, int(rect.height * 0.50))
     speed_text_size = measure_text_cached(self._font_display, speed_text, speed_size)
     speed_slot_size = measure_text_cached(self._font_display, "888", speed_size)
     speed_center_y = _top_row_number_center_y(rect)
-    speed_slot_x = rect.x + rect.width * 0.5 - speed_slot_size.x / 2
+    readout_group_w = speed_slot_size.x + _SPEEDO_UNIT_X_GAP + unit_text_size.x
+    speed_slot_x = panel_rect.x + (panel_rect.width - readout_group_w) / 2 + _SPEEDO_READOUT_X_OFFSET
     speed_pos = rl.Vector2(speed_slot_x + (speed_slot_size.x - speed_text_size.x) / 2,
                            speed_center_y - speed_text_size.y / 2 - _SPEED_TEXT_BASELINE_OFFSET - _SPEEDO_VALUE_Y_OFFSET)
     rl.draw_text_ex(self._font_display, speed_text, speed_pos, speed_size, 0, rl.WHITE)
 
-    unit_pos = rl.Vector2(rect.x + rect.width - _SPEEDO_PANEL_PAD_X - 2 - unit_text_size.x, baseline_y)
+    unit_pos = rl.Vector2(
+      speed_slot_x + speed_slot_size.x + _SPEEDO_UNIT_X_GAP,
+      speed_pos.y + (speed_text_size.y - unit_text_size.y) / 2,
+    )
     rl.draw_text_ex(self._font_medium, unit_text, unit_pos, unit_size, 0, rl.Color(235, 235, 235, 230))
 
   def draw_status_border(self, rect: rl.Rectangle) -> None:
