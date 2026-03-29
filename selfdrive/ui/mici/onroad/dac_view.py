@@ -38,7 +38,7 @@ _CONTENT_INSET = 8
 _TILE_GAP = 16
 _TILE_ROUNDNESS = 0.06
 _TILE_SEGMENTS = 12
-_LEFT_GROUP_WIDTH_SHRINK = 8
+_LEFT_GROUP_WIDTH_SHRINK = 5
 _RIGHT_TOP_HEIGHT_RATIO = 0.34
 _RIGHT_TOP_HEIGHT_BOOST = 59
 _SPEED_TEXT_BASELINE_OFFSET = -6
@@ -53,8 +53,8 @@ _DEFAULT_MAX_LAT_ACCEL = 3.0  # m/s² — steering ceiling without CP.maxLateral
 _RIGHT_TOP_SPLIT_GAP = 13
 _RIGHT_ROW_GAP = _RIGHT_TOP_SPLIT_GAP
 _BOOKMARK_WIDTH_RATIO = 0.2
-_BOOKMARK_WIDTH_BOOST = 16
-_BOTTOM_ROW_GAP = 10
+_BOOKMARK_WIDTH_BOOST = 14
+_BOTTOM_ROW_GAP = 13
 
 # Bookmark tile layout
 _BOOKMARK_ICON_PAD = 18
@@ -202,9 +202,15 @@ class BookmarkTileButton(Widget):
     self._filled_alpha_filter = FirstOrderFilter(0.0, 0.06, dt)
     self._filled_linger_until = 0.0
 
-  def _handle_mouse_release(self, mouse_pos) -> None:
+  def activate(self) -> None:
     self._filled_linger_until = rl.get_time() + _BOOKMARK_FILLED_LINGER_S
-    super()._handle_mouse_release(mouse_pos)
+    if self._click_delay is not None:
+      self._click_release_time = rl.get_time() + self._click_delay
+    if self._click_callback:
+      self._click_callback()
+
+  def _handle_mouse_release(self, mouse_pos) -> None:
+    self.activate()
 
   def _render(self, rect: rl.Rectangle) -> None:
     bg = rl.Color(34, 34, 34, 255) if self.is_pressed else _RETRO_PANEL_BG
@@ -363,6 +369,7 @@ class DACView(Widget):
     self._v_ego_cluster_seen = False
     self._bookmark_button = self._child(BookmarkTileButton(bookmark_callback))
     self._experimental_button = self._child(ExperimentalModeTileButton())
+    self._bookmark_hit_rect = rl.Rectangle()
 
     self._font = gui_app.font(FontWeight.BOLD)
     self._font_medium = gui_app.font(FontWeight.MEDIUM)
@@ -412,6 +419,11 @@ class DACView(Widget):
     rl.draw_rectangle_rec(rect, _DAC_BG_COLOR)
     self._draw_tiles(self._content_rect(rect))
 
+  def _handle_mouse_release(self, mouse_pos) -> None:
+    super()._handle_mouse_release(mouse_pos)
+    if rl.check_collision_point_rec(mouse_pos, self._bookmark_hit_rect):
+      self._bookmark_button.activate()
+
   def _content_rect(self, rect: rl.Rectangle) -> rl.Rectangle:
     inset = _BORDER_SIZE + _CONTENT_INSET
     return rl.Rectangle(
@@ -458,6 +470,7 @@ class DACView(Widget):
       self._draw_segment_bar(tile_rect, level, label)
 
     bookmark_rect, speedo_rect = self._split_top_right_rect(top_right_rect)
+    self._bookmark_hit_rect = top_right_rect
 
     self._bookmark_button.render(bookmark_rect)
     self._draw_speedometer_tile(speedo_rect)
