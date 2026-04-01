@@ -459,7 +459,9 @@ class DACView(Widget):
     self._dm_filter = FirstOrderFilter(0.0, 0.5, dt)
     self._speed = 0.0
     self._speed_display_filter = FirstOrderFilter(0.0, 0.12, dt)
+    self._speed_display_seeded = False
     self._v_ego_cluster_seen = False
+    Params().put_bool("ExperimentalMode", False)
     self._bookmark_button = self._child(BookmarkTileButton(bookmark_callback))
     self._experimental_button = self._child(ExperimentalModeTileButton())
     self._lead_tile = self._child(LeadCarTile())
@@ -787,6 +789,9 @@ class DACView(Widget):
     v_ego = v_ego_cluster if self._v_ego_cluster_seen else car_state.vEgo
     speed_conversion = CV.MS_TO_KPH if ui_state.is_metric else CV.MS_TO_MPH
     self._speed = max(0.0, v_ego * speed_conversion)
+    if not self._speed_display_seeded and self._speed > 0.0:
+      self._speed_display_filter.x = self._speed
+      self._speed_display_seeded = True
     self._speed_display_filter.update(self._speed)
 
   def _split_top_right_rect(self, rect: rl.Rectangle) -> tuple[rl.Rectangle, rl.Rectangle]:
