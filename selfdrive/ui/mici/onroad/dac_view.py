@@ -84,11 +84,12 @@ _DM_ICON_SIZE = 28                # px — fits within _LABEL_AREA_H (40px)
 _DM_ICON_SWITCH_DELAY_S = 0.18    # require a brief stable classification before swapping icons
 
 # Lead tile layout
-_LEAD_TILE_ICON_LEFT_PAD = 11
+_LEAD_TILE_ICON_LEFT_PAD = 15
 _LEAD_TILE_ICON_RIGHT_PAD = 10
 _LEAD_TILE_ICON_PAD_Y = 10
+_LEAD_TILE_ICON_TOP_BIAS = 2  # shift icon upward from center
 _LEAD_TILE_DOT_RADIUS = 6
-_LEAD_TILE_DOT_RIGHT_PAD = 26
+_LEAD_TILE_DOT_RIGHT_PAD = 24
 _LEAD_TILE_DOT_STROKE = 2
 
 # Speedometer layout
@@ -400,7 +401,8 @@ class LeadCarTile(Widget):
     self._lead_detected = False
     dt = 1.0 / gui_app.target_fps
     self._lead_filter = FirstOrderFilter(0.0, 0.08, dt)
-    self._lead_texture = gui_app.texture("icons_dac/lead-car.png", 96, 96)
+    self._lead_texture_none = gui_app.texture("icons_dac/lead-car-none.png", 96, 96)
+    self._lead_texture_lead = gui_app.texture("icons_dac/lead-car-1.png", 96, 96)
 
   def _update_state(self) -> None:
     radar_state = ui_state.sm['radarState'] if ui_state.sm.valid['radarState'] else None
@@ -420,15 +422,15 @@ class LeadCarTile(Widget):
   def _draw_icon_and_indicator(self, rect: rl.Rectangle, lead_visual: float) -> None:
     icon_w = max(1.0, rect.width - _LEAD_TILE_ICON_LEFT_PAD - _LEAD_TILE_ICON_RIGHT_PAD)
     icon_h = max(1.0, rect.height - 2 * _LEAD_TILE_ICON_PAD_Y)
-    base_scale = min(icon_w / self._lead_texture.width, icon_h / self._lead_texture.height)
+    base_scale = min(icon_w / self._lead_texture_none.width, icon_h / self._lead_texture_none.height)
     icon_x = rect.x + _LEAD_TILE_ICON_LEFT_PAD
-    icon_y = rect.y + (rect.height - self._lead_texture.height * base_scale) / 2
+    icon_y = rect.y + (rect.height - self._lead_texture_none.height * base_scale) / 2 - _LEAD_TILE_ICON_TOP_BIAS
 
-    off_tint = rl.Color(118, 118, 118, 220)
-    on_tint = rl.Color(255, 255, 255, int(255 * lead_visual))
-    rl.draw_texture_ex(self._lead_texture, rl.Vector2(icon_x, icon_y), 0.0, base_scale, off_tint)
-    if on_tint.a > 0:
-      rl.draw_texture_ex(self._lead_texture, rl.Vector2(icon_x, icon_y), 0.0, base_scale, on_tint)
+    dim_tint = rl.Color(118, 118, 118, 220)
+    rl.draw_texture_ex(self._lead_texture_none, rl.Vector2(icon_x, icon_y), 0.0, base_scale, dim_tint)
+    if lead_visual > 0:
+      on_tint = rl.Color(255, 255, 255, int(255 * lead_visual))
+      rl.draw_texture_ex(self._lead_texture_lead, rl.Vector2(icon_x, icon_y), 0.0, base_scale, on_tint)
 
     dot_cx = rect.x + rect.width - _LEAD_TILE_DOT_RIGHT_PAD - _LEAD_TILE_DOT_RADIUS
     dot_cy = rect.y + rect.height / 2
