@@ -1,4 +1,5 @@
 import math
+import os
 import threading
 from collections.abc import Callable
 
@@ -12,7 +13,13 @@ from openpilot.selfdrive.ui.mici.layouts.settings.network import NetworkLayoutMi
 from openpilot.selfdrive.ui.mici.layouts.settings.device import DeviceLayoutMici, PairBigButton
 from openpilot.selfdrive.ui.mici.layouts.settings.developer import DeveloperLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.firehose import FirehoseLayout
-from openpilot.selfdrive.ui.mici.layouts.music_visualizer import AudioAnalysis, EyebrowBilly, MUSIC_PATH
+from openpilot.selfdrive.ui.mici.layouts.music_visualizer import (
+  AudioAnalysis,
+  EyebrowBilly,
+  MUSIC_PATH,
+  TALK_MUSIC_PATH,
+  TalkingBilly,
+)
 from openpilot.system.ui.lib.application import gui_app, MousePos
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.nav_widget import NavWidget
@@ -97,8 +104,12 @@ class SettingsLayout(NavWidget):
     self._eyebrow_btn = EyebrowBigButton("", is_dance_active=is_dancing)
     self._eyebrow_btn.set_click_callback(self._start_eyebrow_dance)
 
+    self._talk_btn = SettingsBigButton("PB talk", "", "icons_mici/settings.png", is_dance_active=is_dancing)
+    self._talk_btn.set_click_callback(self._start_talk_mode)
+
     self._btn_list: list[Widget] = [
       self._eyebrow_btn,
+      self._talk_btn,
       self._toggles_btn,
       self._network_btn,
       self._device_btn,
@@ -132,53 +143,55 @@ class SettingsLayout(NavWidget):
     self._eyebrow_active = False
     self._eyebrow_billy: EyebrowBilly | None = None
     self._eyebrow_start_time = 0.0
+    self._talk_active = False
+    self._talking_billy: TalkingBilly | None = None
+    self._talk_start_time = 0.0
 
   # -------------------------------------------------------------------------
-  # Eyebrow Billy start / stop
+  # Shared music / analysis helpers
   # -------------------------------------------------------------------------
 
-  def _start_eyebrow_dance(self) -> None:
-    if self._dance_active or self._eyebrow_active:
-      return
+  def _reset_music_state(self) -> None:
+    self._beat_idx = 0
+    self._prev_time = 0.0
+    self._on_beat = False
+    self._beat_flash = 0.0
+    self._energy = 0.0
+    self._hue = 0.0
+    self._hype = 0.05
+    self._is_in_drop = False
+    self._music_started = False
 
-    self._eyebrow_active = True
-    self._dance_active   = True   # blocks button navigation for all SettingsBigButtons
-    self._eyebrow_start_time = rl.get_time()
+  def _start_music_visualizer(self, path: str) -> None:
+    if not self._audio_initialized:
+      rl.init_audio_device()
+      self._audio_initialized = True
 
-    rl.init_audio_device()
-    self._audio_initialized = True
-    self._music = rl.load_music_stream(MUSIC_PATH)
+    if self._music is not None:
+      rl.stop_music_stream(self._music)
+      rl.unload_music_stream(self._music)
+
+    self._music = rl.load_music_stream(path)
     self._music.looping = False
     rl.set_music_volume(self._music, 1.0)
     rl.play_music_stream(self._music)
 
-    # Reset beat/energy/hype state
-    self._beat_idx     = 0
-    self._prev_time    = 0.0
-    self._on_beat      = False
-    self._beat_flash   = 0.0
-    self._energy       = 0.0
-    self._hue          = 0.0
-    self._hype         = 0.05
-    self._is_in_drop   = False
-    self._music_started = False
+    self._reset_music_state()
 
-    # Analysis (background thread)
-    self._analysis = AudioAnalysis(MUSIC_PATH)
-    self._analysis_thread = threading.Thread(target=self._analysis.run, daemon=True)
-    self._analysis_thread.start()
+    # Use pre-baked analysis if available; fall back to live ffmpeg+FFT otherwise.
+    # Set LIVE_ANALYSIS=1 (or pass --live-analysis to run_ui.sh) to force live mode.
+    cache_path = path.replace(".mp3", ".analysis.npz")
+    cached = None if os.environ.get("LIVE_ANALYSIS") == "1" else AudioAnalysis.from_cache(cache_path)
+    if cached is not None:
+      self._analysis = cached
+    else:
+      self._analysis = AudioAnalysis(path)
+      self._analysis_thread = threading.Thread(target=self._analysis.run, daemon=True)
+      self._analysis_thread.start()
 
-    self._eyebrow_billy = EyebrowBilly(origin_rect=self._eyebrow_btn.rect)
-    self._scroller.scroll_to(self._eyebrow_btn.rect.x, smooth=True)
-
-  def _stop_eyebrow_dance(self) -> None:
-    if not self._eyebrow_active:
-      return
-
-    self._eyebrow_active = False
-    self._dance_active   = False
-    self._eyebrow_billy  = None
-    self._analysis       = None
+  def _stop_music_visualizer(self) -> None:
+    self._analysis = None
+    self._analysis_thread = None
 
     if self._music is not None:
       rl.stop_music_stream(self._music)
@@ -188,7 +201,61 @@ class SettingsLayout(NavWidget):
       rl.close_audio_device()
       self._audio_initialized = False
 
+    self._reset_music_state()
+
+  # -------------------------------------------------------------------------
+  # Eyebrow Billy start / stop
+  # -------------------------------------------------------------------------
+
+  def _start_eyebrow_dance(self) -> None:
+    if self._dance_active or self._eyebrow_active or self._talk_active:
+      return
+
+    self._eyebrow_active = True
+    self._talk_active = False
+    self._dance_active = True   # blocks button navigation for all SettingsBigButtons
+    self._eyebrow_start_time = rl.get_time()
+
+    self._start_music_visualizer(MUSIC_PATH)
+    self._eyebrow_billy = EyebrowBilly(origin_rect=self._eyebrow_btn.rect)
+    self._talking_billy = None
+    self._scroller.scroll_to(self._eyebrow_btn.rect.x, smooth=True)
+
+  def _stop_eyebrow_dance(self) -> None:
+    if not self._eyebrow_active:
+      return
+
+    self._eyebrow_active = False
+    self._dance_active = False
+    self._eyebrow_billy = None
+    self._stop_music_visualizer()
+
     self._scroller.scroll_to(self._btn_list[0].rect.x, smooth=True)
+
+  def _start_talk_mode(self) -> None:
+    if self._dance_active or self._eyebrow_active or self._talk_active:
+      return
+
+    self._talk_active = True
+    self._eyebrow_active = False
+    self._dance_active = True
+    self._talk_start_time = rl.get_time()
+
+    self._start_music_visualizer(TALK_MUSIC_PATH)
+    self._talking_billy = TalkingBilly()
+    self._eyebrow_billy = None
+    self._scroller.scroll_to(self._talk_btn.rect.x, smooth=True)
+
+  def _stop_talk_mode(self) -> None:
+    if not self._talk_active:
+      return
+
+    self._talk_active = False
+    self._dance_active = False
+    self._talking_billy = None
+    self._stop_music_visualizer()
+
+    self._scroller.scroll_to(self._talk_btn.rect.x, smooth=True)
 
   # -------------------------------------------------------------------------
   # State update (called every frame by Widget.render)
@@ -251,7 +318,10 @@ class SettingsLayout(NavWidget):
       self._music_started = True
 
     if self._music_started and not rl.is_music_stream_playing(self._music):
-      self._stop_eyebrow_dance()
+      if self._eyebrow_active:
+        self._stop_eyebrow_dance()
+      elif self._talk_active:
+        self._stop_talk_mode()
 
   # -------------------------------------------------------------------------
   # Input
@@ -262,6 +332,9 @@ class SettingsLayout(NavWidget):
       # Tap anywhere exits the full-screen mode (guard against the tap that opened it)
       if rl.get_time() - self._eyebrow_start_time > 0.5:
         self._stop_eyebrow_dance()
+    elif self._talk_active:
+      if rl.get_time() - self._talk_start_time > 0.5:
+        self._stop_talk_mode()
     else:
       super()._handle_mouse_release(mouse_pos)
 
@@ -277,12 +350,29 @@ class SettingsLayout(NavWidget):
     super().hide_event()
     self._scroller.hide_event()
     self._stop_eyebrow_dance()
+    self._stop_talk_mode()
 
   # -------------------------------------------------------------------------
   # Render
   # -------------------------------------------------------------------------
 
   def _render(self, rect: rl.Rectangle) -> None:
+    if self._talk_active and self._talking_billy is not None:
+      rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height), rl.BLACK)
+
+      now = rl.get_time()
+      t = rl.get_music_time_played(self._music) if self._music else now
+      transition = min(1.0, (now - self._talk_start_time) / 0.22)
+      talk_bands = None
+      if (self._analysis is not None and self._analysis.done
+          and self._analysis.band_frames is not None):
+        fi = self._analysis.frame_at(t)
+        talk_bands = self._analysis.band_frames[fi]
+
+      self._talking_billy.draw(rect, t, self._hue, self._beat_flash, self._energy,
+                               transition=transition, hype=self._hype, bands=talk_bands)
+      return
+
     # ---- Full-screen Eyebrow Billy mode — skip scroller entirely ----
     if self._eyebrow_active and self._eyebrow_billy is not None:
       rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height), rl.BLACK)
