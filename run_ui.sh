@@ -7,8 +7,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 cd "$ROOT"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  echo "Usage: ./run_ui.sh [--ui] [--tici] [replay args...]"
-  echo "  --tici     Use tici layout (2160x1080) instead of mici (536x240)"
+  echo "Usage: ./run_ui.sh [--ui] [--tici] [--live-analysis] [replay args...]"
+  echo "  --tici          Use tici layout (2160x1080) instead of mici (536x240)"
+  echo "  --live-analysis Force live ffmpeg+FFT audio analysis (ignores pre-baked .npz cache)"
   echo "Default replay args: --demo"
   exit 0
 fi
@@ -21,6 +22,11 @@ if [[ "${1:-}" == "--ui" ]]; then
 fi
 if [[ "${1:-}" == "--tici" ]]; then
   BIG_UI=1
+  shift
+fi
+LIVE_ANALYSIS=0
+if [[ "${1:-}" == "--live-analysis" ]]; then
+  LIVE_ANALYSIS=1
   shift
 fi
 
@@ -53,6 +59,7 @@ fi
 
 export ZMQ=1
 export BIG=$BIG_UI
+export LIVE_ANALYSIS=$LIVE_ANALYSIS
 
 REPLAY_PID=""
 if [[ "$RUN_REPLAY" -eq 1 ]]; then
