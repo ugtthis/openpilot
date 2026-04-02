@@ -19,6 +19,7 @@ import pyray as rl
 from openpilot.common.basedir import BASEDIR
 
 MUSIC_PATH = os.path.join(BASEDIR, "music", "better-now-audio.mp3")
+TALK_MUSIC_PATH = os.path.join(BASEDIR, "music", "hello-billy.mp3")
 
 SAMPLE_RATE = 44100
 HOP_SIZE = 512
@@ -84,6 +85,26 @@ class AudioAnalysis:
     self.beat_drop_time = self._find_beat_drop(rms)
     print(f"[AudioAnalysis] beat_drop_time={self.beat_drop_time:.1f}s  beats={len(self.beats)}")
     self.done = True
+
+  @classmethod
+  def from_cache(cls, npz_path: str) -> "AudioAnalysis | None":
+    """Load pre-baked analysis from an .npz file produced by music/generate_analysis.py.
+
+    Returns a fully-populated, immediately-done AudioAnalysis instance,
+    or None if the file does not exist.
+    """
+    if not os.path.exists(npz_path):
+      return None
+    data = np.load(npz_path)
+    inst = cls.__new__(cls)
+    inst.beats = data["beats"].tolist()
+    inst.band_frames = data["band_frames"]
+    inst.rms_frames = data["rms_frames"]
+    inst.n_frames = int(data["n_frames"])
+    inst.beat_drop_time = float(data["beat_drop_time"])
+    inst.done = True
+    inst._path = npz_path
+    return inst
 
   def _find_beat_drop(self, rms: np.ndarray) -> float:
     """Return the timestamp (seconds) of the main energy surge / beat drop.
@@ -439,6 +460,7 @@ _MOUTH_DOTS: list[tuple[float, float]] = [
   (-1.0, 0.0), (-0.5, 0.7), (0.5, 0.7), (1.0, 0.0),
 ]
 
+
 _N_WAVE_PTS      = 48   # polyline sample points per eyebrow — more = smoother curve
 _BROW_SWAY_SPD   = 2.6  # fallback sine speed when analysis not ready
 _BILLY_PTCL_LIFE = 0.6
@@ -447,6 +469,188 @@ _BILLY_PTCL_LIFE = 0.6
 def _ramp(x: float, lo: float, hi: float) -> float:
   """Linearly maps x from [lo, hi] → [0.0, 1.0], clamped at both ends."""
   return max(0.0, min(1.0, (x - lo) / (hi - lo)))
+
+
+def _lerp(a: float, b: float, t: float) -> float:
+  return a + (b - a) * t
+
+
+class TalkingBilly:
+  """A calmer robot face that lip-syncs a short speech clip."""
+
+  def __init__(self) -> None:
+    self._rng = random.Random(2026)
+    self._blink_start = -999.0
+    self._next_blink_at = rl.get_time() + self._rng.uniform(2.4, 4.6)
+    self._last_draw_t = rl.get_time()
+    self._jaw = 0.0          # 0-1: vertical mouth opening
+    self._lip_shape = 0.0    # -1 (round O/OO) to +1 (spread EE/smile)
+    self._tension = 0.0      # 0-1: consonant tightness (S, F, SH)
+
+  def draw(self, rect: rl.Rectangle, t: float, base_hue: float,
+           beat_flash: float, energy: float, transition: float = 1.0,
+           hype: float = 1.0, bands: "np.ndarray | None" = None) -> None:
+    w, h = rect.width, rect.height
+    now = rl.get_time()
+    dt = max(1 / 120, min(0.1, now - self._last_draw_t))
+    self._last_draw_t = now
+    ease = 1.0 - (1.0 - min(transition, 1.0)) ** 3
+
+    # --- Viseme targets from spectral bands (phoneme-aware lip sync) ---
+    if bands is not None and len(bands) >= 16:
+      low = float(np.mean(bands[0:4]))       # ~40-500 Hz: fundamental + 1st formant
+      mid = float(np.mean(bands[4:8]))       # ~500-2000 Hz: 2nd formant region
+      hi_mid = float(np.mean(bands[8:12]))   # ~2000-6000 Hz: 3rd formant + fricatives
+      hi = float(np.mean(bands[12:16]))      # ~6000+ Hz: sibilants
+
+      voice = low * 0.55 + mid * 0.45
+      voice = max(0.0, (voice - 0.04) / 0.20)
+      jaw_target = min(1.0, voice ** 0.75)
+
+      # Lip shape from formant balance: mid-dominant → spread (EE/smile),
+      # low-dominant → round (O/OO)
+      if voice > 0.08:
+        ratio = mid / (low + 0.03)
+        shape_target = max(-1.0, min(1.0, (ratio - 0.65) * 2.2))
+      else:
+        shape_target = 0.0
+
+      consonant = hi_mid * 0.35 + hi * 0.65
+      tension_target = min(1.0, max(0.0, (consonant - 0.03) / 0.12))
+      if voice < 0.06:
+        tension_target *= 0.2
+    else:
+      raw_speech = max(0.0, (energy - 0.055) / 0.22)
+      jaw_target = min(1.0, raw_speech ** 0.85)
+      shape_target = 0.0
+      tension_target = 0.0
+
+    # Asymmetric smoothing: fast attack (syllable onset is crisp),
+    # slower release (mouth settles shut naturally between words).
+    jaw_speed = 18.0 if jaw_target > self._jaw else 8.0
+    self._jaw = _lerp(self._jaw, jaw_target, min(1.0, dt * jaw_speed))
+
+    self._lip_shape = _lerp(self._lip_shape, shape_target, min(1.0, dt * 10.0))
+
+    tens_speed = 16.0 if tension_target > self._tension else 6.0
+    self._tension = _lerp(self._tension, tension_target, min(1.0, dt * tens_speed))
+
+    mouth_energy = self._jaw
+
+    hue = 150.0 + (base_hue % 360) / 360.0 * 80.0
+    face_col = hsv_to_color(hue, 0.70, 1.0, int(255 * ease))
+    glow_col = hsv_to_color((hue + 18) % 360, 0.50, 1.0, int(130 * ease))
+
+    pulse = mouth_energy * 0.45
+    head_bob = math.sin(t * 3.0) * h * 0.004 * (0.25 + mouth_energy)
+    eye_y = rect.y + h * 0.41 - head_bob
+    eye_lx = rect.x + w * 0.32
+    eye_rx = rect.x + w * 0.68
+    dot_r = max(8, int(h * 0.028 * (1.0 + pulse * 0.10)))
+    dot_gap = max(18, int(h * 0.062))
+    mouth_cx = rect.x + w * 0.50
+    mouth_y = rect.y + h * 0.64 - head_bob * 0.45
+
+    self._update_blink(now)
+    blink_scale = self._blink_scale(now)
+
+    # Calm arched eyebrows to keep the same "robot face" silhouette.
+    brow_y = eye_y - dot_gap * 2.45
+    brow_half_w = dot_gap * 2.6
+    brow_arc = dot_gap * (0.35 + mouth_energy * 0.20)
+    brow_thick = max(7.0, dot_r * 0.85)
+    for ecx in (eye_lx, eye_rx):
+      pts: list[rl.Vector2] = []
+      for i in range(10):
+        frac = i / 9.0
+        px = ecx - brow_half_w + brow_half_w * 2.0 * frac
+        py = brow_y - brow_arc * math.sin(frac * math.pi)
+        pts.append(rl.Vector2(px, py))
+      for j in range(len(pts) - 1):
+        rl.draw_line_ex(pts[j], pts[j + 1], brow_thick * 2.5,
+                        rl.Color(glow_col.r, glow_col.g, glow_col.b, int(38 * ease)))
+        rl.draw_line_ex(pts[j], pts[j + 1], brow_thick, face_col)
+
+    # Eyes
+    for ecx in (eye_lx, eye_rx):
+      for dc, dr in _EYE_DOTS:
+        px = ecx + dc * dot_gap
+        py = eye_y + dr * dot_gap * blink_scale
+        rl.draw_circle(int(px), int(py), dot_r, face_col)
+
+    self._draw_mouth(mouth_cx, mouth_y, dot_gap, self._jaw, self._lip_shape, self._tension,
+                     ease, face_col, glow_col)
+
+  def _update_blink(self, now: float) -> None:
+    if now >= self._next_blink_at and self._blink_start < 0.0:
+      self._blink_start = now
+
+  def _blink_scale(self, now: float) -> float:
+    if self._blink_start < 0.0:
+      return 1.0
+
+    elapsed = now - self._blink_start
+    if elapsed >= 0.22:
+      self._blink_start = -999.0
+      self._next_blink_at = now + self._rng.uniform(2.8, 4.8)
+      return 1.0
+
+    frac = elapsed / 0.22
+    tri = 1.0 - abs(frac * 2.0 - 1.0)
+    return max(0.08, 1.0 - tri * 0.94)
+
+  def _draw_mouth(self, cx: float, cy: float, dot_gap: int, jaw: float,
+                  shape: float, tension: float, ease: float,
+                  face_col: rl.Color, glow_col: rl.Color) -> None:
+    round_t  = max(0.0, -shape)  # 0-1: O / W / Q  (puckered, narrow & taller)
+    spread_t = max(0.0,  shape)  # 0-1: A / I / E  (wide, teeth dominant)
+
+    lip_thick  = max(4.0, dot_gap * 0.24)
+    cavity_col = rl.Color(68, 10, 14, int(242 * ease))
+    tooth_col  = rl.Color(240, 240, 242, int(250 * ease))
+    tongue_col = rl.Color(255, 82, 82, int(228 * ease))
+
+    # ---- Horizontal radius: wide for A/I/E, narrow for O/W ----
+    half_w  = dot_gap * _lerp(1.9, 2.85, jaw)
+    half_w *= 1.0 + spread_t * 0.20
+    half_w *= 1.0 - round_t  * 0.54
+    half_w  = max(dot_gap * 0.55, half_w)
+
+    # ---- Vertical radius: jaw opens it; O boosts height; tension squeezes ----
+    half_h  = dot_gap * _lerp(0.04, 1.55, jaw)
+    half_h *= 1.0 + round_t  * 0.32
+    half_h *= 1.0 - spread_t * 0.08
+    half_h *= 1.0 - tension  * 0.38
+    half_h  = max(2.0, half_h)
+
+    # ---- Glow halo (deepest layer) ----
+    rl.draw_ellipse(int(cx), int(cy),
+                    half_w + lip_thick + 6, half_h + lip_thick + 6,
+                    rl.Color(glow_col.r, glow_col.g, glow_col.b, int(30 * ease)))
+
+    # ---- Lip body ----
+    rl.draw_ellipse(int(cx), int(cy),
+                    half_w + lip_thick, half_h + lip_thick, face_col)
+
+    # ---- Dark mouth cavity ----
+    rl.draw_ellipse(int(cx), int(cy), half_w, half_h, cavity_col)
+
+    # ---- Upper teeth: prominent for A/I/E (spread), hidden for O/W (round) ----
+    # jaw²·5 gives a fast-rising curve so teeth snap in quickly when mouth opens
+    teeth_frac = (jaw ** 1.5) * (0.52 + spread_t * 0.34) * (1.0 - round_t * 0.72)
+    if teeth_frac > 0.03:
+      th  = min(half_h * 0.45, half_h * teeth_frac)
+      tw  = half_w * 0.76
+      tcy = cy - half_h * 0.42       # upper area of cavity
+      rl.draw_ellipse(int(cx), int(tcy), tw, max(2.0, th), tooth_col)
+
+    # ---- Lower tongue bump: visible for A/I/L, suppressed for O ----
+    tongue_frac = (jaw ** 1.5) * (0.48 + spread_t * 0.18) * (1.0 - round_t * 0.42)
+    if tongue_frac > 0.03:
+      tgh  = min(half_h * 0.48, half_h * tongue_frac)
+      tgw  = half_w * 0.56
+      tgcy = cy + half_h * 0.38     # lower area of cavity
+      rl.draw_ellipse(int(cx), int(tgcy), tgw, max(2.0, tgh), tongue_col)
 
 
 class EyebrowBilly:
