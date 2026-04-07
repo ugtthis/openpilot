@@ -8,7 +8,7 @@ from openpilot.common.filter_simple import FirstOrderFilter
 
 
 def draw_circle_gradient(center_x: float, center_y: float, radius: int,
-                         top: rl.Color, bottom: rl.Color) -> None:
+                         top: rl.Color, bottom: rl.Color, mask_color: rl.Color = rl.BLACK) -> None:
   # Draw a square with the gradient
   rl.draw_rectangle_gradient_v(int(center_x - radius), int(center_y - radius),
                                radius * 2, radius * 2,
@@ -18,7 +18,7 @@ def draw_circle_gradient(center_x: float, center_y: float, radius: int,
   outer_radius = math.ceil(radius * math.sqrt(2)) + 1
   rl.draw_ring(rl.Vector2(int(center_x), int(center_y)), radius, outer_radius,
                0.0, 360.0,
-               20, rl.BLACK)
+               20, mask_color)
 
 
 def _confidence_dot_colors(confidence: float, status: UIStatus, demo: bool) -> tuple[rl.Color, rl.Color]:
@@ -36,14 +36,14 @@ def _confidence_dot_colors(confidence: float, status: UIStatus, demo: bool) -> t
 
 
 def draw_confidence_ball_in_rect(content_rect: rl.Rectangle, confidence: float, status: UIStatus, demo: bool = False,
-                                 align_right: bool = True) -> None:
+                                 align_right: bool = True, mask_color: rl.Color = rl.BLACK) -> None:
   status_dot_radius = 24
   dot_height = (1 - confidence) * (content_rect.height - 2 * status_dot_radius) + status_dot_radius
   dot_height = content_rect.y + dot_height
   dot_center_x = content_rect.x + content_rect.width - status_dot_radius if align_right else content_rect.x + content_rect.width / 2
 
   top_dot_color, bottom_dot_color = _confidence_dot_colors(confidence, status, demo)
-  draw_circle_gradient(dot_center_x, dot_height, status_dot_radius, top_dot_color, bottom_dot_color)
+  draw_circle_gradient(dot_center_x, dot_height, status_dot_radius, top_dot_color, bottom_dot_color, mask_color)
 
 
 class ConfidenceBall(Widget):
@@ -55,9 +55,9 @@ class ConfidenceBall(Widget):
   def update_filter(self, value: float):
     self._confidence_filter.update(value)
 
-  def render_in_rect(self, content_rect: rl.Rectangle, align_right: bool = True) -> None:
+  def render_in_rect(self, content_rect: rl.Rectangle, align_right: bool = True, mask_color: rl.Color = rl.BLACK) -> None:
     self._update_state()
-    draw_confidence_ball_in_rect(content_rect, self._confidence_filter.x, ui_state.status, self._demo, align_right)
+    draw_confidence_ball_in_rect(content_rect, self._confidence_filter.x, ui_state.status, self._demo, align_right, mask_color)
 
   def _update_state(self):
     if self._demo:
