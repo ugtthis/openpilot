@@ -1,4 +1,5 @@
 import time
+from enum import IntEnum
 import numpy as np
 import pyray as rl
 from cereal import messaging, car, log
@@ -13,6 +14,7 @@ from openpilot.selfdrive.ui.mici.onroad.confidence_ball import ConfidenceBall
 from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
 from openpilot.selfdrive.ui.mici.onroad.action_tray import SidePanelActionTray
 from openpilot.selfdrive.ui.mici.onroad.dac_view import DACView
+from openpilot.selfdrive.ui.mici.onroad.dac_2_view import DAC2View
 from openpilot.system.ui.lib.application import FontWeight, gui_app, MousePos
 from openpilot.system.ui.widgets.label import UnifiedLabel
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
@@ -26,6 +28,12 @@ DEFAULT_DEVICE_CAMERA = DEVICE_CAMERAS["tici", "ar0231"]
 WIDE_CAM_MAX_SPEED = 5.0   # m/s (~10 mph) – switch to wide below this
 ROAD_CAM_MIN_SPEED = 10.0  # m/s (~25 mph) – switch to road above this
 CAM_Y_OFFSET = 20
+
+
+class OnroadContentMode(IntEnum):
+  ROAD = 0
+  DAC = 1
+  DAC2 = 2
 
 
 class AugmentedRoadView(CameraView):
@@ -43,15 +51,24 @@ class AugmentedRoadView(CameraView):
     self._cached_matrix: np.ndarray | None = None
     self._content_rect = rl.Rectangle()
 
-    self._dac_active = False
+    self._content_mode = OnroadContentMode.ROAD
     self._model_renderer       = ModelRenderer()
     self._hud_renderer         = HudRenderer()
     self._alert_renderer       = AlertRenderer()
     self._driver_state_renderer = DriverStateRenderer()
     self._fade_texture          = gui_app.texture("icons_mici/onroad/onroad_fade.png")
-    self._dac_view = DACView(bookmark_callback)
     self._confidence_ball = ConfidenceBall()
-    self._action_tray = SidePanelActionTray(bookmark_callback, settings_callback, self._toggle_dac, lambda: self._dac_active)
+    self._dac_view = DACView(bookmark_callback)
+    self._dac_2_view = DAC2View(bookmark_callback, confidence_ball=self._confidence_ball)
+    self._action_tray = SidePanelActionTray(
+      bookmark_callback,
+      settings_callback,
+      self._toggle_dac,
+      self._toggle_dac_2,
+      self._is_non_road_mode_active,
+      self._is_dac_mode_active,
+      self._is_dac_2_mode_active,
+    )
     self._offroad_label = UnifiedLabel(
       "start the car to\nuse openpilot", 54, FontWeight.DISPLAY,
       text_color=rl.Color(255, 255, 255, int(255 * 0.9)),
@@ -63,13 +80,33 @@ class AugmentedRoadView(CameraView):
   def is_swiping_left(self) -> bool:
     return self._action_tray.is_swiping_left()
 
+  def _is_non_road_mode_active(self) -> bool:
+    return self._content_mode != OnroadContentMode.ROAD
+
+  def _is_dac_mode_active(self) -> bool:
+    return self._content_mode == OnroadContentMode.DAC
+
+  def _is_dac_2_mode_active(self) -> bool:
+    return self._content_mode == OnroadContentMode.DAC2
+
   def _toggle_dac(self) -> None:
-    self._dac_active = not self._dac_active
+    self._content_mode = (
+      OnroadContentMode.ROAD
+      if self._content_mode == OnroadContentMode.DAC
+      else OnroadContentMode.DAC
+    )
+
+  def _toggle_dac_2(self) -> None:
+    self._content_mode = (
+      OnroadContentMode.ROAD
+      if self._content_mode == OnroadContentMode.DAC2
+      else OnroadContentMode.DAC2
+    )
 
   def _update_state(self) -> None:
     super()._update_state()
     if not ui_state.started:
-      self._dac_active = False
+      self._content_mode = OnroadContentMode.ROAD
       self._action_tray.collapse()
     if ui_state.panda_type == log.PandaState.PandaType.unknown:
       self._offroad_label.set_text("system booting")
@@ -78,7 +115,7 @@ class AugmentedRoadView(CameraView):
 
   def _handle_mouse_release(self, mouse_pos: MousePos) -> None:
     if not self._action_tray.consume_touch_handled_by_tray():
-      if self._dac_active and rl.check_collision_point_rec(mouse_pos, self.rect):
+      if self._is_non_road_mode_active() and rl.check_collision_point_rec(mouse_pos, self.rect):
         return
       super()._handle_mouse_release(mouse_pos)
 
@@ -90,7 +127,7 @@ class AugmentedRoadView(CameraView):
       self.rect.width - SIDE_PANEL_WIDTH,
       self.rect.height,
     )
-    render_rect = self.rect if self._dac_active else self._content_rect
+    render_rect = self.rect if self._is_non_road_mode_active() else self._content_rect
     rl.begin_scissor_mode(
       int(render_rect.x),
       int(render_rect.y),
@@ -98,14 +135,16 @@ class AugmentedRoadView(CameraView):
       int(render_rect.height),
     )
 
-    if self._dac_active:
+    if self._content_mode == OnroadContentMode.DAC:
       self._render_dac_content()
+    elif self._content_mode == OnroadContentMode.DAC2:
+      self._render_dac_2_content()
     elif ui_state.started:
       # Offroad must skip camera rendering entirely or a buffered VisionIPC frame
       # can linger under the dark overlay after demo replay stops.
       self._render_road_content()
 
-    if not self._dac_active:
+    if not self._is_non_road_mode_active():
       rl.draw_rectangle_rounded_lines_ex(self._content_rect, 0.2 * 1.02, 10, 50, rl.BLACK)
     rl.end_scissor_mode()
 
@@ -156,8 +195,12 @@ class AugmentedRoadView(CameraView):
     self._dac_view.set_rect(self.rect)
     self._dac_view.render(self.rect)
 
+  def _render_dac_2_content(self) -> None:
+    self._dac_2_view.set_rect(self.rect)
+    self._dac_2_view.render(self.rect)
+
   def _render_side_panel(self) -> None:
-    if not self._dac_active:
+    if not self._is_non_road_mode_active():
       self._confidence_ball.render(self.rect)
     self._action_tray.render(self.rect)
 

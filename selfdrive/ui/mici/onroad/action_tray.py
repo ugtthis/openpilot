@@ -101,8 +101,28 @@ class DACActionButton(TrayActionButton):
     rl.draw_texture_ex(icon, rl.Vector2(x, y), 0.0, 1.0, tint)
 
 
+class DAC2ActionButton(TrayActionButton):
+  def __init__(self, click_callback, is_dac2_active):
+    super().__init__(click_callback)
+    self._is_dac2_active = is_dac2_active
+    self._bg = gui_app.texture("icons_mici/buttons/button_circle.png", BUTTON_SIZE, BUTTON_SIZE)
+    self._bg_pressed = gui_app.texture("icons_mici/buttons/button_circle_pressed.png", BUTTON_SIZE, BUTTON_SIZE)
+    self._steering_icon = gui_app.texture("icons_mici/wheel.png", 64, 64)
+    self._onroad_icon = gui_app.texture("icons_dac/onroad-ui-icon.png", 64, 32)
+
+  def _render(self, _) -> None:
+    rect = self.scaled_rect()
+    bg = self._bg_pressed if self.is_pressed else self._bg
+    tint = rl.Color(220, 220, 220, 255) if self.is_pressed else rl.WHITE
+    rl.draw_texture_ex(bg, rl.Vector2(rect.x, rect.y), 0.0, rect.width / bg.width, rl.WHITE)
+    icon = self._onroad_icon if self._is_dac2_active() else self._steering_icon
+    x = rect.x + (rect.width - icon.width) / 2
+    y = rect.y + (rect.height - icon.height) / 2
+    rl.draw_texture_ex(icon, rl.Vector2(x, y), 0.0, 1.0, tint)
+
+
 class SidePanelActionTray(Widget):
-  def __init__(self, bookmark_callback, settings_callback, dac_callback, is_dac_active):
+  def __init__(self, bookmark_callback, settings_callback, dac_callback, dac2_callback, is_secondary_active, is_dac_active, is_dac2_active):
     super().__init__()
     self._state = TrayState.COLLAPSED
     self._open_filter = BounceFilter(0.0, 0.1, 1 / gui_app.target_fps)
@@ -113,13 +133,15 @@ class SidePanelActionTray(Widget):
     self._touch_handled_by_tray = False
     self._dismiss_tray_on_release = False
 
-    self._bookmark_button = self._child(NavActionButton(self._on_bookmark_clicked, self._on_settings_clicked, is_dac_active))
+    self._bookmark_button = self._child(NavActionButton(self._on_bookmark_clicked, self._on_settings_clicked, is_secondary_active))
     self._dac_button = self._child(DACActionButton(self._on_dac_clicked, is_dac_active))
+    self._dac2_button = self._child(DAC2ActionButton(self._on_dac2_clicked, is_dac2_active))
     self._bookmark_callback = bookmark_callback
     self._settings_callback = settings_callback
     self._dac_callback = dac_callback
+    self._dac2_callback = dac2_callback
 
-    for button in (self._bookmark_button, self._dac_button):
+    for button in (self._bookmark_button, self._dac_button, self._dac2_button):
       button.set_touch_valid_callback(self._buttons_can_receive_taps)
 
   @property
@@ -144,25 +166,29 @@ class SidePanelActionTray(Widget):
   def _drag_distance(self) -> float:
     return max(self._swipe_start_x - self._swipe_current_x, 0.0)
 
-  def _tray_positions(self, progress: float) -> tuple[float, float, float]:
+  def _tray_positions(self, progress: float) -> tuple[float, float, float, float]:
     y = self.rect.y + self.rect.height * CENTER_Y_FRAC - BUTTON_SIZE / 2
-    visible_bookmark_x = self.rect.x + self.rect.width - (BUTTON_SIZE * 2 + BUTTON_GAP + RIGHT_MARGIN)
+    visible_bookmark_x = self.rect.x + self.rect.width - (BUTTON_SIZE * 3 + BUTTON_GAP * 2 + RIGHT_MARGIN)
     visible_dac_x = visible_bookmark_x + BUTTON_SIZE + BUTTON_GAP
+    visible_dac2_x = visible_dac_x + BUTTON_SIZE + BUTTON_GAP
 
     # Closed means the whole tray sits offscreen to the right.
     hidden_bookmark_x = self.rect.x + self.rect.width + HIDDEN_TRAY_GAP
     hidden_dac_x = hidden_bookmark_x + BUTTON_SIZE + BUTTON_GAP
+    hidden_dac2_x = hidden_dac_x + BUTTON_SIZE + BUTTON_GAP
 
     if progress <= 1.0:
       t = max(0.0, progress)
       bookmark_x = hidden_bookmark_x + (visible_bookmark_x - hidden_bookmark_x) * t
       dac_x = hidden_dac_x + (visible_dac_x - hidden_dac_x) * t
+      dac2_x = hidden_dac2_x + (visible_dac2_x - hidden_dac2_x) * t
     else:
       overswipe_distance = min((progress - 1.0) * OPEN_LATCH_DRAG_DISTANCE, OVERSWIPE_EXTRA_DRAG_DISTANCE)
       bookmark_x = visible_bookmark_x - overswipe_distance
       dac_x = visible_dac_x - overswipe_distance
+      dac2_x = visible_dac2_x - overswipe_distance
 
-    return y, bookmark_x, dac_x
+    return y, bookmark_x, dac_x, dac2_x
 
   def _on_bookmark_clicked(self) -> None:
     self._touch_handled_by_tray = True
@@ -179,6 +205,11 @@ class SidePanelActionTray(Widget):
     self.collapse()
     self._dac_callback()
 
+  def _on_dac2_clicked(self) -> None:
+    self._touch_handled_by_tray = True
+    self.collapse()
+    self._dac2_callback()
+
   def _update_state(self) -> None:
     if self._state == TrayState.DRAGGING:
       drag_distance = min(self._drag_distance(), MAX_TRAY_DRAG_DISTANCE)
@@ -189,9 +220,10 @@ class SidePanelActionTray(Widget):
       self._open_filter.update(target)
 
   def _layout(self) -> None:
-    y, bookmark_x, dac_x = self._tray_positions(self.open_progress)
+    y, bookmark_x, dac_x, dac2_x = self._tray_positions(self.open_progress)
     self._bookmark_button.set_rect(rl.Rectangle(bookmark_x, y, BUTTON_SIZE, BUTTON_SIZE))
     self._dac_button.set_rect(rl.Rectangle(dac_x, y, BUTTON_SIZE, BUTTON_SIZE))
+    self._dac2_button.set_rect(rl.Rectangle(dac2_x, y, BUTTON_SIZE, BUTTON_SIZE))
 
   def _handle_mouse_event(self, ev: MouseEvent) -> None:
     if not ui_state.started:
@@ -201,7 +233,8 @@ class SidePanelActionTray(Widget):
       if self._state == TrayState.EXPANDED:
         if not (
           rl.check_collision_point_rec(ev.pos, self._bookmark_button.rect) or
-          rl.check_collision_point_rec(ev.pos, self._dac_button.rect)
+          rl.check_collision_point_rec(ev.pos, self._dac_button.rect) or
+          rl.check_collision_point_rec(ev.pos, self._dac2_button.rect)
         ):
           self._dismiss_tray_on_release = True
           self._touch_handled_by_tray = True
@@ -235,3 +268,4 @@ class SidePanelActionTray(Widget):
       return
     self._bookmark_button.render(self._bookmark_button.rect)
     self._dac_button.render(self._dac_button.rect)
+    self._dac2_button.render(self._dac2_button.rect)
