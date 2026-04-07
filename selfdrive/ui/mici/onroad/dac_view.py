@@ -82,6 +82,8 @@ _DM_LABEL_ORANGE = rl.Color(255, 85, 0, 255)
 _DM_LABEL_RED = rl.Color(232, 0, 52, 255)
 _DM_ICON_SIZE = 28                # px — fits within _LABEL_AREA_H (40px)
 _DM_ICON_SWITCH_DELAY_S = 0.18    # require a brief stable classification before swapping icons
+_DM_VISUAL_PRE_ANCHOR = 0.40      # DAC display level at pre-warning threshold (~4/10 segments)
+_DM_VISUAL_PROMPT_ANCHOR = 0.80   # DAC display level at prompt-warning threshold (~8/10 segments)
 
 # Lead tile layout
 _LEAD_TILE_ICON_LEFT_PAD = 15
@@ -563,7 +565,7 @@ class DACView(Widget):
     bar_configs = (
       (self._combined_steering_warning(), "S",       None, None, None),
       (self._brake_filter.x, "B",       None, None, None),
-      (self._dm_filter.x,    dm_label,  dm_label_color, dm_icon, None),
+      (self._dm_display_level(), dm_label,  dm_label_color, dm_icon, None),
     )
 
     for tile_rect, (level, label, label_color, icon, segment_color) in zip(bar_rects, bar_configs, strict=True):
@@ -642,6 +644,36 @@ class DACView(Widget):
 
   def _dm_prompt_threshold(self) -> float:
     return _DM_AWARENESS_PROMPT if self._dm_is_active_mode else _DM_AWARENESS_PROMPT_PASSIVE
+
+  def _dm_pre_threshold(self) -> float:
+    return _DM_AWARENESS_PRE_ALERT if self._dm_is_active_mode else _DM_AWARENESS_PRE_ALERT_PASSIVE
+
+  def _dm_display_level(self) -> float:
+    """Remap DAC DM fill so pre/prompt thresholds land on fixed visual anchors."""
+    # Use raw awareness-derived risk for stage-accurate threshold alignment.
+    risk = float(np.clip(1.0 - self._dm_awareness, 0.0, 1.0))
+    pre_risk = float(np.clip(1.0 - self._dm_pre_threshold(), 0.0, 1.0))
+    prompt_risk = float(np.clip(1.0 - self._dm_prompt_threshold(), 0.0, 1.0))
+
+    if prompt_risk <= pre_risk + 1e-6:
+      return risk
+
+    # 10-segment bar targets:
+    # - pre warning lands in yellow-zone start (~4/10)
+    # - prompt warning lands in red-zone start (~8/10)
+    pre_visual = _DM_VISUAL_PRE_ANCHOR
+    prompt_visual = _DM_VISUAL_PROMPT_ANCHOR
+
+    if risk <= pre_risk:
+      if pre_risk <= 1e-6:
+        return pre_visual
+      return float(np.clip((risk / pre_risk) * pre_visual, 0.0, pre_visual))
+    if risk <= prompt_risk:
+      t = (risk - pre_risk) / (prompt_risk - pre_risk)
+      return float(np.clip(pre_visual + t * (prompt_visual - pre_visual), pre_visual, prompt_visual))
+
+    t = (risk - prompt_risk) / max(1e-6, 1.0 - prompt_risk)
+    return float(np.clip(prompt_visual + t * (1.0 - prompt_visual), prompt_visual, 1.0))
 
   def _dm_visual_color(self) -> rl.Color:
     event_name = self._dm_event_name
