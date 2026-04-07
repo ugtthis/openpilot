@@ -33,7 +33,7 @@ class DAC2View(base_dac_view.DACView):
         "bar_frame": base_dac_view._BAR_FRAME_COLOR,
         "seg_off": base_dac_view._SEG_OFF_COLOR,
         "speedo_bg": base_dac_view._SPEEDO_PANEL_BG,
-        "text_primary": rl.WHITE,
+        "text_primary": rl.Color(255, 255, 255, 255),
         "text_secondary": rl.Color(235, 235, 235, 230),
         "confidence_mask": base_dac_view._BAR_BG_COLOR,
       }
