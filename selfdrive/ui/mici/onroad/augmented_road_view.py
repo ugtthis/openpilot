@@ -196,6 +196,10 @@ class AugmentedRoadView(CameraView):
     self._dac_view.render(self.rect)
 
   def _render_dac_2_content(self) -> None:
+    alert_to_render, _ = self._alert_renderer.will_render()
+    self._hud_renderer.set_can_draw_top_icons(alert_to_render is None)
+    set_speed_alpha = self._hud_renderer.tick_set_speed_visibility()
+    self._dac_2_view.set_set_speed_overlay(set_speed_alpha, self._hud_renderer.current_set_speed_text())
     self._dac_2_view.set_rect(self.rect)
     self._dac_2_view.render(self.rect)
 

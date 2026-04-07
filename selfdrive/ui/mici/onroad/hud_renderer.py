@@ -139,6 +139,32 @@ class HudRenderer(Widget):
     # whether we're drawing any top icons currently
     return bool(self._set_speed_alpha_filter.x > 1e-2)
 
+  def _set_speed_visibility_target(self) -> bool:
+    return (
+      0 < rl.get_time() - self._set_speed_changed_time < SET_SPEED_PERSISTENCE
+      and self._can_draw_top_icons
+      and self._engaged
+    )
+
+  def _update_set_speed_alpha(self) -> float:
+    return self._set_speed_alpha_filter.update(self._set_speed_visibility_target())
+
+  def tick_set_speed_visibility(self) -> float:
+    """Advance set-speed visibility state without drawing HUD overlays."""
+    self._update_state()
+    if not self.is_cruise_set:
+      return self._set_speed_alpha_filter.update(0.0)
+    return self._update_set_speed_alpha()
+
+  def _formatted_set_speed_text(self) -> str:
+    set_speed = self.set_speed
+    if self.is_cruise_set and not ui_state.is_metric:
+      set_speed *= KM_TO_MILE
+    return CRUISE_DISABLED_CHAR if not self.is_cruise_set else str(round(set_speed))
+
+  def current_set_speed_text(self) -> str:
+    return self._formatted_set_speed_text()
+
   def _update_state(self) -> None:
     """Update HUD state based on car state and controls state."""
     sm = ui_state.sm
@@ -223,8 +249,7 @@ class HudRenderer(Widget):
 
   def _draw_set_speed(self, rect: rl.Rectangle) -> None:
     """Draw the MAX speed indicator box."""
-    alpha = self._set_speed_alpha_filter.update(0 < rl.get_time() - self._set_speed_changed_time < SET_SPEED_PERSISTENCE and
-                                                self._can_draw_top_icons and self._engaged)
+    alpha = self._update_set_speed_alpha()
     if alpha < 1e-2:
       return
 
@@ -239,11 +264,7 @@ class HudRenderer(Widget):
     set_speed_color = rl.Color(255, 255, 255, int(255 * 0.9 * alpha))
     max_color = rl.Color(255, 255, 255, int(255 * 0.9 * alpha))
 
-    set_speed = self.set_speed
-    if self.is_cruise_set and not ui_state.is_metric:
-      set_speed *= KM_TO_MILE
-
-    set_speed_text = CRUISE_DISABLED_CHAR if not self.is_cruise_set else str(round(set_speed))
+    set_speed_text = self._formatted_set_speed_text()
     rl.draw_text_ex(
       self._font_display,
       set_speed_text,

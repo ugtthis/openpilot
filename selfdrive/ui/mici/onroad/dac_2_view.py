@@ -4,12 +4,42 @@ from collections.abc import Callable
 
 from openpilot.selfdrive.ui.mici.onroad import dac_view as base_dac_view
 from openpilot.selfdrive.ui.mici.onroad.confidence_ball import ConfidenceBall
+from openpilot.system.ui.lib.multilang import tr
+from openpilot.system.ui.lib.text_measure import measure_text_cached
 
 
 class DAC2View(base_dac_view.DACView):
   def __init__(self, bookmark_callback: Callable[[], None] | None = None, confidence_ball: ConfidenceBall | None = None):
     super().__init__(bookmark_callback)
     self._confidence_ball_tile = confidence_ball if confidence_ball is not None else ConfidenceBall()
+    self._set_speed_alpha = 0.0
+    self._set_speed_text = "0"
+
+  def set_set_speed_overlay(self, alpha: float, set_speed_text: str) -> None:
+    self._set_speed_alpha = max(0.0, min(1.0, alpha))
+    self._set_speed_text = set_speed_text
+
+  def _draw_set_speed_tile(self, rect: rl.Rectangle) -> None:
+    self._draw_panel(rect, base_dac_view._SPEEDO_PANEL_BG)
+    alpha = self._set_speed_alpha
+    if alpha < 1e-2:
+      return
+
+    speed_size = max(66, int(rect.height * 0.52))
+    max_size = max(26, int(rect.height * 0.20))
+    set_speed_text_size = measure_text_cached(self._font_display, self._set_speed_text, speed_size)
+    max_text = tr("MAX")
+    max_text_size = measure_text_cached(self._font_medium, max_text, max_size)
+
+    group_height = set_speed_text_size.y + max_text_size.y - 6
+    speed_y = rect.y + (rect.height - group_height) / 2 - 4
+    speed_x = rect.x + (rect.width - set_speed_text_size.x) / 2
+    max_x = rect.x + (rect.width - max_text_size.x) / 2
+    max_y = speed_y + set_speed_text_size.y - 2
+
+    color = rl.Color(255, 255, 255, int(255 * 0.9 * alpha))
+    rl.draw_text_ex(self._font_display, self._set_speed_text, rl.Vector2(speed_x, speed_y), speed_size, 0, color)
+    rl.draw_text_ex(self._font_medium, max_text, rl.Vector2(max_x, max_y), max_size, 0, color)
 
   def _draw_tiles(self, rect: rl.Rectangle) -> None:
     gap = base_dac_view._TILE_GAP
@@ -48,6 +78,9 @@ class DAC2View(base_dac_view.DACView):
     bookmark_rect, speedo_rect = self._split_top_right_rect(top_right_rect)
     self._bookmark_hit_rect = top_right_rect
     self._bookmark_button.render(bookmark_rect)
-    self._draw_speedometer_tile(speedo_rect)
+    if self._set_speed_alpha > 1e-2:
+      self._draw_set_speed_tile(speedo_rect)
+    else:
+      self._draw_speedometer_tile(speedo_rect)
     self._experimental_button.render(bottom_rects[0])
     self._lead_tile.render(bottom_rects[1])
