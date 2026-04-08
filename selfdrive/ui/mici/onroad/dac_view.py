@@ -130,6 +130,14 @@ _BAR_BG_COLOR = rl.Color(20, 20, 20, 255)
 _BAR_FRAME_COLOR = rl.Color(62, 62, 62, 130)   # subtle bezel outline
 _SEG_OFF_COLOR = rl.Color(42, 42, 42, 255)      # dim "unlit" slot
 _RETRO_PANEL_BG = rl.Color(24, 24, 24, 255)
+_LIGHT_TILE_BG = rl.Color(246, 246, 241, 255)
+_LIGHT_TILE_BG_PRESSED = rl.Color(236, 236, 232, 255)
+_LIGHT_TILE_FRAME = rl.Color(180, 180, 170, 220)
+_LIGHT_EXP_ACTIVE_BG = rl.Color(246, 238, 233, 255)
+_LIGHT_EXP_ACTIVE_BG_PRESSED = rl.Color(240, 230, 226, 255)
+_LIGHT_BOOKMARK_ICON_TINT = rl.Color(30, 30, 30, 255)
+_LIGHT_LEAD_DOT_OFF = rl.Color(92, 92, 92, 255)
+_LIGHT_LEAD_DOT_ON = rl.Color(34, 34, 34, 255)
 _SPEEDO_PANEL_BG = rl.BLACK
 _RETRO_PANEL_GLOW = rl.Color(230, 230, 230, 255)
 _RETRO_PANEL_GLOW_DIM = rl.Color(120, 88, 32, 255)
@@ -230,16 +238,22 @@ def _experimental_mode_dialog_content() -> str:
 
 
 class BookmarkTileButton(Widget):
-  def __init__(self, click_callback: Callable[[], None] | None):
+  def __init__(self, click_callback: Callable[[], None] | None, light_mode_fn: Callable[[], bool] | None = None):
     super().__init__()
     self._click_delay = 0.075
+    self._light_mode_fn = light_mode_fn
     self.set_click_callback(click_callback)
     self._outline_texture = gui_app.texture("icons_dac/bookmark-1.png", 48, 48)
     self._filled_texture = gui_app.texture("icons_dac/bookmark-filled-1.png", 48, 48)
+    self._outline_texture_light = gui_app.texture("icons_dac/bookmark-black.png", 48, 48)
+    self._filled_texture_light = gui_app.texture("icons_dac/bookmark-black-filled.png", 48, 48)
     dt = 1.0 / gui_app.target_fps
     self._scale_filter = BounceFilter(1.0, 0.1, dt)
     self._filled_alpha_filter = FirstOrderFilter(0.0, 0.06, dt)
     self._filled_linger_until = 0.0
+
+  def _is_light_mode(self) -> bool:
+    return self._light_mode_fn() if self._light_mode_fn is not None else False
 
   def activate(self) -> None:
     self._filled_linger_until = rl.get_time() + _BOOKMARK_FILLED_LINGER_S
@@ -252,9 +266,21 @@ class BookmarkTileButton(Widget):
     self.activate()
 
   def _render(self, rect: rl.Rectangle) -> None:
-    bg = rl.Color(34, 34, 34, 255) if self.is_pressed else _RETRO_PANEL_BG
+    is_light = self._is_light_mode()
+    if is_light:
+      bg = _LIGHT_TILE_BG_PRESSED if self.is_pressed else _LIGHT_TILE_BG
+      frame = _LIGHT_TILE_FRAME
+      icon_tint = _LIGHT_BOOKMARK_ICON_TINT
+      outline_texture = self._outline_texture_light
+      filled_texture = self._filled_texture_light
+    else:
+      bg = rl.Color(34, 34, 34, 255) if self.is_pressed else _RETRO_PANEL_BG
+      frame = _BAR_FRAME_COLOR
+      icon_tint = _BOOKMARK_ICON_TINT
+      outline_texture = self._outline_texture
+      filled_texture = self._filled_texture
     rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, bg)
-    rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5, _BAR_FRAME_COLOR)
+    rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5, frame)
 
     scale_anim = self._scale_filter.update(0.94 if self.is_pressed else 1.0)
     filled_active = self.is_pressed or rl.get_time() < self._filled_linger_until
@@ -262,10 +288,10 @@ class BookmarkTileButton(Widget):
 
     icon_w = max(1.0, rect.width - 2 * _BOOKMARK_ICON_PAD + _BOOKMARK_ICON_SIZE_BOOST)
     icon_h = max(1.0, rect.height - 2 * _BOOKMARK_ICON_PAD + _BOOKMARK_ICON_SIZE_BOOST)
-    base_scale = min(icon_w / self._outline_texture.width, icon_h / self._outline_texture.height)
+    base_scale = min(icon_w / outline_texture.width, icon_h / outline_texture.height)
     scale = base_scale * scale_anim
-    draw_w = self._outline_texture.width * scale
-    draw_h = self._outline_texture.height * scale
+    draw_w = outline_texture.width * scale
+    draw_h = outline_texture.height * scale
     draw_x = rect.x + (rect.width - draw_w) / 2
     draw_y = rect.y + (rect.height - draw_h) / 2
 
@@ -273,20 +299,21 @@ class BookmarkTileButton(Widget):
     filled_alpha_int = int(255 * filled_alpha)
     if outline_alpha > 0:
       rl.draw_texture_ex(
-        self._outline_texture, rl.Vector2(draw_x, draw_y), 0.0, scale,
-        rl.Color(_BOOKMARK_ICON_TINT.r, _BOOKMARK_ICON_TINT.g, _BOOKMARK_ICON_TINT.b, outline_alpha)
+        outline_texture, rl.Vector2(draw_x, draw_y), 0.0, scale,
+        rl.Color(icon_tint.r, icon_tint.g, icon_tint.b, outline_alpha)
       )
     if filled_alpha_int > 0:
       rl.draw_texture_ex(
-        self._filled_texture, rl.Vector2(draw_x, draw_y), 0.0, scale,
-        rl.Color(_BOOKMARK_ICON_TINT.r, _BOOKMARK_ICON_TINT.g, _BOOKMARK_ICON_TINT.b, filled_alpha_int)
+        filled_texture, rl.Vector2(draw_x, draw_y), 0.0, scale,
+        rl.Color(icon_tint.r, icon_tint.g, icon_tint.b, filled_alpha_int)
       )
 
 
 class ExperimentalModeTileButton(Widget):
-  def __init__(self):
+  def __init__(self, light_mode_fn: Callable[[], bool] | None = None):
     super().__init__()
     self._click_delay = 0.075
+    self._light_mode_fn = light_mode_fn
     self._params = Params()
     self._actual_mode = False
     self._requested_mode = False
@@ -299,6 +326,9 @@ class ExperimentalModeTileButton(Widget):
 
     # Match current system gating: experimental mode only exists when OP longitudinal is available.
     self.set_enabled(lambda: ui_state.has_longitudinal_control)
+
+  def _is_light_mode(self) -> bool:
+    return self._light_mode_fn() if self._light_mode_fn is not None else False
 
   def _update_state(self) -> None:
     self._actual_mode = ui_state.sm["selfdriveState"].experimentalMode
@@ -346,28 +376,38 @@ class ExperimentalModeTileButton(Widget):
   def _render(self, rect: rl.Rectangle) -> None:
     enabled_visual = self._enabled_filter.update(1.0 if self._visual_mode() else 0.0)
     scale_anim = self._scale_filter.update(0.94 if self.is_pressed else 1.0)
+    is_light = self._is_light_mode()
 
-    bg = rl.Color(30, 30, 30, 255) if self.is_pressed else _RETRO_PANEL_BG
-    if enabled_visual > 0.5:
-      bg = rl.Color(30, 20, 16, 255) if self.is_pressed else rl.Color(24, 18, 16, 255)
+    if is_light:
+      bg = _LIGHT_TILE_BG_PRESSED if self.is_pressed else _LIGHT_TILE_BG
+      if enabled_visual > 0.5:
+        bg = _LIGHT_EXP_ACTIVE_BG_PRESSED if self.is_pressed else _LIGHT_EXP_ACTIVE_BG
+    else:
+      bg = rl.Color(30, 30, 30, 255) if self.is_pressed else _RETRO_PANEL_BG
+      if enabled_visual > 0.5:
+        bg = rl.Color(30, 20, 16, 255) if self.is_pressed else rl.Color(24, 18, 16, 255)
 
     rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, bg)
     if enabled_visual > 0.0:
-      glow = rl.Color(255, 112, 36, int(45 * enabled_visual))
+      glow_alpha = int((28 if is_light else 45) * enabled_visual)
+      glow = rl.Color(255, 112, 36, glow_alpha)
       rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, glow)
 
+    frame = _LIGHT_TILE_FRAME if is_light else _BAR_FRAME_COLOR
     border_color = rl.Color(
-      int(_BAR_FRAME_COLOR.r + enabled_visual * (255 - _BAR_FRAME_COLOR.r)),
-      int(_BAR_FRAME_COLOR.g + enabled_visual * (122 - _BAR_FRAME_COLOR.g)),
-      int(_BAR_FRAME_COLOR.b + enabled_visual * (62 - _BAR_FRAME_COLOR.b)),
-      int(_BAR_FRAME_COLOR.a + enabled_visual * (235 - _BAR_FRAME_COLOR.a)),
+      int(frame.r + enabled_visual * (255 - frame.r)),
+      int(frame.g + enabled_visual * (122 - frame.g)),
+      int(frame.b + enabled_visual * (62 - frame.b)),
+      int(frame.a + enabled_visual * (235 - frame.a)),
     )
     rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5 + enabled_visual, border_color)
 
     content_alpha = 255 if self.enabled else 115
-    self._draw_experimental_icon(rect, content_alpha, enabled_visual, scale_anim)
+    self._draw_experimental_icon(rect, content_alpha, enabled_visual, scale_anim, is_light)
 
-  def _draw_experimental_icon(self, rect: rl.Rectangle, alpha: int, enabled_visual: float, scale_anim: float) -> None:
+  def _draw_experimental_icon(
+    self, rect: rl.Rectangle, alpha: int, enabled_visual: float, scale_anim: float, is_light: bool
+  ) -> None:
     icon_w = max(1.0, rect.width - 2 * _EXP_TILE_ICON_PAD)
     icon_h = max(1.0, rect.height - 2 * _EXP_TILE_ICON_PAD)
     base_scale = min(icon_w / self._experimental_texture.width, icon_h / self._experimental_texture.height)
@@ -377,8 +417,9 @@ class ExperimentalModeTileButton(Widget):
     draw_x = rect.x + (rect.width - draw_w) / 2
     draw_y = rect.y + (rect.height - draw_h) / 2
 
-    off_tint = rl.Color(132, 132, 132, int(alpha * (0.74 - 0.32 * enabled_visual)))
-    on_tint = rl.Color(255, 255, 255, int(alpha * enabled_visual))
+    off_rgb = 72 if is_light else 132
+    off_tint = rl.Color(off_rgb, off_rgb, off_rgb, int(alpha * (0.74 - 0.32 * enabled_visual)))
+    on_tint = rl.Color(240, 112, 40, int(alpha * enabled_visual)) if is_light else rl.Color(255, 255, 255, int(alpha * enabled_visual))
 
     rl.draw_texture_ex(
       self._experimental_texture,
@@ -398,13 +439,19 @@ class ExperimentalModeTileButton(Widget):
 
 
 class LeadCarTile(Widget):
-  def __init__(self):
+  def __init__(self, light_mode_fn: Callable[[], bool] | None = None):
     super().__init__()
+    self._light_mode_fn = light_mode_fn
     self._lead_detected = False
     dt = 1.0 / gui_app.target_fps
     self._lead_filter = FirstOrderFilter(0.0, 0.08, dt)
     self._lead_texture_none = gui_app.texture("icons_dac/lead-car-none.png", 96, 96)
     self._lead_texture_lead = gui_app.texture("icons_dac/lead-car-1.png", 96, 96)
+    self._lead_texture_none_light = gui_app.texture("icons_dac/lead-car-none-dark.png", 96, 96)
+    self._lead_texture_lead_light = gui_app.texture("icons_dac/lead-car-dark.png", 96, 96)
+
+  def _is_light_mode(self) -> bool:
+    return self._light_mode_fn() if self._light_mode_fn is not None else False
 
   def _update_state(self) -> None:
     radar_state = ui_state.sm['radarState'] if ui_state.sm.valid['radarState'] else None
@@ -417,27 +464,37 @@ class LeadCarTile(Widget):
     self._draw_icon_and_indicator(rect, lead_visual)
 
   def _draw_panel(self, rect: rl.Rectangle) -> None:
-    bg = rl.Color(22, 22, 22, 255)
+    if self._is_light_mode():
+      bg = _LIGHT_TILE_BG
+      frame = _LIGHT_TILE_FRAME
+    else:
+      bg = rl.Color(22, 22, 22, 255)
+      frame = _BAR_FRAME_COLOR
     rl.draw_rectangle_rounded(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, bg)
-    rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5, _BAR_FRAME_COLOR)
+    rl.draw_rectangle_rounded_lines_ex(rect, _TILE_ROUNDNESS, _TILE_SEGMENTS, 1.5, frame)
 
   def _draw_icon_and_indicator(self, rect: rl.Rectangle, lead_visual: float) -> None:
+    is_light = self._is_light_mode()
+    lead_none_texture = self._lead_texture_none_light if is_light else self._lead_texture_none
+    lead_on_texture = self._lead_texture_lead_light if is_light else self._lead_texture_lead
+
     icon_w = max(1.0, rect.width - _LEAD_TILE_ICON_LEFT_PAD - _LEAD_TILE_ICON_RIGHT_PAD)
     icon_h = max(1.0, rect.height - 2 * _LEAD_TILE_ICON_PAD_Y)
-    base_scale = min(icon_w / self._lead_texture_none.width, icon_h / self._lead_texture_none.height)
+    base_scale = min(icon_w / lead_none_texture.width, icon_h / lead_none_texture.height)
     icon_x = rect.x + _LEAD_TILE_ICON_LEFT_PAD
-    icon_y = rect.y + (rect.height - self._lead_texture_none.height * base_scale) / 2 - _LEAD_TILE_ICON_TOP_BIAS
+    icon_y = rect.y + (rect.height - lead_none_texture.height * base_scale) / 2 - _LEAD_TILE_ICON_TOP_BIAS
 
-    dim_tint = rl.Color(118, 118, 118, 220)
-    rl.draw_texture_ex(self._lead_texture_none, rl.Vector2(icon_x, icon_y), 0.0, base_scale, dim_tint)
+    dim_tint = rl.Color(255, 255, 255, 220) if is_light else rl.Color(118, 118, 118, 220)
+    rl.draw_texture_ex(lead_none_texture, rl.Vector2(icon_x, icon_y), 0.0, base_scale, dim_tint)
     if lead_visual > 0:
       on_tint = rl.Color(255, 255, 255, int(255 * lead_visual))
-      rl.draw_texture_ex(self._lead_texture_lead, rl.Vector2(icon_x, icon_y), 0.0, base_scale, on_tint)
+      rl.draw_texture_ex(lead_on_texture, rl.Vector2(icon_x, icon_y), 0.0, base_scale, on_tint)
 
     dot_cx = rect.x + rect.width - _LEAD_TILE_DOT_RIGHT_PAD - _LEAD_TILE_DOT_RADIUS
     dot_cy = rect.y + rect.height / 2
-    dot_off = rl.Color(118, 118, 118, 255)
-    dot_on = rl.Color(255, 255, 255, int(255 * lead_visual))
+    dot_off = _LIGHT_LEAD_DOT_OFF if is_light else rl.Color(118, 118, 118, 255)
+    base_dot_on = _LIGHT_LEAD_DOT_ON if is_light else rl.Color(255, 255, 255, 255)
+    dot_on = rl.Color(base_dot_on.r, base_dot_on.g, base_dot_on.b, int(255 * lead_visual))
     rl.draw_ring(
       rl.Vector2(int(dot_cx), int(dot_cy)),
       _LEAD_TILE_DOT_RADIUS - _LEAD_TILE_DOT_STROKE,
@@ -448,12 +505,20 @@ class LeadCarTile(Widget):
       dot_off,
     )
     if dot_on.a > 0:
-      rl.draw_circle(int(dot_cx), int(dot_cy), _LEAD_TILE_DOT_RADIUS + 7 * lead_visual, rl.Color(255, 255, 255, int(42 * lead_visual)))
+      glow_base = _LIGHT_LEAD_DOT_ON if is_light else rl.Color(255, 255, 255, 255)
+      rl.draw_circle(
+        int(dot_cx), int(dot_cy), _LEAD_TILE_DOT_RADIUS + 7 * lead_visual,
+        rl.Color(glow_base.r, glow_base.g, glow_base.b, int(42 * lead_visual)),
+      )
       rl.draw_circle(int(dot_cx), int(dot_cy), _LEAD_TILE_DOT_RADIUS, dot_on)
 
 
 class DACView(Widget):
-  def __init__(self, bookmark_callback: Callable[[], None] | None = None):
+  def __init__(
+    self,
+    bookmark_callback: Callable[[], None] | None = None,
+    light_mode_fn: Callable[[], bool] | None = None,
+  ):
     super().__init__()
     dt = 1.0 / gui_app.target_fps
     self._steer_prediction_filter = FirstOrderFilter(0.0, 0.5, dt)  # S: model steerOverrideProb
@@ -466,9 +531,9 @@ class DACView(Widget):
     self._speed_display_seeded = False
     self._v_ego_cluster_seen = False
     Params().put_bool("ExperimentalMode", False)
-    self._bookmark_button = self._child(BookmarkTileButton(bookmark_callback))
-    self._experimental_button = self._child(ExperimentalModeTileButton())
-    self._lead_tile = self._child(LeadCarTile())
+    self._bookmark_button = self._child(BookmarkTileButton(bookmark_callback, light_mode_fn))
+    self._experimental_button = self._child(ExperimentalModeTileButton(light_mode_fn))
+    self._lead_tile = self._child(LeadCarTile(light_mode_fn))
     self._bookmark_hit_rect = rl.Rectangle()
 
     self._dm_awareness = 1.0

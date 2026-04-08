@@ -11,9 +11,9 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 
 class DAC2View(base_dac_view.DACView):
   def __init__(self, bookmark_callback: Callable[[], None] | None = None, confidence_ball: ConfidenceBall | None = None):
-    super().__init__(bookmark_callback)
-    self._confidence_ball_tile = confidence_ball if confidence_ball is not None else ConfidenceBall()
     self._light_mode = False
+    super().__init__(bookmark_callback, light_mode_fn=lambda: self._light_mode)
+    self._confidence_ball_tile = confidence_ball if confidence_ball is not None else ConfidenceBall()
     self._left_group_hit_rect = rl.Rectangle()
     self._set_speed_alpha = 0.0
     self._set_speed_text = "0"
@@ -53,7 +53,7 @@ class DAC2View(base_dac_view.DACView):
     return {
       UIStatus.DISENGAGED: rl.Color(168, 177, 189, 255),
       UIStatus.OVERRIDE: rl.Color(176, 176, 168, 255),
-      UIStatus.ENGAGED: rl.Color(126, 170, 136, 255),
+      UIStatus.ENGAGED: base_dac_view._BORDER_COLORS[UIStatus.ENGAGED],
     }
 
   def _draw_speedometer_sweep(self, panel_rect: rl.Rectangle, speed_frac: float) -> None:
