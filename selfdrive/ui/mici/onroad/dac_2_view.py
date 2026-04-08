@@ -5,28 +5,57 @@ from collections.abc import Callable
 from openpilot.selfdrive.ui.mici.onroad import dac_view as base_dac_view
 from openpilot.selfdrive.ui.mici.onroad.confidence_ball import ConfidenceBall
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
+from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 
 
+_THEME_DARK = "dark"
+_THEME_LIGHT = "light"
+_THEME_WINGS = "wings"
+_THEME_CYCLE = (_THEME_DARK, _THEME_LIGHT, _THEME_WINGS)
+_WINGS_INNER_BG = rl.Color(8, 24, 46, 255)
+_WINGS_BAR_BG = rl.Color(10, 32, 60, 255)
+_WINGS_BAR_FRAME = rl.Color(183, 213, 0, 230)
+_WINGS_SEG_OFF = rl.Color(22, 56, 92, 255)
+_WINGS_SPEEDO_BG = rl.Color(7, 21, 40, 255)
+_WINGS_TEXT_PRIMARY = rl.Color(246, 223, 74, 255)
+_WINGS_TEXT_SECONDARY = rl.Color(194, 220, 246, 245)
+_WINGS_BORDER_DISENGAGED = rl.Color(32, 152, 240, 255)
+_WINGS_BORDER_OVERRIDE = rl.Color(246, 223, 74, 255)
+_WINGS_SWEEP_LIT = rl.Color(246, 223, 74, 255)
+_WINGS_SWEEP_UNLIT = rl.Color(26, 78, 120, 255)
+_WINGS_SWEEP_REDZONE_UNLIT = rl.Color(82, 36, 48, 255)
+_WINGS_LABEL_DEFAULT = rl.Color(184, 215, 245, 255)
+
+
 class DAC2View(base_dac_view.DACView):
   def __init__(self, bookmark_callback: Callable[[], None] | None = None, confidence_ball: ConfidenceBall | None = None):
-    self._light_mode = False
-    super().__init__(bookmark_callback, light_mode_fn=lambda: self._light_mode)
+    self._theme_idx = 0
+    super().__init__(
+      bookmark_callback,
+      light_mode_fn=lambda: self._theme_name() == _THEME_LIGHT,
+      theme_name_fn=self._theme_name,
+    )
     self._confidence_ball_tile = confidence_ball if confidence_ball is not None else ConfidenceBall()
     self._left_group_hit_rect = rl.Rectangle()
     self._set_speed_alpha = 0.0
     self._set_speed_text = "0"
+    self._set_speed_temp_texture = gui_app.texture("icons_dac/wings-icon.png", 196, 196)
 
   def set_set_speed_overlay(self, alpha: float, set_speed_text: str) -> None:
     self._set_speed_alpha = max(0.0, min(1.0, alpha))
     self._set_speed_text = set_speed_text
 
   def _is_light_mode(self) -> bool:
-    return self._light_mode
+    return self._theme_name() == _THEME_LIGHT
+
+  def _theme_name(self) -> str:
+    return _THEME_CYCLE[self._theme_idx]
 
   def _theme_colors(self) -> dict[str, rl.Color]:
-    if not self._is_light_mode():
+    theme = self._theme_name()
+    if theme == _THEME_DARK:
       return {
         "inner_bg": base_dac_view._DAC_BG_COLOR,
         "bar_bg": base_dac_view._BAR_BG_COLOR,
@@ -37,22 +66,42 @@ class DAC2View(base_dac_view.DACView):
         "text_secondary": rl.Color(235, 235, 235, 230),
         "confidence_mask": base_dac_view._BAR_BG_COLOR,
       }
+    if theme == _THEME_LIGHT:
+      return {
+        "inner_bg": rl.Color(236, 236, 232, 255),
+        "bar_bg": rl.Color(246, 246, 241, 255),
+        "bar_frame": rl.Color(180, 180, 170, 220),
+        "seg_off": rl.Color(214, 214, 204, 255),
+        "speedo_bg": rl.Color(244, 244, 238, 255),
+        "text_primary": rl.Color(34, 34, 34, 255),
+        "text_secondary": rl.Color(72, 72, 72, 240),
+        "confidence_mask": rl.Color(246, 246, 241, 255),
+      }
 
     return {
-      "inner_bg": rl.Color(236, 236, 232, 255),
-      "bar_bg": rl.Color(246, 246, 241, 255),
-      "bar_frame": rl.Color(180, 180, 170, 220),
-      "seg_off": rl.Color(214, 214, 204, 255),
-      "speedo_bg": rl.Color(244, 244, 238, 255),
-      "text_primary": rl.Color(34, 34, 34, 255),
-      "text_secondary": rl.Color(72, 72, 72, 240),
-      "confidence_mask": rl.Color(246, 246, 241, 255),
+      "inner_bg": _WINGS_INNER_BG,
+      "bar_bg": _WINGS_BAR_BG,
+      "bar_frame": _WINGS_BAR_FRAME,
+      "seg_off": _WINGS_SEG_OFF,
+      "speedo_bg": _WINGS_SPEEDO_BG,
+      "text_primary": _WINGS_TEXT_PRIMARY,
+      "text_secondary": _WINGS_TEXT_SECONDARY,
+      "confidence_mask": _WINGS_BAR_BG,
     }
 
-  def _light_mode_border_colors(self) -> dict[UIStatus, rl.Color]:
+  def _border_colors_for_theme(self) -> dict[UIStatus, rl.Color]:
+    theme = self._theme_name()
+    if theme == _THEME_DARK:
+      return base_dac_view._BORDER_COLORS
+    if theme == _THEME_LIGHT:
+      return {
+        UIStatus.DISENGAGED: rl.Color(168, 177, 189, 255),
+        UIStatus.OVERRIDE: rl.Color(176, 176, 168, 255),
+        UIStatus.ENGAGED: base_dac_view._BORDER_COLORS[UIStatus.ENGAGED],
+      }
     return {
-      UIStatus.DISENGAGED: rl.Color(168, 177, 189, 255),
-      UIStatus.OVERRIDE: rl.Color(176, 176, 168, 255),
+      UIStatus.DISENGAGED: _WINGS_BORDER_DISENGAGED,
+      UIStatus.OVERRIDE: _WINGS_BORDER_OVERRIDE,
       UIStatus.ENGAGED: base_dac_view._BORDER_COLORS[UIStatus.ENGAGED],
     }
 
@@ -62,20 +111,26 @@ class DAC2View(base_dac_view.DACView):
     red_zone_start = int(base_dac_view._SPEEDO_SEGMENTS * base_dac_view._SPEEDO_RED_ZONE_START_RATIO)
     sweep_y = panel_rect.y + base_dac_view._SPEEDO_SWEEP_TOP_INSET
     sweep_h = max(10.0, panel_rect.height * base_dac_view._SPEEDO_SWEEP_HEIGHT_RATIO)
-    is_light = self._is_light_mode()
+    theme = self._theme_name()
+    is_light = theme == _THEME_LIGHT
+    is_wings = theme == _THEME_WINGS
 
     for idx in range(base_dac_view._SPEEDO_SEGMENTS):
       x = panel_rect.x + idx * (seg_w + base_dac_view._SPEEDO_SEG_GAP)
       seg_rect = rl.Rectangle(x, sweep_y, seg_w, sweep_h)
 
       if idx < lit_segments:
-        color = base_dac_view._RETRO_PANEL_GLOW if idx < red_zone_start else rl.Color(210, 32, 24, 255)
+        if idx < red_zone_start:
+          color = _WINGS_SWEEP_LIT if is_wings else base_dac_view._RETRO_PANEL_GLOW
+        else:
+          color = rl.Color(210, 32, 24, 255)
       else:
-        color = rl.Color(188, 188, 178, 255) if is_light and idx < red_zone_start else (
-          rl.Color(198, 182, 178, 255) if is_light else (
-            rl.Color(52, 52, 52, 255) if idx < red_zone_start else rl.Color(62, 24, 24, 255)
-          )
-        )
+        if is_light:
+          color = rl.Color(188, 188, 178, 255) if idx < red_zone_start else rl.Color(198, 182, 178, 255)
+        elif is_wings:
+          color = _WINGS_SWEEP_UNLIT if idx < red_zone_start else _WINGS_SWEEP_REDZONE_UNLIT
+        else:
+          color = rl.Color(52, 52, 52, 255) if idx < red_zone_start else rl.Color(62, 24, 24, 255)
       rl.draw_rectangle_rounded(seg_rect, 0.15, 4, color)
 
   def _draw_speedometer_readout(self, rect: rl.Rectangle, panel_rect: rl.Rectangle) -> None:
@@ -123,7 +178,7 @@ class DAC2View(base_dac_view.DACView):
 
   def draw_status_border(self, rect: rl.Rectangle) -> None:
     border_rect = rl.Rectangle(rect.x, rect.y, rect.width, rect.height)
-    border_colors = self._light_mode_border_colors() if self._is_light_mode() else base_dac_view._BORDER_COLORS
+    border_colors = self._border_colors_for_theme()
     border_color = border_colors.get(ui_state.status, border_colors[UIStatus.DISENGAGED])
     rl.draw_rectangle_rounded(border_rect, base_dac_view._BORDER_ROUNDNESS, base_dac_view._BORDER_SEGMENTS, border_color)
 
@@ -206,7 +261,12 @@ class DAC2View(base_dac_view.DACView):
 
     label_cx = rect.x + rect.width / 2
     label_cy = rect.y + rect.height - base_dac_view._LABEL_AREA_H / 2
-    default_label_color = rl.Color(94, 94, 94, 255) if self._is_light_mode() else base_dac_view._DM_LABEL_DEFAULT_COLOR
+    if self._theme_name() == _THEME_LIGHT:
+      default_label_color = rl.Color(94, 94, 94, 255)
+    elif self._theme_name() == _THEME_WINGS:
+      default_label_color = _WINGS_LABEL_DEFAULT
+    else:
+      default_label_color = base_dac_view._DM_LABEL_DEFAULT_COLOR
     color = label_color if label_color is not None else default_label_color
     if label_icon is not None:
       scale = min(base_dac_view._DM_ICON_SIZE / label_icon.width, base_dac_view._DM_ICON_SIZE / label_icon.height)
@@ -231,6 +291,18 @@ class DAC2View(base_dac_view.DACView):
     if alpha < 1e-2:
       return
 
+    if self._theme_name() == _THEME_WINGS:
+      icon_max_w = rect.width * 0.72
+      icon_max_h = rect.height * 0.72
+      scale = min(icon_max_w / self._set_speed_temp_texture.width, icon_max_h / self._set_speed_temp_texture.height)
+      draw_w = self._set_speed_temp_texture.width * scale
+      draw_h = self._set_speed_temp_texture.height * scale
+      draw_x = rect.x + (rect.width - draw_w) / 2
+      draw_y = rect.y + (rect.height - draw_h) / 2
+      tint = rl.Color(255, 255, 255, int(255 * alpha))
+      rl.draw_texture_ex(self._set_speed_temp_texture, rl.Vector2(draw_x, draw_y), 0.0, scale, tint)
+      return
+
     speed_size = max(66, int(rect.height * 0.52))
     max_size = max(26, int(rect.height * 0.20))
     set_speed_text_size = measure_text_cached(self._font_display, self._set_speed_text, speed_size)
@@ -250,7 +322,7 @@ class DAC2View(base_dac_view.DACView):
 
   def _handle_mouse_release(self, mouse_pos) -> None:
     if rl.check_collision_point_rec(mouse_pos, self._left_group_hit_rect):
-      self._light_mode = not self._light_mode
+      self._theme_idx = (self._theme_idx + 1) % len(_THEME_CYCLE)
       return
     super()._handle_mouse_release(mouse_pos)
 
