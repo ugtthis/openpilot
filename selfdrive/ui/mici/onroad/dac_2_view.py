@@ -277,6 +277,7 @@ class DAC2View(base_dac_view.DACView):
     top_right_rect = rl.Rectangle(rect.x + left_group_w + gap, rect.y, right_group_w, top_right_h)
     bottom_row_y = rect.y + top_right_h + base_dac_view._RIGHT_ROW_GAP
     bottom_row_x = rect.x + left_group_w + gap
+    self._experimental_hit_rect = rl.Rectangle(bottom_row_x, bottom_row_y, right_group_w, bottom_right_h)
     bottom_rects = (
       rl.Rectangle(bottom_row_x, bottom_row_y, bottom_tile_w, bottom_right_h),
       rl.Rectangle(bottom_row_x + bottom_tile_w + base_dac_view._BOTTOM_ROW_GAP, bottom_row_y, bottom_tile_w, bottom_right_h),

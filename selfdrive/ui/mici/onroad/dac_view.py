@@ -336,6 +336,11 @@ class ExperimentalModeTileButton(Widget):
 
   def _handle_mouse_release(self, mouse_pos) -> None:
     super()._handle_mouse_release(mouse_pos)
+    self.activate()
+
+  def activate(self) -> None:
+    if self._click_delay is not None:
+      self._click_release_time = rl.get_time() + self._click_delay
 
     if self._visual_mode():
       self._apply_mode(False)
@@ -535,6 +540,7 @@ class DACView(Widget):
     self._experimental_button = self._child(ExperimentalModeTileButton(light_mode_fn))
     self._lead_tile = self._child(LeadCarTile(light_mode_fn))
     self._bookmark_hit_rect = rl.Rectangle()
+    self._experimental_hit_rect = rl.Rectangle()
 
     self._dm_awareness = 1.0
     self._dm_distracted_type = 0
@@ -588,6 +594,9 @@ class DACView(Widget):
     super()._handle_mouse_release(mouse_pos)
     if rl.check_collision_point_rec(mouse_pos, self._bookmark_hit_rect):
       self._bookmark_button.activate()
+    if rl.check_collision_point_rec(mouse_pos, self._experimental_hit_rect) and \
+       not rl.check_collision_point_rec(mouse_pos, self._experimental_button.rect):
+      self._experimental_button.activate()
 
   def _content_rect(self, rect: rl.Rectangle) -> rl.Rectangle:
     inset = _BORDER_SIZE + _CONTENT_INSET
@@ -620,6 +629,7 @@ class DACView(Widget):
     top_right_rect = rl.Rectangle(rect.x + left_group_w + gap, rect.y, right_group_w, top_right_h)
     bottom_row_y = rect.y + top_right_h + _RIGHT_ROW_GAP
     bottom_row_x = rect.x + left_group_w + gap
+    self._experimental_hit_rect = rl.Rectangle(bottom_row_x, bottom_row_y, right_group_w, bottom_right_h)
     bottom_rects = (
       rl.Rectangle(bottom_row_x, bottom_row_y, bottom_tile_w, bottom_right_h),
       rl.Rectangle(bottom_row_x + bottom_tile_w + _BOTTOM_ROW_GAP, bottom_row_y, bottom_tile_w, bottom_right_h),
