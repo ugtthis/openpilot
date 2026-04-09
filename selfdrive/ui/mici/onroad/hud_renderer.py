@@ -156,6 +156,14 @@ class HudRenderer(Widget):
       return self._set_speed_alpha_filter.update(0.0)
     return self._update_set_speed_alpha()
 
+  def tick_set_speed_visibility_dac(self) -> float:
+    """Timed set-speed visibility for DAC views, without top-icon gating."""
+    self._update_state()
+    if not self.is_cruise_set or not self._engaged:
+      return self._set_speed_alpha_filter.update(0.0)
+    visible = 0 < rl.get_time() - self._set_speed_changed_time < SET_SPEED_PERSISTENCE
+    return self._set_speed_alpha_filter.update(visible)
+
   def _formatted_set_speed_text(self) -> str:
     set_speed = self.set_speed
     if self.is_cruise_set and not ui_state.is_metric:
