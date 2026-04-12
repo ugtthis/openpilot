@@ -81,7 +81,7 @@ _DM_LABEL_YELLOW = rl.Color(255, 215, 0, 255)
 _DM_LABEL_ORANGE = rl.Color(255, 85, 0, 255)
 _DM_LABEL_RED = rl.Color(232, 0, 52, 255)
 _DM_ICON_SIZE = 35                # px — fits within _LABEL_AREA_H (56px)
-_DM_ICON_SWITCH_DELAY_S = 0.18    # require a brief stable classification before swapping icons
+_DM_ICON_SWITCH_DELAY_S = 0.25    # require a brief stable classification before swapping icons
 _DM_VISUAL_PRE_ANCHOR = 0.40      # DAC display level at pre-warning threshold (~4/10 segments)
 _DM_VISUAL_PROMPT_ANCHOR = 0.80   # DAC display level at prompt-warning threshold (~8/10 segments)
 
