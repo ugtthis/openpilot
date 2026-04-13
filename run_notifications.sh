@@ -33,6 +33,34 @@ install_python_runtime() {
   return 1
 }
 
+detect_build_jobs() {
+  if command -v nproc >/dev/null 2>&1; then
+    nproc
+    return
+  fi
+  if command -v sysctl >/dev/null 2>&1; then
+    sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4
+    return
+  fi
+  echo 4
+}
+
+ensure_msgq_module() {
+  if uv run python -c "import msgq.ipc_pyx" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local jobs
+  jobs="$(detect_build_jobs)"
+  echo "msgq.ipc_pyx missing; building native extension (jobs=$jobs)..."
+  uv run scons -j"$jobs" msgq_repo/msgq/ipc_pyx.so
+
+  uv run python -c "import msgq.ipc_pyx" >/dev/null 2>&1 || {
+    echo "Failed to build msgq.ipc_pyx"
+    return 1
+  }
+}
+
 DEMO_ARGS=()
 SELF_TEST=0
 
@@ -94,6 +122,7 @@ echo "Syncing Python dependencies..."
 echo "Using Python $UV_PYTHON"
 install_python_runtime "$UV_PYTHON"
 uv sync --frozen --all-extras
+ensure_msgq_module
 export PATH="$ROOT/.venv/bin:$PATH"
 
 [[ ! -f selfdrive/assets/fonts/Inter-Medium.fnt ]] && uv run python selfdrive/assets/fonts/process.py
