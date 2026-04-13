@@ -45,20 +45,11 @@ detect_build_jobs() {
   echo 4
 }
 
-ensure_native_modules() {
-  if uv run python -c "import msgq.ipc_pyx, openpilot.common.params_pyx" >/dev/null 2>&1; then
-    return 0
-  fi
-
+build_native_modules() {
   local jobs
   jobs="$(detect_build_jobs)"
-  echo "Required native modules missing; building (jobs=$jobs)..."
-  uv run scons -j"$jobs" msgq_repo/msgq/ipc_pyx.so common/params_pyx.so
-
-  uv run python -c "import msgq.ipc_pyx, openpilot.common.params_pyx" >/dev/null 2>&1 || {
-    echo "Failed to build required native modules (msgq.ipc_pyx / openpilot.common.params_pyx)"
-    return 1
-  }
+  echo "Building native modules (jobs=$jobs)..."
+  uv run scons -j"$jobs" msgq_repo common
 }
 
 DEMO_ARGS=()
@@ -122,7 +113,7 @@ echo "Syncing Python dependencies..."
 echo "Using Python $UV_PYTHON"
 install_python_runtime "$UV_PYTHON"
 uv sync --frozen --all-extras
-ensure_native_modules
+build_native_modules
 export PATH="$ROOT/.venv/bin:$PATH"
 
 [[ ! -f selfdrive/assets/fonts/Inter-Medium.fnt ]] && uv run python selfdrive/assets/fonts/process.py
