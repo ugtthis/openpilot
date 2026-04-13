@@ -1,4 +1,5 @@
 import math
+import os
 import time
 from functools import wraps
 from collections import OrderedDict
@@ -152,6 +153,7 @@ class TorqueBar(Widget):
   def __init__(self, demo: bool = False):
     super().__init__()
     self._demo = demo
+    self._force_caroutput_torque = os.getenv("UI_NOTIFICATION_DEMO_STATIC_BG", "0") == "1"
     self._torque_filter = FirstOrderFilter(0, 0.1, 1 / gui_app.target_fps)
     self._torque_line_alpha_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
 
@@ -164,7 +166,7 @@ class TorqueBar(Widget):
       return
 
     # torque line
-    if ui_state.sm['controlsState'].lateralControlState.which() == 'angleState':
+    if not self._force_caroutput_torque and ui_state.sm['controlsState'].lateralControlState.which() == 'angleState':
       controls_state = ui_state.sm['controlsState']
       car_state = ui_state.sm['carState']
       live_parameters = ui_state.sm['liveParameters']

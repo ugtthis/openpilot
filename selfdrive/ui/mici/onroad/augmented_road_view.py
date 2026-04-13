@@ -1,3 +1,4 @@
+import os
 import time
 import numpy as np
 import pyray as rl
@@ -134,6 +135,10 @@ class AugmentedRoadView(CameraView):
     super().__init__("camerad", stream_type)
     self._bookmark_callback = bookmark_callback
     self._set_placeholder_color(rl.BLACK)
+    self._use_notification_demo_bg = os.getenv("UI_NOTIFICATION_DEMO_STATIC_BG", "0") == "1"
+    self._demo_bg_engaged = gui_app.texture("images/onroad_demo/engaged-screenshot.png") if self._use_notification_demo_bg else None
+    self._demo_bg_disengaged = gui_app.texture("images/onroad_demo/disengaged-screenshot.png") if self._use_notification_demo_bg else None
+    self._demo_bg_override = gui_app.texture("images/onroad_demo/override-screenshot.png") if self._use_notification_demo_bg else None
 
     self.device_camera: DeviceCameraConfig | None = None
     self.view_from_calib = view_frame_from_device_frame.copy()
@@ -197,8 +202,12 @@ class AugmentedRoadView(CameraView):
       self.rect.height,
     )
 
-    # Enable scissor mode to clip all rendering within content rectangle boundaries
-    # This creates a rendering viewport that prevents graphics from drawing outside the border
+    # Render the base camera view
+    super()._render(self._content_rect)
+    if self._use_notification_demo_bg and self.frame is None:
+      self._draw_demo_background(self._content_rect)
+
+    # Enable scissor mode to clip all overlay rendering within content rectangle boundaries
     rl.begin_scissor_mode(
       int(self._content_rect.x),
       int(self._content_rect.y),
@@ -206,11 +215,9 @@ class AugmentedRoadView(CameraView):
       int(self._content_rect.height)
     )
 
-    # Render the base camera view
-    super()._render(self._content_rect)
-
-    # Draw all UI overlays
-    self._model_renderer.render(self._content_rect)
+    # Draw all UI overlays. In static demo background mode, keep only alert/HUD layers.
+    if not self._use_notification_demo_bg:
+      self._model_renderer.render(self._content_rect)
 
     # Fade out bottom of overlays for looks
     rl.draw_texture_ex(self._fade_texture, rl.Vector2(self._content_rect.x, self._content_rect.y), 0.0, 1.0, rl.WHITE)
@@ -253,6 +260,40 @@ class AugmentedRoadView(CameraView):
     msg = messaging.new_message('uiDebug')
     msg.uiDebug.drawTimeMillis = (time.monotonic() - start_draw) * 1000
     self._pm.send('uiDebug', msg)
+
+  def _draw_demo_background(self, dst_rect: rl.Rectangle):
+    if ui_state.status == UIStatus.DISENGAGED:
+      texture = self._demo_bg_disengaged
+    elif ui_state.status == UIStatus.OVERRIDE:
+      texture = self._demo_bg_override if self._demo_bg_override is not None else self._demo_bg_engaged
+    else:
+      texture = self._demo_bg_engaged
+    if texture is None or texture.id == 0:
+      return
+
+    tex_w, tex_h = float(texture.width), float(texture.height)
+    dst_w, dst_h = float(dst_rect.width), float(dst_rect.height)
+    if tex_w <= 0 or tex_h <= 0 or dst_w <= 0 or dst_h <= 0:
+      return
+
+    tex_aspect = tex_w / tex_h
+    dst_aspect = dst_w / dst_h
+
+    if tex_aspect > dst_aspect:
+      # Crop horizontal sides.
+      src_h = tex_h
+      src_w = src_h * dst_aspect
+      src_x = (tex_w - src_w) / 2.0
+      src_y = 0.0
+    else:
+      # Crop top/bottom.
+      src_w = tex_w
+      src_h = src_w / dst_aspect
+      src_x = 0.0
+      src_y = (tex_h - src_h) / 2.0
+
+    src_rect = rl.Rectangle(src_x, src_y, src_w, src_h)
+    rl.draw_texture_pro(texture, src_rect, dst_rect, rl.Vector2(0, 0), 0.0, rl.WHITE)
 
   def _switch_stream_if_needed(self, sm):
     if sm['selfdriveState'].experimentalMode and WIDE_CAM in self.available_streams:
