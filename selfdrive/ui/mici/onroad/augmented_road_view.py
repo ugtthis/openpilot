@@ -15,6 +15,7 @@ from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
 from openpilot.selfdrive.ui.mici.onroad.action_tray import SidePanelActionTray
 from openpilot.selfdrive.ui.mici.onroad.dac_view import DACView
 from openpilot.selfdrive.ui.mici.onroad.dac_2_view import DAC2View
+from openpilot.selfdrive.ui.mici.onroad.dac_3_view import DAC3View
 from openpilot.system.ui.lib.application import FontWeight, gui_app, MousePos
 from openpilot.system.ui.widgets.label import UnifiedLabel
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
@@ -34,6 +35,7 @@ class OnroadContentMode(IntEnum):
   ROAD = 0
   DAC = 1
   DAC2 = 2
+  DAC3 = 3
 
 
 class AugmentedRoadView(CameraView):
@@ -60,14 +62,17 @@ class AugmentedRoadView(CameraView):
     self._confidence_ball = ConfidenceBall()
     self._dac_view = DACView(bookmark_callback)
     self._dac_2_view = DAC2View(bookmark_callback, confidence_ball=self._confidence_ball)
+    self._dac_3_view = DAC3View(bookmark_callback, confidence_ball=self._confidence_ball)
     self._action_tray = SidePanelActionTray(
       bookmark_callback,
       settings_callback,
       self._toggle_dac,
       self._toggle_dac_2,
+      self._toggle_dac_3,
       self._is_non_road_mode_active,
       self._is_dac_mode_active,
       self._is_dac_2_mode_active,
+      self._is_dac_3_mode_active,
     )
     self._offroad_label = UnifiedLabel(
       "start the car to\nuse openpilot", 54, FontWeight.DISPLAY,
@@ -89,6 +94,9 @@ class AugmentedRoadView(CameraView):
   def _is_dac_2_mode_active(self) -> bool:
     return self._content_mode == OnroadContentMode.DAC2
 
+  def _is_dac_3_mode_active(self) -> bool:
+    return self._content_mode == OnroadContentMode.DAC3
+
   def _toggle_dac(self) -> None:
     self._content_mode = (
       OnroadContentMode.ROAD
@@ -101,6 +109,13 @@ class AugmentedRoadView(CameraView):
       OnroadContentMode.ROAD
       if self._content_mode == OnroadContentMode.DAC2
       else OnroadContentMode.DAC2
+    )
+
+  def _toggle_dac_3(self) -> None:
+    self._content_mode = (
+      OnroadContentMode.ROAD
+      if self._content_mode == OnroadContentMode.DAC3
+      else OnroadContentMode.DAC3
     )
 
   def _update_state(self) -> None:
@@ -139,6 +154,8 @@ class AugmentedRoadView(CameraView):
       self._render_dac_content()
     elif self._content_mode == OnroadContentMode.DAC2:
       self._render_dac_2_content()
+    elif self._content_mode == OnroadContentMode.DAC3:
+      self._render_dac_3_content()
     elif ui_state.started:
       # Offroad must skip camera rendering entirely or a buffered VisionIPC frame
       # can linger under the dark overlay after demo replay stops.
@@ -202,6 +219,14 @@ class AugmentedRoadView(CameraView):
     self._dac_2_view.set_set_speed_overlay(set_speed_alpha, self._hud_renderer.current_set_speed_text())
     self._dac_2_view.set_rect(self.rect)
     self._dac_2_view.render(self.rect)
+
+  def _render_dac_3_content(self) -> None:
+    alert_to_render, _ = self._alert_renderer.will_render()
+    self._hud_renderer.set_can_draw_top_icons(alert_to_render is None)
+    set_speed_alpha = self._hud_renderer.tick_set_speed_visibility_dac()
+    self._dac_3_view.set_set_speed_overlay(set_speed_alpha, self._hud_renderer.current_set_speed_text())
+    self._dac_3_view.set_rect(self.rect)
+    self._dac_3_view.render(self.rect)
 
   def _render_side_panel(self) -> None:
     if not self._is_non_road_mode_active():
