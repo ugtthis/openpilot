@@ -1,4 +1,6 @@
 [lfs]
+	# Fetch LFS objects from comma public store (same as upstream).
 	url = https://gitlab.com/commaai/openpilot-lfs.git/info/lfs
-	pushurl = ssh://git@gitlab.com/commaai/openpilot-lfs.git
+	# Pushes must go to your fork on GitHub — you cannot push LFS to comma’s GitLab without their credentials.
+	pushurl = https://github.com/ugtthis/openpilot.git/info/lfs
 	locksverify = false
