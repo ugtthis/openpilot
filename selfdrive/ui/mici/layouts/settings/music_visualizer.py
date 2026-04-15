@@ -648,6 +648,11 @@ class EyebrowBilly:
   After drop (intro_frac ≥ 1): normal face + waveform eyebrows.
   """
 
+  _N_SPARKS = 220
+  _N_SHRAP = 300
+  _N_WARP = 500
+  _N_CHAOS = 40
+
   def __init__(self, origin_rect: "rl.Rectangle | None" = None) -> None:
     self._prev_beat_flash: float = 0.0
     self._particles: list[dict] = []
@@ -676,56 +681,64 @@ class EyebrowBilly:
     self._scat_rx     = [rng.uniform(0.15, 0.42)        for _ in range(n_total)]
     self._scat_ry     = [rng.uniform(0.12, 0.38)        for _ in range(n_total)]
     # ---- Firework sparks — shoot out on explosion, arc with gravity, fade away ----
-    _N_SPARKS = 220
     srng = random.Random(99)
     # Each spark: angle, speed (0-1 scale), hue, launch delay (fraction of intro),
     # gravity factor (positive = pulled down, negative = floats up briefly)
-    self._spark_angle   = [srng.uniform(0.0, 2 * math.pi) for _ in range(_N_SPARKS)]
-    self._spark_speed   = [srng.uniform(0.30, 1.00)        for _ in range(_N_SPARKS)]
-    self._spark_delay   = [srng.uniform(0.0, 0.12)         for _ in range(_N_SPARKS)]  # staggered waves
-    self._spark_gravity = [srng.uniform(0.2, 1.0)          for _ in range(_N_SPARKS)]  # arc strength
-    self._spark_size    = [srng.uniform(2.0, 7.0)          for _ in range(_N_SPARKS)]
+    self._spark_angle   = [srng.uniform(0.0, 2 * math.pi) for _ in range(EyebrowBilly._N_SPARKS)]
+    self._spark_speed   = [srng.uniform(0.30, 1.00)        for _ in range(EyebrowBilly._N_SPARKS)]
+    self._spark_delay   = [srng.uniform(0.0, 0.12)         for _ in range(EyebrowBilly._N_SPARKS)]  # staggered waves
+    self._spark_gravity = [srng.uniform(0.2, 1.0)          for _ in range(EyebrowBilly._N_SPARKS)]  # arc strength
+    self._spark_size    = [srng.uniform(2.0, 7.0)          for _ in range(EyebrowBilly._N_SPARKS)]
 
     # ---- Shrapnel layer — fast, tight, erratic burst on top of main firework ----
     # Travels 2x faster, lives half as long, nearly no gravity — feels like hot debris.
-    _N_SHRAP = 300
     xrng = random.Random(777)
-    self._shrap_angle   = [xrng.uniform(0.0, 2 * math.pi) for _ in range(_N_SHRAP)]
-    self._shrap_speed   = [xrng.uniform(0.60, 1.50)        for _ in range(_N_SHRAP)]  # faster than sparks
-    self._shrap_delay   = [xrng.uniform(0.00, 0.08)         for _ in range(_N_SHRAP)]  # tighter wave
-    self._shrap_gravity = [xrng.uniform(-0.1, 0.25)         for _ in range(_N_SHRAP)]  # mostly straight
-    self._shrap_size    = [xrng.uniform(1.0, 3.5)           for _ in range(_N_SHRAP)]  # tiny shards
+    self._shrap_angle   = [xrng.uniform(0.0, 2 * math.pi) for _ in range(EyebrowBilly._N_SHRAP)]
+    self._shrap_speed   = [xrng.uniform(0.60, 1.50)        for _ in range(EyebrowBilly._N_SHRAP)]  # faster than sparks
+    self._shrap_delay   = [xrng.uniform(0.00, 0.08)         for _ in range(EyebrowBilly._N_SHRAP)]  # tighter wave
+    self._shrap_gravity = [xrng.uniform(-0.1, 0.25)         for _ in range(EyebrowBilly._N_SHRAP)]  # mostly straight
+    self._shrap_size    = [xrng.uniform(1.0, 3.5)           for _ in range(EyebrowBilly._N_SHRAP)]  # tiny shards
 
     # ---- Warp-speed beams — animated streaks shooting outward during intro ----
     # Each beam is a short moving segment that travels from center → edge at its own
     # speed and phase, so the whole field looks like it's constantly rushing outward.
-    _N_WARP = 500
     wrng = random.Random(555)
+    nw = EyebrowBilly._N_WARP
     # Evenly spaced angles + tiny jitter for full 360° density
-    self._warp_angle  = [(wi * 2 * math.pi / _N_WARP + wrng.uniform(-0.010, 0.010))
-                         for wi in range(_N_WARP)]
-    self._warp_speed  = [wrng.uniform(0.18, 0.80)   for _ in range(_N_WARP)]
-    self._warp_phase  = [wrng.random()               for _ in range(_N_WARP)]
+    self._warp_angle  = [(wi * 2 * math.pi / nw + wrng.uniform(-0.010, 0.010))
+                         for wi in range(nw)]
+    self._warp_speed  = [wrng.uniform(0.18, 0.80)   for _ in range(nw)]
+    self._warp_phase  = [wrng.random()               for _ in range(nw)]
     # Wider length range — short slivers to long streaks all co-existing
-    self._warp_blen   = [wrng.uniform(0.08, 0.45)   for _ in range(_N_WARP)]
-    self._warp_width  = [wrng.uniform(0.4,  2.8)    for _ in range(_N_WARP)]
-    self._warp_bright = [wrng.uniform(0.50, 1.00)   for _ in range(_N_WARP)]
+    self._warp_blen   = [wrng.uniform(0.08, 0.45)   for _ in range(nw)]
+    self._warp_width  = [wrng.uniform(0.4,  2.8)    for _ in range(nw)]
+    self._warp_bright = [wrng.uniform(0.50, 1.00)   for _ in range(nw)]
     # Palette: 50% green, 30% cyan, 15% blue, 5% near-white
     _warp_buckets = ([(100, 150)] * 250 + [(150, 205)] * 150 +
                      [(205, 255)] * 75  + [(155, 175)] * 25)
     self._warp_hue = [wrng.uniform(*_warp_buckets[wi % len(_warp_buckets)])
-                      for wi in range(_N_WARP)]
+                      for wi in range(nw)]
 
     # ---- Ephemeral chaos circles — purely decorative, wander and fade ----
-    _N_CHAOS = 40
     crng = random.Random(42)
-    self._chaos_angle  = [crng.uniform(0.0, 2 * math.pi) for _ in range(_N_CHAOS)]
-    self._chaos_rx     = [crng.uniform(0.10, 0.65)        for _ in range(_N_CHAOS)]  # wide: some off-frame
-    self._chaos_ry     = [crng.uniform(0.08, 0.55)        for _ in range(_N_CHAOS)]
-    self._chaos_dfreq  = [crng.uniform(0.5,  3.5)         for _ in range(_N_CHAOS)]
-    self._chaos_dphase = [crng.uniform(0.0, 2 * math.pi)  for _ in range(_N_CHAOS)]
-    self._chaos_fphase = [crng.uniform(0.0, 2 * math.pi)  for _ in range(_N_CHAOS)]
-    self._chaos_size   = [crng.uniform(3.0, 14.0)          for _ in range(_N_CHAOS)]
+    nc = EyebrowBilly._N_CHAOS
+    self._chaos_angle  = [crng.uniform(0.0, 2 * math.pi) for _ in range(nc)]
+    self._chaos_rx     = [crng.uniform(0.10, 0.65)        for _ in range(nc)]  # wide: some off-frame
+    self._chaos_ry     = [crng.uniform(0.08, 0.55)        for _ in range(nc)]
+    self._chaos_dfreq  = [crng.uniform(0.5,  3.5)         for _ in range(nc)]
+    self._chaos_dphase = [crng.uniform(0.0, 2 * math.pi)  for _ in range(nc)]
+    self._chaos_fphase = [crng.uniform(0.0, 2 * math.pi)  for _ in range(nc)]
+    self._chaos_size   = [crng.uniform(3.0, 14.0)          for _ in range(nc)]
+
+    # Reused endpoints for draw_line_ex (avoids allocating Vector2 per call).
+    self._v2a = rl.Vector2(0.0, 0.0)
+    self._v2b = rl.Vector2(0.0, 0.0)
+
+  def _draw_line_ex_xy(self, x1: float, y1: float, x2: float, y2: float, thick: float, col: rl.Color) -> None:
+    a, b = self._v2a, self._v2b
+    a.x, a.y = x1, y1
+    b.x, b.y = x2, y2
+    rl.draw_line_ex(a, b, thick, col)
 
   # ------------------------------------------------------------------
   def draw(self, rect: rl.Rectangle, t: float, base_hue: float,
@@ -803,6 +816,25 @@ class EyebrowBilly:
     screen_cx  = rect.x + w * 0.5
     screen_cy  = rect.y + h * 0.5
 
+    # Per-frame intro phase scalars (same for all dots; avoids recomputing in _intro_pos per dot).
+    if doing_intro:
+      if intro_frac < 0.25:
+        _irt = intro_frac / 0.25
+        ipo_r_ease = 1.0 - (1.0 - _irt) ** 3
+      else:
+        ipo_r_ease = 0.0
+      if intro_frac >= 0.25 and intro_frac < 0.45:
+        ipo_pull_t = ((intro_frac - 0.25) / 0.20) ** 2
+      else:
+        ipo_pull_t = 0.0
+      if intro_frac >= 0.70:
+        _itc = (intro_frac - 0.70) / 0.30
+        ipo_ease_c = _itc * _itc * (3.0 - 2.0 * _itc)
+      else:
+        ipo_ease_c = 0.0
+    else:
+      ipo_r_ease = ipo_pull_t = ipo_ease_c = 0.0
+
     def _intro_pos(idx: int, tx: float, ty: float) -> tuple[float, float]:
       angle  = self._scat_angle[idx]
       speed  = self._scat_speed[idx]
@@ -822,18 +854,15 @@ class EyebrowBilly:
 
       if intro_frac < 0.25:
         # Explosion from center — cubic ease-out, can go off screen
-        r_t    = intro_frac / 0.25
-        r_ease = 1.0 - (1.0 - r_t) ** 3
-        sx = ox + math.cos(eff_a) * r_explode * speed * r_ease
-        sy = oy + math.sin(eff_a) * r_explode * speed * r_ease * 0.55
+        sx = ox + math.cos(eff_a) * r_explode * speed * ipo_r_ease
+        sy = oy + math.sin(eff_a) * r_explode * speed * ipo_r_ease * 0.55
       elif intro_frac < 0.45:
         # Pull-back: migrate from explosion to each circle's own orbit
-        pull_t = ((intro_frac - 0.25) / 0.20) ** 2   # ease-in
         fx = screen_cx + math.cos(eff_a) * crx
         fy = screen_cy + math.sin(eff_a) * cry
         bx = ox + math.cos(eff_a) * r_explode * speed
         by = oy + math.sin(eff_a) * r_explode * speed * 0.55
-        sx, sy = bx + (fx - bx) * pull_t, by + (fy - by) * pull_t
+        sx, sy = bx + (fx - bx) * ipo_pull_t, by + (fy - by) * ipo_pull_t
       else:
         # Firefly wander — every circle at its own depth, covering the full frame
         sx = screen_cx + math.cos(eff_a) * crx
@@ -841,10 +870,8 @@ class EyebrowBilly:
 
       # Phase 3: smooth coalesce toward target face position
       if intro_frac >= 0.70:
-        t_c    = (intro_frac - 0.70) / 0.30
-        ease_c = t_c * t_c * (3.0 - 2.0 * t_c)   # smooth-step
-        sx += (tx - sx) * ease_c
-        sy += (ty - sy) * ease_c
+        sx += (tx - sx) * ipo_ease_c
+        sy += (ty - sy) * ipo_ease_c
 
       return sx, sy
 
@@ -863,21 +890,31 @@ class EyebrowBilly:
       white_t   = _ramp(intro_frac, 0.38, 0.52)
       if warp_env > 0.01 or (doing_intro and collapse > 0 and outer_cap > 0.01):
         max_reach = max(w, h) * 1.20
+        # Saturation fades to 0 (white) as the warp bleaches out — same for every beam this frame.
+        sat_col = 0.85 * (1.0 - white_t)
+        sat_glo = 0.40 * (1.0 - white_t)
+        wa = self._warp_angle
+        wsp = self._warp_speed
+        wph = self._warp_phase
+        wbr = self._warp_bright
+        wbl = self._warp_blen
+        ww = self._warp_width
+        wh = self._warp_hue
 
-        for wi in range(len(self._warp_angle)):
-          sa = self._warp_angle[wi]
+        for wi in range(EyebrowBilly._N_WARP):
+          sa = wa[wi]
 
-          pos  = (t * self._warp_speed[wi] + self._warp_phase[wi]) % 1.0
+          pos  = (t * wsp[wi] + wph[wi]) % 1.0
           # Large per-beam pull delay — beams retract at wildly different times.
           # _warp_bright (0.55–1.0) and _warp_speed (0.20–0.75) both contribute
           # so adjacent beams behave completely independently.
-          beam_delay    = (self._warp_bright[wi] - 0.775) * 0.55   # -0.30 … +0.30
-          beam_delay   += (self._warp_speed[wi]  - 0.475) * 0.35   # extra spread from speed
+          beam_delay    = (wbr[wi] - 0.775) * 0.55   # -0.30 … +0.30
+          beam_delay   += (wsp[wi]  - 0.475) * 0.35   # extra spread from speed
           beam_collapse = max(0.0, min(1.0, collapse + beam_delay))
           # Very low exponent = dramatic snap: boundary barely moves then lurches violently
           beam_cap     = 1.0 - beam_collapse ** 0.15
           # Beam length collapses hard — some become tiny slivers, some stay long
-          blen = self._warp_blen[wi] * (1.0 - beam_collapse ** 0.5 * 0.90)
+          blen = wbl[wi] * (1.0 - beam_collapse ** 0.5 * 0.90)
 
           # Clamp to this beam's personal boundary
           p_head = min(pos,                  beam_cap)
@@ -888,7 +925,8 @@ class EyebrowBilly:
           # Alpha envelope: fade in near center, soft fade at edge
           fade_in  = min(1.0, p_head / 0.15)
           fade_out = 1.0 - max(0.0, (p_head - 0.75) / 0.25)
-          alpha = int(warp_env * self._warp_bright[wi] * fade_in * fade_out * 230)
+          wbri = wbr[wi]
+          alpha = int(warp_env * wbri * fade_in * fade_out * 230)
           if alpha < 5:
             continue
 
@@ -899,23 +937,17 @@ class EyebrowBilly:
           ex = screen_cx + sa_cos * p_head * max_reach
           ey = screen_cy + sa_sin * p_head * max_reach
 
-          h_warp  = self._warp_hue[wi]
-          lw      = self._warp_width[wi]
-          # Saturation fades to 0 (white) as the warp bleaches out before vanishing
-          sat_col = 0.85 * (1.0 - white_t)
-          sat_glo = 0.40 * (1.0 - white_t)
+          h_warp = wh[wi]
+          lw = ww[wi]
 
           # Soft glow aura around the streak
-          rl.draw_line_ex(rl.Vector2(sx, sy), rl.Vector2(ex, ey),
-                          lw * 5.0, hsv_to_color(h_warp, sat_glo, 1.0, int(alpha * 0.12)))
+          self._draw_line_ex_xy(sx, sy, ex, ey, lw * 5.0, hsv_to_color(h_warp, sat_glo, 1.0, int(alpha * 0.12)))
           # Main streak — bleaches toward white
-          rl.draw_line_ex(rl.Vector2(sx, sy), rl.Vector2(ex, ey),
-                          lw, hsv_to_color(h_warp, sat_col, 1.0, alpha))
+          self._draw_line_ex_xy(sx, sy, ex, ey, lw, hsv_to_color(h_warp, sat_col, 1.0, alpha))
           # Bright white leading tip — the "head" of the shooting streak
           tip_sx = screen_cx + sa_cos * max(0.0, p_head - blen * 0.2) * max_reach
           tip_sy = screen_cy + sa_sin * max(0.0, p_head - blen * 0.2) * max_reach
-          rl.draw_line_ex(rl.Vector2(tip_sx, tip_sy), rl.Vector2(ex, ey),
-                          max(0.6, lw * 0.5), rl.Color(255, 255, 255, int(alpha * 0.65)))
+          self._draw_line_ex_xy(tip_sx, tip_sy, ex, ey, max(0.6, lw * 0.5), rl.Color(255, 255, 255, int(alpha * 0.65)))
 
     # ---- Firework explosion (drawn first so sparks sit behind wandering dots) ----
     if doing_intro and intro_frac < 0.45:
@@ -930,8 +962,8 @@ class EyebrowBilly:
         if core_r > 0:
           rl.draw_circle(int(bx), int(by), core_r, rl.Color(255, 255, 255, core_a))
 
-      # 120 individual sparks — each is a glowing dot + short tail line
-      for si in range(len(self._spark_angle)):
+      # Individual sparks — each is a glowing dot + short tail line
+      for si in range(EyebrowBilly._N_SPARKS):
         age = intro_frac - self._spark_delay[si]
         if age <= 0 or age > 0.35:
           continue
@@ -953,8 +985,7 @@ class EyebrowBilly:
         ty = py - math.sin(sa) * tail_dist - grav * 0.12
 
         sr = int(self._spark_size[si])
-        rl.draw_line_ex(rl.Vector2(tx, ty), rl.Vector2(px, py), 1.5,
-                        rl.Color(255, 255, 255, alpha // 4))
+        self._draw_line_ex_xy(tx, ty, px, py, 1.5, rl.Color(255, 255, 255, alpha // 4))
         rl.draw_circle(int(px), int(py), sr,
                        rl.Color(255, 255, 255, int(alpha * 0.55)))
         rl.draw_circle_lines(int(px), int(py), sr,
@@ -963,7 +994,7 @@ class EyebrowBilly:
                              rl.Color(255, 255, 255, int(alpha * 0.18)))
 
       # Shrapnel — tiny fast shards firing over the main burst, sharper falloff
-      for xi in range(len(self._shrap_angle)):
+      for xi in range(EyebrowBilly._N_SHRAP):
         age = intro_frac - self._shrap_delay[xi]
         if age <= 0 or age > 0.18:   # lives only half as long as main sparks
           continue
@@ -984,8 +1015,7 @@ class EyebrowBilly:
         ty = py - math.sin(sa) * streak_len
 
         sr = max(1, int(self._shrap_size[xi]))
-        rl.draw_line_ex(rl.Vector2(tx, ty), rl.Vector2(px, py), 1.0,
-                        rl.Color(255, 255, 255, int(alpha * 0.65)))
+        self._draw_line_ex_xy(tx, ty, px, py, 1.0, rl.Color(255, 255, 255, int(alpha * 0.65)))
         rl.draw_circle(int(px), int(py), sr,
                        rl.Color(255, 255, 255, int(alpha * 0.60)))
         rl.draw_circle_lines(int(px), int(py), sr + 2,
@@ -1003,7 +1033,7 @@ class EyebrowBilly:
       chaos_life = _ramp(intro_frac, 0.28, 0.46)
       chaos_die  = 1.0 - _ramp(intro_frac, 0.52, 0.68)
       chaos_env  = chaos_life * chaos_die
-      for ci in range(len(self._chaos_angle)):
+      for ci in range(EyebrowBilly._N_CHAOS):
         drift  = math.sin(intro_frac * math.pi * 2.0 * self._chaos_dfreq[ci] + self._chaos_dphase[ci]) * 1.2
         eff_a  = self._chaos_angle[ci] + drift
         cx_pos = screen_cx + math.cos(eff_a) * (w * self._chaos_rx[ci])
