@@ -5,6 +5,7 @@ from openpilot.selfdrive.ui.mici.layouts.settings.toggles import TogglesLayoutMi
 from openpilot.selfdrive.ui.mici.layouts.settings.network.network_layout import NetworkLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.device import DeviceLayoutMici, PairBigButton
 from openpilot.selfdrive.ui.mici.layouts.settings.developer import DeveloperLayoutMici
+from openpilot.selfdrive.ui.mici.layouts.settings.dont_press_screen import DontPressScreen
 from openpilot.selfdrive.ui.mici.layouts.settings.firehose import FirehoseLayout
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 
@@ -39,7 +40,12 @@ class SettingsLayout(NavScroller):
     firehose_btn = SettingsBigButton("firehose", "", gui_app.texture("icons_mici/settings/firehose.png", 52, 62))
     firehose_btn.set_click_callback(lambda: gui_app.push_widget(firehose_panel))
 
+    dont_press_panel = DontPressScreen()
+    dont_press_btn = SettingsBigButton("Don't press", "", icon=None)
+    dont_press_btn.set_click_callback(lambda: gui_app.push_widget(dont_press_panel))
+
     self._scroller.add_widgets([
+      dont_press_btn,
       toggles_btn,
       network_btn,
       device_btn,
