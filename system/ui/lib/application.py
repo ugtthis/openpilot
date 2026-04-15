@@ -277,6 +277,7 @@ class GuiApplication:
       rl.set_config_flags(flags)
 
       rl.init_window(self._scaled_width, self._scaled_height, title)
+      rl.init_audio_device()
 
       needs_render_texture = self._scale != 1.0 or BURN_IN_MODE or RECORD
       if self._scale != 1.0:
@@ -565,6 +566,9 @@ class GuiApplication:
       self._mouse.stop()
 
     self.close_ffmpeg()
+
+    if rl.is_audio_device_ready():
+      rl.close_audio_device()
 
     rl.close_window()
 
