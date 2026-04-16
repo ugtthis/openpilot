@@ -1,12 +1,20 @@
+"""S-bar column: segment bar uses label="" then GPS is drawn on top (replaces a letter label).
+Steer → rotation is −deg (same sign as HudRenderer wheel) but |steer| is clamped here; draw_texture_pro uses center-anchored dest/origin like that HUD path."""
 import pyray as rl
 
 from openpilot.selfdrive.ui.mici.onroad import dac_view as base_dac_view
 from openpilot.selfdrive.ui.mici.onroad.dac_2_view import DAC2View
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 
 
 _DAC3_LEFT_GROUP_WIDTH_RATIO = 0.57
+
+_S_BAR_GPS_ICON_MAX_FRAC = 0.67
+_S_BAR_GPS_STEER_CLAMP_DEG = 90.0
+_S_BAR_GPS_TEX_W = 88
+_S_BAR_GPS_TEX_H = 100
 
 
 class DAC3LeadCarTile(base_dac_view.LeadCarTile):
@@ -36,6 +44,30 @@ class DAC3View(DAC2View):
   def __init__(self, bookmark_callback=None, confidence_ball=None):
     super().__init__(bookmark_callback, confidence_ball)
     self._lead_tile = self._child(DAC3LeadCarTile(light_mode_fn=self._is_light_mode, theme_name_fn=self._theme_name))
+    self._s_bar_gps_texture = gui_app.texture(
+      "icons_dac/gps-nav-s-bar.png", _S_BAR_GPS_TEX_W, _S_BAR_GPS_TEX_H,
+    )
+
+  def _draw_s_bar_gps_icon(self, bar_rect: rl.Rectangle) -> None:
+    sm = ui_state.sm
+    steer_deg = float(sm["carState"].steeringAngleDeg) if sm.valid["carState"] else 0.0
+    steer_deg = max(-_S_BAR_GPS_STEER_CLAMP_DEG, min(_S_BAR_GPS_STEER_CLAMP_DEG, steer_deg))
+    rotation_deg = -steer_deg
+
+    tex = self._s_bar_gps_texture
+    label_cx = int(bar_rect.x + bar_rect.width / 2)
+    label_cy = int(bar_rect.y + bar_rect.height - base_dac_view._LABEL_AREA_H / 2)
+    max_w = bar_rect.width * _S_BAR_GPS_ICON_MAX_FRAC
+    max_h = base_dac_view._LABEL_AREA_H * _S_BAR_GPS_ICON_MAX_FRAC
+    scale = min(max_w / tex.width, max_h / tex.height)
+    draw_w = tex.width * scale
+    draw_h = tex.height * scale
+
+    src = rl.Rectangle(0, 0, tex.width, tex.height)
+    dest = rl.Rectangle(float(label_cx), float(label_cy), draw_w, draw_h)
+    origin = (draw_w / 2, draw_h / 2)
+    tint = self._theme_colors()["text_primary"]
+    rl.draw_texture_pro(tex, src, dest, origin, rotation_deg, tint)
 
   def _dac3_steering_warning_for_weight(self, dominant_weight: float) -> float:
     steer_prediction = self._normalized_steer_prediction()
@@ -52,7 +84,6 @@ class DAC3View(DAC2View):
     seg_count = max_segments
     seg_w = (panel_rect.width - (seg_count - 1) * gap) / seg_count
 
-    # DAC-3 uses a narrower right panel; reduce sweep density to avoid overflow.
     while seg_count > 12 and seg_w < min_seg_w:
       seg_count -= 1
       seg_w = (panel_rect.width - (seg_count - 1) * gap) / seg_count
@@ -116,8 +147,6 @@ class DAC3View(DAC2View):
   def _draw_tiles(self, rect: rl.Rectangle) -> None:
     gap = base_dac_view._TILE_GAP
 
-    # DAC 3 intentionally favors the four-column signal stack and keeps the
-    # right tile group slimmer, while preserving the same tile types.
     left_group_w = rect.width * _DAC3_LEFT_GROUP_WIDTH_RATIO
     right_group_w = rect.width - left_group_w - gap
 
@@ -144,7 +173,8 @@ class DAC3View(DAC2View):
     )
 
     self._confidence_ball_tile.render_in_rect(bar_rects[0], align_right=True, mask_color=self._theme_colors()["confidence_mask"])
-    self._draw_segment_bar(bar_rects[1], self._combined_steering_warning(), "S", None, None, None)
+    self._draw_segment_bar(bar_rects[1], self._combined_steering_warning(), "", None, None, None)
+    self._draw_s_bar_gps_icon(bar_rects[1])
     self._draw_segment_bar(bar_rects[2], self._dac3_steering_warning_for_weight(0.75), "75", None, None, None)
     self._draw_segment_bar(bar_rects[3], self._dac3_steering_warning_for_weight(0.80), "80", None, None, None)
 
