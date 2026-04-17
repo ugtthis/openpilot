@@ -175,7 +175,7 @@ class DAC3View(DAC2View):
     self._confidence_ball_tile.render_in_rect(bar_rects[0], align_right=True, mask_color=self._theme_colors()["confidence_mask"])
     self._draw_segment_bar(bar_rects[1], self._combined_steering_warning(), "", None, None, None)
     self._draw_s_bar_gps_icon(bar_rects[1])
-    self._draw_segment_bar(bar_rects[2], self._dac3_steering_warning_for_weight(0.75), "75", None, None, None)
+    self._draw_segment_bar(bar_rects[2], self._dac3_steering_warning_for_weight(0.70), "70", None, None, None)
     self._draw_segment_bar(bar_rects[3], self._dac3_steering_warning_for_weight(0.80), "80", None, None, None)
 
     bookmark_rect, speedo_rect = self._split_top_right_rect(top_right_rect)
