@@ -8,7 +8,8 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import MouseEvent, gui_app
 from openpilot.system.ui.widgets import Widget
 
-BUTTON_SIZE = 150
+BUTTON_SIZE = 120
+INNER_ICON = 52
 BUTTON_GAP = 12
 RIGHT_MARGIN = 6
 OPEN_LATCH_DRAG_DISTANCE = 70
@@ -62,7 +63,7 @@ class NavActionButton(TrayActionButton):
     self._primary_texture = gui_app.texture("icons_mici/onroad/bookmark.png", BUTTON_SIZE, BUTTON_SIZE)
     self._secondary_bg = gui_app.texture("icons_mici/buttons/button_circle.png", BUTTON_SIZE, BUTTON_SIZE)
     self._secondary_bg_pressed = gui_app.texture("icons_mici/buttons/button_circle_pressed.png", BUTTON_SIZE, BUTTON_SIZE)
-    self._secondary_texture = gui_app.texture("icons_mici/settings.png", 64, 64)
+    self._secondary_texture = gui_app.texture("icons_mici/settings.png", INNER_ICON, INNER_ICON)
 
   def _handle_mouse_release(self, mouse_pos) -> None:
     self._click_callback = self._secondary_click_callback if self._is_secondary_active() else self._primary_click_callback
@@ -87,8 +88,8 @@ class DACActionButton(TrayActionButton):
     self._is_dac_active = is_dac_active
     self._bg = gui_app.texture("icons_mici/buttons/button_circle.png", BUTTON_SIZE, BUTTON_SIZE)
     self._bg_pressed = gui_app.texture("icons_mici/buttons/button_circle_pressed.png", BUTTON_SIZE, BUTTON_SIZE)
-    self._dac_icon = gui_app.texture("icons_dac/dac-btn.png", 64, 64)
-    self._onroad_icon = gui_app.texture("icons_dac/onroad-ui-icon.png", 64, 32)
+    self._dac_icon = gui_app.texture("icons_dac/dac-btn.png", INNER_ICON, INNER_ICON)
+    self._onroad_icon = gui_app.texture("icons_dac/onroad-ui-icon.png", INNER_ICON, INNER_ICON // 2)
 
   def _render(self, _) -> None:
     rect = self.scaled_rect()
@@ -107,8 +108,8 @@ class DAC2ActionButton(TrayActionButton):
     self._is_dac2_active = is_dac2_active
     self._bg = gui_app.texture("icons_mici/buttons/button_circle.png", BUTTON_SIZE, BUTTON_SIZE)
     self._bg_pressed = gui_app.texture("icons_mici/buttons/button_circle_pressed.png", BUTTON_SIZE, BUTTON_SIZE)
-    self._steering_icon = gui_app.texture("icons_mici/wheel.png", 64, 64)
-    self._onroad_icon = gui_app.texture("icons_dac/onroad-ui-icon.png", 64, 32)
+    self._steering_icon = gui_app.texture("icons_mici/wheel.png", INNER_ICON, INNER_ICON)
+    self._onroad_icon = gui_app.texture("icons_dac/onroad-ui-icon.png", INNER_ICON, INNER_ICON // 2)
 
   def _render(self, _) -> None:
     rect = self.scaled_rect()
@@ -127,8 +128,8 @@ class DAC3ActionButton(TrayActionButton):
     self._is_dac3_active = is_dac3_active
     self._bg = gui_app.texture("icons_mici/buttons/button_circle.png", BUTTON_SIZE, BUTTON_SIZE)
     self._bg_pressed = gui_app.texture("icons_mici/buttons/button_circle_pressed.png", BUTTON_SIZE, BUTTON_SIZE)
-    self._dac3_icon = gui_app.texture("icons_dac/wings-icon.png", 64, 64)
-    self._onroad_icon = gui_app.texture("icons_dac/onroad-ui-icon.png", 64, 32)
+    self._dac3_icon = gui_app.texture("icons_dac/wings-icon.png", INNER_ICON, INNER_ICON)
+    self._onroad_icon = gui_app.texture("icons_dac/onroad-ui-icon.png", INNER_ICON, INNER_ICON // 2)
 
   def _render(self, _) -> None:
     rect = self.scaled_rect()
