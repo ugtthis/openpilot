@@ -44,7 +44,7 @@ _SEG_ON: tuple[rl.Color, ...] = (
   rl.Color(255, 215, 0, 255),
   rl.Color(255, 215, 0, 255),
   rl.Color(255, 85, 0, 255),
-  rl.Color(232, 0, 52, 255),
+  rl.Color(255, 85, 0, 255),
 )
 
 
