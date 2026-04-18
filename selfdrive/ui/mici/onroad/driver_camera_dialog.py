@@ -30,7 +30,7 @@ class BaseDriverCameraDialog(Widget):
   def __init__(self):
     super().__init__()
     self._camera_view = DriverCameraView("camerad", VisionStreamType.VISION_STREAM_DRIVER)
-    self.driver_state_renderer = DriverStateRenderer(lines=True)
+    self.driver_state_renderer = DriverStateRenderer(lines=True, dm_segment_bar_enabled=False)
     self.driver_state_renderer.set_rect(rl.Rectangle(0, 0, 200, 200))
     self.driver_state_renderer.load_icons()
     self._pm: messaging.PubMaster | None = None

@@ -3,6 +3,8 @@ import numpy as np
 import math
 from cereal import log
 from openpilot.common.filter_simple import FirstOrderFilter
+# Shared renderer; only MICI onroad dmoji uses it (not TICI `ui/onroad/driver_state`)
+from openpilot.selfdrive.ui.onroad.og_dm_segment_bar import draw_og_horizontal_dm_bar, og_dm_display_level
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.ui_state import ui_state
@@ -14,17 +16,24 @@ DEBUG = False
 LOOKING_CENTER_THRESHOLD_UPPER = math.radians(6)
 LOOKING_CENTER_THRESHOLD_LOWER = math.radians(3)
 
+# Horizontal DM bar: nudge lower on screen (+y) so it sits more on the body band
+_DM_BAR_SHIFT_DOWN_PX = 11.0
+
 
 class DriverStateRenderer(Widget):
   BASE_SIZE = 60
   LINES_ANGLE_INCREMENT = 5
   LINES_STALE_ANGLES = 3.0  # seconds
 
-  def __init__(self, lines: bool = False, inset: bool = False):
+  def __init__(self, lines: bool = False, inset: bool = False, dm_segment_bar_enabled: bool = True):
     super().__init__()
     self.set_rect(rl.Rectangle(0, 0, self.BASE_SIZE, self.BASE_SIZE))
     self._lines = lines
     self._inset = inset
+    self._dm_segment_bar_enabled = dm_segment_bar_enabled
+    # Fill level [0,1] for draw_og_horizontal_dm_bar (DAC-style remap of awareness)
+    self._dm_strip_level = 0.0
+    self._dm_strip_rect = rl.Rectangle(0.0, 0.0, 0.0, 0.0)
 
     # In line mode, track smoothed angles
     assert 360 % self.LINES_ANGLE_INCREMENT == 0
@@ -140,6 +149,23 @@ class DriverStateRenderer(Widget):
           f.update(target)
           self._draw_line(angle, f, self._looking_center)
 
+    if self._dm_segment_bar_enabled and self.should_draw:
+      draw_og_horizontal_dm_bar(self._dm_strip_rect, self._dm_strip_level)
+
+  def _layout_dm_segment_bar(self) -> None:
+    """Place the LED strip along the bottom of the dmoji rect (body band); +y = down."""
+    if not self._dm_segment_bar_enabled:
+      return
+    # Wide/tall strip; anchor to bottom of cell so it sits on the body — not pulled up over the face
+    w = max(48.0, float(self._rect.width) * 0.96)
+    h_bar = max(14.0, min(24.0, float(self._rect.height) * 0.38))
+    cx = self._rect.x + self._rect.width / 2
+    bottom = self._rect.y + self._rect.height
+    margin_bottom = max(0.0, min(2.0, float(self._rect.height) * 0.02))
+    self._dm_strip_rect = rl.Rectangle(
+      cx - w / 2, bottom - margin_bottom - h_bar + _DM_BAR_SHIFT_DOWN_PX, w, h_bar,
+    )
+
   def _draw_line(self, angle: int, f: FirstOrderFilter, grey: bool):
     line_length = self._rect.width / 6
     line_length = round(np.interp(f.x, [0.0, 1.0], [0, line_length]))
@@ -166,6 +192,10 @@ class DriverStateRenderer(Widget):
     self._is_rhd = dm_state.isRHD
     self._face_detected = dm_state.faceDetected
 
+    if self._dm_segment_bar_enabled:
+      aw = float(max(min(dm_state.awarenessStatus, 1.0), 0.0))
+      self._dm_strip_level = og_dm_display_level(aw, self._is_active)
+
     driverstate = sm["driverStateV2"]
     driver_data = driverstate.rightDriverData if self._is_rhd else driverstate.leftDriverData
     return driver_data
@@ -173,6 +203,7 @@ class DriverStateRenderer(Widget):
   def _update_state(self):
     # Get monitoring state
     driver_data = self.get_driver_data()
+    self._layout_dm_segment_bar()
     driver_orient = driver_data.faceOrientation
 
     if len(driver_orient) != 3:

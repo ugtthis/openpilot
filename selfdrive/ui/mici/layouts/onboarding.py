@@ -22,7 +22,7 @@ from openpilot.selfdrive.ui.mici.onroad.driver_camera_dialog import BaseDriverCa
 class DriverCameraSetupDialog(BaseDriverCameraDialog):
   def __init__(self):
     super().__init__()
-    self.driver_state_renderer = DriverStateRenderer(inset=True)
+    self.driver_state_renderer = DriverStateRenderer(inset=True, dm_segment_bar_enabled=False)
     self.driver_state_renderer.set_rect(rl.Rectangle(0, 0, 120, 120))
     self.driver_state_renderer.load_icons()
     self.driver_state_renderer.set_force_active(True)
