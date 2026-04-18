@@ -10,14 +10,14 @@ import numpy as np
 import pyray as rl
 
 # --- Segmented bar geometry (DAC reference; gaps scale down for narrow bars) ---
-_N_PAIRS = 4
-_N_SEGS = _N_PAIRS * 2  # 8 bars; fill / merge / pair UX unchanged from 10-seg DAC math
+_N_PAIRS = 3
+_N_SEGS = _N_PAIRS * 2  # 6 bars
 # Higher reference → smaller scaled gaps vs inner width → chunkier LED blocks (paired with taller bar rects)
 _REF_INNER_W = 200.0
-_SEG_GAP_REF = 4
-_PAIR_EXTRA_REF = 5
+_SEG_GAP_REF = 5
+_PAIR_EXTRA_REF = 7
 _MERGE_THRESHOLD = 0.5
-_COLLAPSE_STARTS_AT_PAIR = 2
+_COLLAPSE_STARTS_AT_PAIR = 1
 _SEG_ROUND_SEGS = 6
 
 _TILE_ROUNDNESS = 0.14
@@ -37,10 +37,8 @@ _DM_VISUAL_PRE_ANCHOR = 0.40
 _DM_VISUAL_PROMPT_ANCHOR = 0.80
 
 _SEG_ON: tuple[rl.Color, ...] = (
-  rl.Color(0, 228, 82, 255),
-  rl.Color(0, 228, 82, 255),
-  rl.Color(162, 228, 0, 255),
-  rl.Color(162, 228, 0, 255),
+  rl.Color(166, 166, 166, 255),
+  rl.Color(166, 166, 166, 255),
   rl.Color(255, 215, 0, 255),
   rl.Color(255, 215, 0, 255),
   rl.Color(255, 85, 0, 255),
