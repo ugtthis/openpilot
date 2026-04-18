@@ -33,7 +33,9 @@ _DM_AWARENESS_PRE_ALERT = 0.727
 _DM_AWARENESS_PROMPT = 0.545
 _DM_AWARENESS_PRE_ALERT_PASSIVE = 0.5
 _DM_AWARENESS_PROMPT_PASSIVE = 0.2
-_DM_VISUAL_PRE_ANCHOR = 0.40
+# With 6 bars, keep pre-alert anchor slightly above 4/6 so neutral+yellow have
+# already collapsed into one yellow block before preDriverDistracted appears.
+_DM_VISUAL_PRE_ANCHOR = 0.71
 _DM_VISUAL_PROMPT_ANCHOR = 0.80
 
 _SEG_ON: tuple[rl.Color, ...] = (
