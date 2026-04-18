@@ -58,8 +58,8 @@ class AugmentedRoadView(CameraView):
     self._hud_renderer         = HudRenderer()
     self._alert_renderer       = AlertRenderer()
     self._driver_state_renderer = DriverStateRenderer(
-      dm_cone_asset="icons_dac/dm_cone.png",
-      dm_center_asset="icons_dac/dm_center.png",
+      cone_asset_path="icons_dac/dm_cone.png",
+      center_asset_path="icons_dac/dm_center.png",
     )
     self._fade_texture          = gui_app.texture("icons_mici/onroad/onroad_fade.png")
     self._confidence_ball = ConfidenceBall()
