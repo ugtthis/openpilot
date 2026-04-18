@@ -10,9 +10,10 @@ OPENSSL_WRAPPER_DIR=""
 REPLAY_LOG="$ROOT/.run_ui_replay.log"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  echo "Usage: ./run_ui.sh [--ui] [--tici] [--fresh] [replay args...]"
+  echo "Usage: ./run_ui.sh [--ui] [--tici] [--fresh] [--dm] [replay args...]"
   echo "  --fresh    Launch setup flow first and reset onboarding for first-use UI"
   echo "  --tici     Use tici layout (2160x1080) instead of mici (536x240)"
+  echo "  --dm       After engage, ramp fake DM awareness on the MICI dmoji strip (RUN_UI_SIMULATE_DM=1)"
   echo "Default replay args: --demo"
   exit 0
 fi
@@ -33,6 +34,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --fresh)
       FRESH_UI=1
+      shift
+      ;;
+    --dm)
+      export RUN_UI_SIMULATE_DM=1
       shift
       ;;
     *)

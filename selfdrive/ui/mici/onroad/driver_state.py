@@ -4,6 +4,7 @@ import math
 from cereal import log
 from openpilot.common.filter_simple import FirstOrderFilter
 # Shared renderer; only MICI onroad dmoji uses it (not TICI `ui/onroad/driver_state`)
+from openpilot.selfdrive.ui import dm_strip_sim
 from openpilot.selfdrive.ui.onroad.og_dm_segment_bar import draw_og_horizontal_dm_bar, og_dm_display_level
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import Widget
@@ -77,8 +78,17 @@ class DriverStateRenderer(Widget):
 
   @property
   def should_draw(self):
-    return (self._should_draw and ui_state.sm["selfdriveState"].alertSize == AlertSize.none and
-            ui_state.sm.recv_frame["driverStateV2"] > ui_state.started_frame)
+    # Fade dmoji when a banner shows: real selfdriveState or `dm_strip_sim.alert_for_sim_ramp`.
+    if not self._should_draw:
+      return False
+    if ui_state.sm.recv_frame["driverStateV2"] <= ui_state.started_frame:
+      return False
+    ss = ui_state.sm["selfdriveState"]
+    if ss.alertSize != AlertSize.none:
+      return False
+    if dm_strip_sim.alert_for_sim_ramp(ui_state.engaged) is not None:
+      return False
+    return True
 
   def set_force_active(self, force_active: bool):
     """Force the dmoji to always appear active (green) regardless of actual state"""
@@ -194,7 +204,10 @@ class DriverStateRenderer(Widget):
 
     if self._dm_segment_bar_enabled:
       aw = float(max(min(dm_state.awarenessStatus, 1.0), 0.0))
-      self._dm_strip_level = og_dm_display_level(aw, self._is_active)
+      aw = dm_strip_sim.awareness_for_dm_strip(aw, ui_state.engaged)
+      # Sim targets engaged active distracted UX; use active strip anchors, not replay passive.
+      strip_active = True if (dm_strip_sim.is_enabled() and ui_state.engaged) else self._is_active
+      self._dm_strip_level = og_dm_display_level(aw, strip_active)
 
     driverstate = sm["driverStateV2"]
     driver_data = driverstate.rightDriverData if self._is_rhd else driverstate.leftDriverData

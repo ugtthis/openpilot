@@ -6,6 +6,7 @@ import random
 import string
 from dataclasses import dataclass
 from cereal import messaging, log, car
+from openpilot.selfdrive.ui import dm_strip_sim
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.common.filter_simple import BounceFilter, FirstOrderFilter
 from openpilot.system.hardware import TICI
@@ -138,15 +139,19 @@ class AlertRenderer(Widget):
             return ALERT_CRITICAL_TIMEOUT
           return ALERT_CRITICAL_REBOOT
 
-    # No alert if size is none
-    if ss.alertSize == 0:
-      return None
+    # Live selfdriveState wins over RUN_UI_SIMULATE_DM (same as a real drive).
+    if ss.alertSize != 0:
+      ret = Alert(text1=ss.alertText1, text2=ss.alertText2, size=ss.alertSize.raw, status=ss.alertStatus.raw,
+                  visual_alert=ss.alertHudVisual, alert_type=ss.alertType)
+      self._prev_alert = ret
+      return ret
 
-    # Return current alert
-    ret = Alert(text1=ss.alertText1, text2=ss.alertText2, size=ss.alertSize.raw, status=ss.alertStatus.raw,
-                visual_alert=ss.alertHudVisual, alert_type=ss.alertType)
-    self._prev_alert = ret
-    return ret
+    dm_sim = dm_strip_sim.alert_for_sim_ramp(ui_state.engaged)
+    if dm_sim is not None:
+      self._prev_alert = dm_sim
+      return dm_sim
+
+    return None
 
   def will_render(self) -> tuple[Alert | None, bool]:
     alert = self.get_alert(ui_state.sm)
