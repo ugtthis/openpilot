@@ -19,16 +19,20 @@ LOOKING_CENTER_THRESHOLD_LOWER = math.radians(3)
 
 # Horizontal DM bar: nudge lower on screen (+y) so it sits more on the body band
 _DM_BAR_SHIFT_DOWN_PX = 11.0
+# On-road (augmented road) default: one rect for both dmoji and the LED strip below it — changing
+# this resizes both. Driver camera / onboarding call set_rect themselves and are unaffected.
+_DEFAULT_ONROAD_SIZE = 72
 
 
 class DriverStateRenderer(Widget):
+  # load_icons: 52/BASE_SIZE×w, 36/BASE_SIZE×w — keep 60 so other set_rect() callers stay correct.
   BASE_SIZE = 60
   LINES_ANGLE_INCREMENT = 5
   LINES_STALE_ANGLES = 3.0  # seconds
 
   def __init__(self, lines: bool = False, inset: bool = False, dm_segment_bar_enabled: bool = True):
     super().__init__()
-    self.set_rect(rl.Rectangle(0, 0, self.BASE_SIZE, self.BASE_SIZE))
+    self.set_rect(rl.Rectangle(0, 0, _DEFAULT_ONROAD_SIZE, _DEFAULT_ONROAD_SIZE))
     self._lines = lines
     self._inset = inset
     self._dm_segment_bar_enabled = dm_segment_bar_enabled
