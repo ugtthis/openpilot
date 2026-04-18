@@ -34,12 +34,21 @@ class DriverStateRenderer(Widget):
   LINES_ANGLE_INCREMENT = 5
   LINES_STALE_ANGLES = 3.0  # seconds
 
-  def __init__(self, lines: bool = False, inset: bool = False, dm_segment_bar_enabled: bool = True):
+  def __init__(
+    self,
+    lines: bool = False,
+    inset: bool = False,
+    dm_segment_bar_enabled: bool = True,
+    cone_asset_path: str = "icons_mici/onroad/driver_monitoring/dm_cone.png",
+    center_asset_path: str = "icons_mici/onroad/driver_monitoring/dm_center.png",
+  ):
     super().__init__()
     self.set_rect(rl.Rectangle(0, 0, _DEFAULT_ONROAD_SIZE, _DEFAULT_ONROAD_SIZE))
     self._lines = lines
     self._inset = inset
     self._dm_segment_bar_enabled = dm_segment_bar_enabled
+    self._cone_asset_path = cone_asset_path
+    self._center_asset_path = center_asset_path
     # Fill level [0,1] for draw_og_horizontal_dm_bar (DAC-style remap of awareness)
     self._dm_strip_level = 0.0
     self._dm_strip_rect = rl.Rectangle(0.0, 0.0, 0.0, 0.0)
@@ -76,9 +85,9 @@ class DriverStateRenderer(Widget):
       cone_and_person_size = round(cone_and_person_size - current_inset * 2)
 
     self._dm_person = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_person.png", cone_and_person_size, cone_and_person_size)
-    self._dm_cone = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_cone.png", cone_and_person_size, cone_and_person_size)
+    self._dm_cone = gui_app.texture(self._cone_asset_path, cone_and_person_size, cone_and_person_size)
     center_size = round(36 / self.BASE_SIZE * self._rect.width)
-    self._dm_center = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_center.png", center_size, center_size)
+    self._dm_center = gui_app.texture(self._center_asset_path, center_size, center_size)
     self._dm_background = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_background.png", int(self._rect.width), int(self._rect.height))
 
   def set_should_draw(self, should_draw: bool):
