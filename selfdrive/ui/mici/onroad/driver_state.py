@@ -17,8 +17,12 @@ DEBUG = False
 LOOKING_CENTER_THRESHOLD_UPPER = math.radians(6)
 LOOKING_CENTER_THRESHOLD_LOWER = math.radians(3)
 
-# Horizontal DM bar: nudge lower on screen (+y) so it sits more on the body band
-_DM_BAR_SHIFT_DOWN_PX = 11.0
+# Horizontal DM bar: +y nudges strip down (frees dmoji face; bar extends below cell bottom if needed)
+_DM_BAR_SHIFT_DOWN_PX = 20.0
+# Inset (px) per side for thickness heuristic `w - 2*inset` (DAC uses 7 for segment tiles; kept local here)
+_DM_STRIP_EDGE_INSET_PX = 7
+# Subtract from that base so the strip stays shorter than a full “DAC seg_w”-style thickness
+_DM_BAR_HEIGHT_SHRINK_PX = 22.0
 # On-road (augmented road) default: one rect for both dmoji and the LED strip below it — changing
 # this resizes both. Driver camera / onboarding call set_rect themselves and are unaffected.
 _DEFAULT_ONROAD_SIZE = 72
@@ -170,9 +174,9 @@ class DriverStateRenderer(Widget):
     """Place the LED strip along the bottom of the dmoji rect (body band); +y = down."""
     if not self._dm_segment_bar_enabled:
       return
-    # Wide/tall strip; anchor to bottom of cell so it sits on the body — not pulled up over the face
+    # Thickness: strip width minus side insets, then shortened (no import from dac_view).
     w = max(48.0, float(self._rect.width) * 0.96)
-    h_bar = max(14.0, min(24.0, float(self._rect.height) * 0.38))
+    h_bar = max(4.0, w - 2.0 * _DM_STRIP_EDGE_INSET_PX - _DM_BAR_HEIGHT_SHRINK_PX)
     cx = self._rect.x + self._rect.width / 2
     bottom = self._rect.y + self._rect.height
     margin_bottom = max(0.0, min(2.0, float(self._rect.height) * 0.02))
