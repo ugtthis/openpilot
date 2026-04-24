@@ -17,7 +17,7 @@ DEBUG = False
 LOOKING_CENTER_THRESHOLD_UPPER = math.radians(6)
 LOOKING_CENTER_THRESHOLD_LOWER = math.radians(3)
 
-_DEFAULT_ONROAD_SIZE = 84
+_DEFAULT_ONROAD_SIZE = 90
 # TODO: Temporary visual nudge; remove after ring assets share exact edge mask/radius with dm_background.
 _DM_RING_SCALE = 1.04
 
