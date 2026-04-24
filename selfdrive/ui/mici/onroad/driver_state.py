@@ -37,6 +37,7 @@ class DriverStateRenderer(Widget):
     # Same frame constant as DmSegmentBar level smoothing; rings can feel a touch slower at 0.12
     _ring_tau = 0.1
     self._ring_yellow_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
+    # TODO: remove orange ring (asset, filter, draw) and simplify dm_display_ring_band when cleaning up DM UX
     self._ring_orange_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
     self._awareness_01 = 0.0
 
@@ -255,4 +256,4 @@ class DriverStateRenderer(Widget):
         level = dm_display_level(self._awareness_01, self._is_active)
         band = dm_display_ring_band(level)
         self._ring_yellow_filter.update(1.0 if band == "yellow" else 0.0)
-        self._ring_orange_filter.update(1.0 if band == "orange" else 0.0)
+        self._ring_orange_filter.update(0.0)  # unused; orange ring ignored for now
