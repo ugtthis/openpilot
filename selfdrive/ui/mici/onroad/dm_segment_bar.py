@@ -51,10 +51,10 @@ _SEG_ON: tuple[rl.Color, ...] = (
 
 # +y nudges strip down (frees dmoji face; bar may extend below cell bottom)
 _DM_BAR_SHIFT_DOWN_PX = 31.0
-# Inset (px) per side for thickness heuristic `w - 2*inset`
-_DM_STRIP_EDGE_INSET_PX = 7
-# Subtract from that base so the strip stays shorter than a full “DAC seg_w”-style thickness
-_DM_BAR_HEIGHT_SHRINK_PX = 22.0
+# Allow the DM strip to extend beyond the dmoji circle width.
+_DM_BAR_WIDTH_SCALE = 1.16
+# Keep bar thickness independent from width so widening does not make it taller.
+_DM_BAR_HEIGHT_SCALE = 0.53
 
 
 def _layout_gaps(inner_w: float) -> tuple[float, float]:
@@ -204,12 +204,12 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
   rw = max(1.0, rect.width)
   rh = max(1.0, rect.height)
   compact = rw < 112.0 or rh < 22.0
-  # Slightly thinner bezel so more of the strip is lit segments (proportions preserved)
-  pad_h = max(2.0, min(8.0, rw * 0.034))
-  pad_v = max(2.0, min(7.0, rh * 0.095))
+  # Increase panel inset so segments sit farther from all edges.
+  pad_h = max(4.0, min(14.0, rw * 0.065))
+  pad_v = max(3.0, min(9.0, rh * 0.14))
   if compact:
-    pad_h = max(1.5, pad_h * 0.82)
-    pad_v = max(1.5, pad_v * 0.82)
+    pad_h = max(2.0, pad_h * 0.88)
+    pad_v = max(2.0, pad_v * 0.88)
 
   tile_r = min(0.22, rh / max(rw, 1.0) * 0.9)
   rl.draw_rectangle_rounded(rect, tile_r, _TILE_SEGMENTS, _BAR_BG_COLOR)
@@ -268,8 +268,8 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
 
 def dm_segment_bar_rect(dmoji_rect: rl.Rectangle) -> rl.Rectangle:
   """Place the LED strip along the bottom of the dmoji rect (body band); +y = down."""
-  w = max(48.0, float(dmoji_rect.width) * 0.96)
-  h_bar = max(4.0, w - 2.0 * _DM_STRIP_EDGE_INSET_PX - _DM_BAR_HEIGHT_SHRINK_PX)
+  w = max(48.0, float(dmoji_rect.width) * _DM_BAR_WIDTH_SCALE)
+  h_bar = max(4.0, float(dmoji_rect.height) * _DM_BAR_HEIGHT_SCALE)
   cx = dmoji_rect.x + dmoji_rect.width / 2
   bottom = dmoji_rect.y + dmoji_rect.height
   margin_bottom = max(0.0, min(2.0, float(dmoji_rect.height) * 0.02))
