@@ -5,6 +5,7 @@ from cereal import log
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import Widget
+from openpilot.selfdrive.ui.mici.onroad.dm_segment_bar import dm_display_level, dm_display_ring_band
 from openpilot.selfdrive.ui.ui_state import ui_state
 
 
@@ -16,17 +17,28 @@ DEBUG = False
 LOOKING_CENTER_THRESHOLD_UPPER = math.radians(6)
 LOOKING_CENTER_THRESHOLD_LOWER = math.radians(3)
 
+_DEFAULT_ONROAD_SIZE = 84
+# TODO: Temporary visual nudge; remove after ring assets share exact edge mask/radius with dm_background.
+_DM_RING_SCALE = 1.04
+
 
 class DriverStateRenderer(Widget):
+  # load_icons: 52/BASE_SIZE×w, 36/BASE_SIZE×w — keep 60 so other set_rect() callers stay correct.
   BASE_SIZE = 60
   LINES_ANGLE_INCREMENT = 5
   LINES_STALE_ANGLES = 3.0  # seconds
 
-  def __init__(self, lines: bool = False, inset: bool = False):
+  def __init__(self, lines: bool = False, inset: bool = False, show_dm_rings: bool = False):
     super().__init__()
-    self.set_rect(rl.Rectangle(0, 0, self.BASE_SIZE, self.BASE_SIZE))
+    self.set_rect(rl.Rectangle(0, 0, _DEFAULT_ONROAD_SIZE, _DEFAULT_ONROAD_SIZE))
     self._lines = lines
     self._inset = inset
+    self._show_dm_rings = show_dm_rings
+    # Same frame constant as DmSegmentBar level smoothing; rings can feel a touch slower at 0.12
+    _ring_tau = 0.1
+    self._ring_yellow_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
+    self._ring_orange_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
+    self._awareness_01 = 0.0
 
     # In line mode, track smoothed angles
     assert 360 % self.LINES_ANGLE_INCREMENT == 0
@@ -63,7 +75,14 @@ class DriverStateRenderer(Widget):
 
     self._dm_person = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_person.png", cone_and_person_size, cone_and_person_size)
     self._dm_cone = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_cone.png", cone_and_person_size, cone_and_person_size)
-    self._dm_background = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_background.png", int(self._rect.width), int(self._rect.height))
+    w_bg, h_bg = int(self._rect.width), int(self._rect.height)
+    # keep_aspect_ratio=False: the default (True) fits each source *inside* (w,h) with aspect
+    # preservation, so different PNG aspect ratios get different final texture sizes; the ring
+    # Quads would not match dm_background. Stretch all three to the same exact pixel size.
+    self._dm_background = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_background.png", w_bg, h_bg, keep_aspect_ratio=False)
+    if self._show_dm_rings:
+      self._dm_ring_yellow = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_ring_yellow.png", w_bg, h_bg, keep_aspect_ratio=False)
+      self._dm_ring_orange = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_ring_orange.png", w_bg, h_bg, keep_aspect_ratio=False)
 
   def set_should_draw(self, should_draw: bool):
     self._should_draw = should_draw
@@ -90,14 +109,35 @@ class DriverStateRenderer(Widget):
     if DEBUG:
       rl.draw_rectangle_lines_ex(self._rect, 1, rl.RED)
 
+    fade_a = int(255 * self._fade_filter.x)
     rl.draw_texture_ex(self._dm_background,
                        rl.Vector2(self._rect.x, self._rect.y), 0.0, 1.0,
-                       rl.Color(255, 255, 255, int(255 * self._fade_filter.x)))
+                       rl.Color(255, 255, 255, fade_a))
+
+    if self._show_dm_rings and fade_a > 0:
+      # Slight centered upscale helps compensate perceived 1px inset from ring asset AA/falloff.
+      ring_scale = _DM_RING_SCALE
+      ring_dx = (self._dm_background.width * ring_scale - self._dm_background.width) * 0.5
+      ring_dy = (self._dm_background.height * ring_scale - self._dm_background.height) * 0.5
+      ring_pos = rl.Vector2(self._rect.x - ring_dx, self._rect.y - ring_dy)
+
+      if self._ring_yellow_filter.x > 0.01:
+        rl.draw_texture_ex(
+          self._dm_ring_yellow,
+          ring_pos, 0.0, ring_scale,
+          rl.Color(255, 255, 255, int(fade_a * self._ring_yellow_filter.x)),
+        )
+      if self._ring_orange_filter.x > 0.01:
+        rl.draw_texture_ex(
+          self._dm_ring_orange,
+          ring_pos, 0.0, ring_scale,
+          rl.Color(255, 255, 255, int(fade_a * self._ring_orange_filter.x)),
+        )
 
     rl.draw_texture_ex(self._dm_person,
                        rl.Vector2(self._rect.x + (self._rect.width - self._dm_person.width) / 2,
                                   self._rect.y + (self._rect.height - self._dm_person.height) / 2), 0.0, 1.0,
-                       rl.Color(255, 255, 255, int(255 * 0.9 * self._fade_filter.x)))
+                       rl.Color(255, 255, 255, int(0.9 * fade_a)))
 
     if self.effective_active:
       source_rect = rl.Rectangle(0, 0, self._dm_cone.width, self._dm_cone.height)
@@ -115,7 +155,7 @@ class DriverStateRenderer(Widget):
           dest_rect,
           rl.Vector2(dest_rect.width / 2, dest_rect.height / 2),
           self._rotation_filter.x - 90,
-          rl.Color(255, 255, 255, int(255 * self._fade_filter.x)),
+          rl.Color(255, 255, 255, fade_a),
         )
 
       else:
@@ -160,6 +200,9 @@ class DriverStateRenderer(Widget):
     self._face_detected = dm_state.visionPolicyState.faceDetected
     self._face_pitch = dm_state.visionPolicyState.pose.pitch + math.radians(6) # calib or DM pose is not accurate, add a fake upward pitch to bias forward
     self._face_yaw = -dm_state.visionPolicyState.pose.yaw # undo sign flip in face_orientation_from_model to match UI convention
+    if self._show_dm_rings:
+      pct = dm_state.visionPolicyState.awarenessPercent if self._is_active else dm_state.wheeltouchPolicyState.awarenessPercent
+      self._awareness_01 = float(max(min(float(pct) / 100.0, 1.0), 0.0))
 
     driverstate = sm["driverStateV2"]
     driver_data = driverstate.rightDriverData if self._is_rhd else driverstate.leftDriverData
@@ -203,3 +246,13 @@ class DriverStateRenderer(Widget):
       self._fade_filter.update(0.35)
     else:
       self._fade_filter.update(1.0)
+
+    if self._show_dm_rings:
+      if not self.should_draw:
+        self._ring_yellow_filter.update(0.0)
+        self._ring_orange_filter.update(0.0)
+      else:
+        level = dm_display_level(self._awareness_01, self._is_active)
+        band = dm_display_ring_band(level)
+        self._ring_yellow_filter.update(1.0 if band == "yellow" else 0.0)
+        self._ring_orange_filter.update(1.0 if band == "orange" else 0.0)
