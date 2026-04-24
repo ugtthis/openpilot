@@ -226,7 +226,7 @@ class AugmentedRoadView(CameraView):
     should_draw_dmoji = (not self._hud_renderer.drawing_top_icons() and ui_state.is_onroad() and
                          (ui_state.status != UIStatus.DISENGAGED or ui_state.always_on_dm))
     self._driver_state_renderer.set_should_draw(should_draw_dmoji)
-    self._driver_state_renderer.set_position(self._rect.x + 16, self._rect.y + 10)
+    self._driver_state_renderer.set_position(self._rect.x + 24, self._rect.y + 10)
     self._driver_state_renderer.render()
     self._dm_segment_bar.set_rect(dm_segment_bar_rect(self._driver_state_renderer.rect))
     self._dm_segment_bar.render()
