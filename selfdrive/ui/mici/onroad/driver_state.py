@@ -74,7 +74,7 @@ class DriverStateRenderer(Widget):
       cone_and_person_size = round(cone_and_person_size - current_inset * 2)
 
     self._dm_person = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_person.png", cone_and_person_size, cone_and_person_size)
-    self._dm_cone = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_cone.png", cone_and_person_size, cone_and_person_size)
+    self._dm_cone = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_cone_neutral.png", cone_and_person_size, cone_and_person_size)
     w_bg, h_bg = int(self._rect.width), int(self._rect.height)
     # keep_aspect_ratio=False: the default (True) fits each source *inside* (w,h) with aspect
     # preservation, so different PNG aspect ratios get different final texture sizes; the ring
