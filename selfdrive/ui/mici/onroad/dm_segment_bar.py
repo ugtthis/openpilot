@@ -24,7 +24,7 @@ _SEG_ROUNDNESS = 0.88
 _PAIR_JOIN_SEG_ROUNDNESS = 0.46
 _MULTI_SEG_ROUNDNESS = 0.34
 _SEG_ROUND_SEGS = 6
-_PEAK_YELLOW_START_N_LIT = 5.0
+_PEAK_YELLOW_START_N_LIT = float(_N_SEGS)
 
 _BAR_ROUNDNESS = 0.42
 _BAR_ROUND_SEGMENTS = 10
@@ -42,9 +42,10 @@ _SEG_OFF_COLOR = rl.Color(38, 38, 44, 255)
 # DM awareness anchors (same as DAC)
 _DM_AWARENESS_PRE_ALERT = 0.727
 _DM_AWARENESS_PRE_ALERT_PASSIVE = 0.5
-# The bar reaches full display before the pre-alert "pay attention" line, so the
-# peak state has time to settle. (Smoothed display may still lag; tune 0.85-0.95.)
-_DM_VISUAL_FULL_AT_PRE_RISK_FRACTION = 0.88
+# Visual ramp progress through the pre-alert risk window. The remaining window
+# shows the peak state, keeping the order clear:
+# second yellow segment -> full yellow bar -> alert.
+_DM_FULL_YELLOW_AT_PRE_ALERT_RISK_FRACTION = 0.70
 
 _SEG_DIM_GREY = rl.Color(152, 152, 152, 255)
 _SEG_BRIGHT_GREY = rl.Color(232, 232, 232, 255)
@@ -115,7 +116,7 @@ def dm_display_level(awareness: float, is_active_mode: bool) -> float:
   awareness = float(np.clip(awareness, 0.0, 1.0))
   risk = float(np.clip(1.0 - awareness, 0.0, 1.0))
   pre_risk = float(np.clip(1.0 - _pre_threshold(is_active_mode), 0.0, 1.0))
-  ramp_risk = pre_risk * _DM_VISUAL_FULL_AT_PRE_RISK_FRACTION
+  ramp_risk = pre_risk * _DM_FULL_YELLOW_AT_PRE_ALERT_RISK_FRACTION
   if ramp_risk <= 1e-6:
     return 1.0
   return float(np.clip(risk / ramp_risk, 0.0, 1.0))
@@ -240,6 +241,8 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
   seg_w = max(1.5, (seg_w_total - total_gap_w) / _N_SEGS)
   seg_h = max(2.0, seg_area_h)
 
+  # Let the second yellow segment fill normally before collapsing into the
+  # peak full-yellow state.
   if n_lit + 1e-3 >= _PEAK_YELLOW_START_N_LIT:
     full_w = (
       _block_left_x(_N_SEGS - 1, seg_w, seg_area_left, seg_gap, pair_extra)
