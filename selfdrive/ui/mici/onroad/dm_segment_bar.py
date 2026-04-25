@@ -11,7 +11,7 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.ui_state import ui_state
 
-# --- Segmented bar geometry (DAC reference; gaps scale down for narrow bars) ---
+# --- Segmented bar geometry ---
 _N_PAIRS = 3
 _N_SEGS = _N_PAIRS * 2  # 6 bars
 # Higher reference → smaller scaled gaps vs inner width → chunkier LED blocks (paired with taller bar rects)
@@ -26,7 +26,6 @@ _PEAK_YELLOW_START_N_LIT = 5.0
 _BAR_ROUNDNESS = 0.40
 _BAR_ROUND_SEGMENTS = 10
 
-# Softer panel than raw DAC tile (reads better on small dmoji and over camera)
 # RGB fixed; alpha is lerp’d in _draw_horizontal_bar: idle (no segments lit) → full.
 _BAR_BG_RGB = (18, 18, 22)
 # DM bar panel + segment opacity.
