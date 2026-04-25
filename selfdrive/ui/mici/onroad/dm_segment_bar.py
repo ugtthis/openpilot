@@ -29,11 +29,11 @@ _BAR_ROUNDNESS = 0.42
 _BAR_ROUND_SEGMENTS = 10
 
 # +y nudges strip down (frees dmoji face; bar may extend below cell bottom)
-_DM_BAR_SHIFT_DOWN_PX = 33.0
+_DM_BAR_SHIFT_DOWN_PX = 34.0
 # Allow the DM strip to extend beyond the dmoji circle width.
 _DM_BAR_WIDTH_SCALE = 1.14
 # Keep bar thickness independent from width so widening does not make it taller.
-_DM_BAR_HEIGHT_SCALE = 0.57
+_DM_BAR_HEIGHT_SCALE = 0.58
 
 # --- Colors and alpha (RGB fixed; bar alpha lerp’d in _draw_horizontal_bar) ---
 _BAR_BG_RGB = (18, 18, 22)
