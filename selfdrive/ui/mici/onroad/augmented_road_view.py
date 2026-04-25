@@ -158,7 +158,6 @@ class AugmentedRoadView(CameraView):
       person_icon="icons_mici/onroad/driver_monitoring/dm_person_half.png",
     )
     self._dm_segment_bar = DmSegmentBar()
-    self._dm_segment_bar.set_visible(lambda: self._driver_state_renderer.should_draw)
     self._confidence_ball = ConfidenceBall()
     self._offroad_label = UnifiedLabel("start the car to\nuse openpilot", 54, FontWeight.DISPLAY,
                                        text_color=rl.Color(255, 255, 255, int(255 * 0.9)),
@@ -232,6 +231,7 @@ class AugmentedRoadView(CameraView):
     self._driver_state_renderer.set_position(self._rect.x + 24, self._rect.y + 10)
     self._driver_state_renderer.render()
     self._dm_segment_bar.set_rect(dm_segment_bar_rect(self._driver_state_renderer.rect))
+    self._dm_segment_bar.set_dmoji_fade_alpha(self._driver_state_renderer.dmoji_fade_alpha)
     self._dm_segment_bar.render()
 
     self._hud_renderer.set_can_draw_top_icons(alert_to_render is None)

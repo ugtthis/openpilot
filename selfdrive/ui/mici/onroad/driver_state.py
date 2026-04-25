@@ -102,6 +102,10 @@ class DriverStateRenderer(Widget):
     return (self._should_draw and ui_state.sm["selfdriveState"].alertSize == AlertSize.none and
             ui_state.sm.recv_frame["driverStateV2"] > ui_state.started_frame)
 
+  @property
+  def dmoji_fade_alpha(self) -> int:
+    return int(255 * self._fade_filter.x)
+
   def set_force_active(self, force_active: bool):
     """Force the dmoji to always appear active (green) regardless of actual state"""
     self._force_active = force_active
@@ -119,7 +123,7 @@ class DriverStateRenderer(Widget):
     if DEBUG:
       rl.draw_rectangle_lines_ex(self._rect, 1, rl.RED)
 
-    fade_a = int(255 * self._fade_filter.x)
+    fade_a = self.dmoji_fade_alpha
     bg_a = dmoji_idle_alpha(fade_a, self._dm_level_filter.x)
     rl.draw_texture_ex(self._dm_background,
                        rl.Vector2(self._rect.x, self._rect.y), 0.0, 1.0,

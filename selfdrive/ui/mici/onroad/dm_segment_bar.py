@@ -150,9 +150,10 @@ def dmoji_idle_alpha(base_alpha: int, level: float) -> int:
   return _idle_alpha(base_alpha, level, _DMOJI_IDLE_ALPHA, _DMOJI_FULL_ALPHA)
 
 
-def _color_with_idle_dim(c: rl.Color, level: float) -> rl.Color:
+def _color_with_idle_dim(c: rl.Color, level: float, fade_alpha: int) -> rl.Color:
   """Apply the DM bar idle curve to segment colors."""
-  return rl.Color(c.r, c.g, c.b, _idle_alpha(c.a, level, _DM_BAR_IDLE_ALPHA, _DM_BAR_FULL_ALPHA))
+  a = min(c.a, fade_alpha)
+  return rl.Color(c.r, c.g, c.b, _idle_alpha(a, level, _DM_BAR_IDLE_ALPHA, _DM_BAR_FULL_ALPHA))
 
 
 def dm_display_ring_band(level: float) -> Literal["none", "yellow", "orange"]:
@@ -168,6 +169,7 @@ def _draw_pair_horizontal(
   pair: int,
   n_lit: float,
   level: float,
+  fade_alpha: int,
   seg_h: float,
   seg_y: float,
   seg_w: float,
@@ -196,27 +198,29 @@ def _draw_pair_horizontal(
       rl.Rectangle(left_x, seg_y, 2 * seg_w + seg_gap, seg_h),
       _PAIR_JOIN_SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
-      _color_with_idle_dim(color, level),
+      _color_with_idle_dim(color, level, fade_alpha),
     )
   else:
     rl.draw_rectangle_rounded(
       rl.Rectangle(left_x, seg_y, seg_w, seg_h),
       _SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
-      _color_with_idle_dim(_blend_seg(on_l, left_fill), level),
+      _color_with_idle_dim(_blend_seg(on_l, left_fill), level, fade_alpha),
     )
     rl.draw_rectangle_rounded(
       rl.Rectangle(right_x, seg_y, seg_w, seg_h),
       _SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
-      _color_with_idle_dim(_blend_seg(on_r, right_fill), level),
+      _color_with_idle_dim(_blend_seg(on_r, right_fill), level, fade_alpha),
     )
 
 
-def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Color | None = None) -> None:
+def _draw_horizontal_bar(rect: rl.Rectangle, level: float, fade_alpha: int = _DM_BAR_FULL_ALPHA,
+                         segment_color: rl.Color | None = None) -> None:
   """Draw only the segmented strip + panel (no DM label/icons). Level in [0, 1]."""
   rw = max(1.0, rect.width)
   rh = max(1.0, rect.height)
+  fade_alpha = int(np.clip(fade_alpha, 0, _DM_BAR_FULL_ALPHA))
   compact = rw < 112.0 or rh < 22.0
   # Increase panel inset so segments sit farther from all edges.
   pad_h = max(4.0, min(14.0, rw * 0.072))
@@ -227,7 +231,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
 
   n_lit = dm_n_lit_from_display_level(level)
   # DM bar opacity: panel and segments share the same idle curve.
-  bar_a = _idle_alpha(_DM_BAR_FULL_ALPHA, level, _DM_BAR_IDLE_ALPHA, _DM_BAR_FULL_ALPHA)
+  bar_a = _idle_alpha(fade_alpha, level, _DM_BAR_IDLE_ALPHA, _DM_BAR_FULL_ALPHA)
   bar_bg = rl.Color(_BAR_BG_RGB[0], _BAR_BG_RGB[1], _BAR_BG_RGB[2], bar_a)
   rl.draw_rectangle_rounded(rect, _BAR_ROUNDNESS, _BAR_ROUND_SEGMENTS, bar_bg)
 
@@ -254,7 +258,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
       rl.Rectangle(seg_area_left, seg_y, full_w, seg_h),
       _MULTI_SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
-      _color_with_idle_dim(yc, level),
+      _color_with_idle_dim(yc, level, fade_alpha),
     )
     return
 
@@ -276,7 +280,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
       rl.Rectangle(c_x, seg_y, c_w, seg_h),
       _MULTI_SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
-      _color_with_idle_dim(col, level),
+      _color_with_idle_dim(col, level, fade_alpha),
     )
     first_normal_pair = collapse_until + 1
   else:
@@ -287,6 +291,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
       pair,
       n_lit,
       level,
+      fade_alpha,
       seg_h,
       seg_y,
       seg_w,
@@ -315,6 +320,10 @@ class DmSegmentBar(Widget):
   def __init__(self) -> None:
     super().__init__()
     self._level_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
+    self._dmoji_fade_alpha = _DM_BAR_FULL_ALPHA
+
+  def set_dmoji_fade_alpha(self, fade_alpha: int) -> None:
+    self._dmoji_fade_alpha = fade_alpha
 
   def _update_state(self) -> None:
     dm = ui_state.sm["driverMonitoringState"]
@@ -324,4 +333,4 @@ class DmSegmentBar(Widget):
     self._level_filter.update(dm_display_level(awareness, is_active))
 
   def _render(self, rect: rl.Rectangle) -> None:
-    _draw_horizontal_bar(rect, self._level_filter.x)
+    _draw_horizontal_bar(rect, self._level_filter.x, self._dmoji_fade_alpha)
