@@ -31,13 +31,16 @@ class DriverStateRenderer(Widget):
   BASE_SIZE = 60
   LINES_ANGLE_INCREMENT = 5
   LINES_STALE_ANGLES = 3.0  # seconds
+  DEFAULT_PERSON_ICON = "icons_mici/onroad/driver_monitoring/dm_person.png"
 
-  def __init__(self, lines: bool = False, inset: bool = False, show_dm_rings: bool = False):
+  def __init__(self, lines: bool = False, inset: bool = False, show_dm_rings: bool = False,
+               person_icon: str = DEFAULT_PERSON_ICON):
     super().__init__()
     self.set_rect(rl.Rectangle(0, 0, _DEFAULT_ONROAD_SIZE, _DEFAULT_ONROAD_SIZE))
     self._lines = lines
     self._inset = inset
     self._show_dm_rings = show_dm_rings
+    self._person_icon = person_icon
     # Same frame constant as DmSegmentBar level smoothing; rings can feel a touch slower at 0.12
     _ring_tau = 0.1
     self._ring_yellow_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
@@ -80,7 +83,7 @@ class DriverStateRenderer(Widget):
       # Reduce size by 2x the current inset (1x on each side)
       cone_and_person_size = round(cone_and_person_size - current_inset * 2)
 
-    self._dm_person = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_person.png", cone_and_person_size, cone_and_person_size)
+    self._dm_person = gui_app.texture(self._person_icon, cone_and_person_size, cone_and_person_size)
     self._dm_cone = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_cone_neutral.png", cone_and_person_size, cone_and_person_size)
     w_bg, h_bg = int(self._rect.width), int(self._rect.height)
     # keep_aspect_ratio=False: the default (True) fits each source *inside* (w,h) with aspect
