@@ -20,12 +20,13 @@ _SEG_GAP_REF = 5
 _PAIR_EXTRA_REF = 7
 _MERGE_THRESHOLD = 0.5
 _COLLAPSE_STARTS_AT_PAIR = 1
-_SEG_ROUNDNESS = 0.58
-_MERGED_SEG_ROUNDNESS = 0.30
+_SEG_ROUNDNESS = 0.88
+_PAIR_JOIN_SEG_ROUNDNESS = 0.46
+_MULTI_SEG_ROUNDNESS = 0.34
 _SEG_ROUND_SEGS = 6
 _PEAK_YELLOW_START_N_LIT = 5.0
 
-_BAR_ROUNDNESS = 0.40
+_BAR_ROUNDNESS = 0.42
 _BAR_ROUND_SEGMENTS = 10
 
 # RGB fixed; alpha is lerp’d in _draw_horizontal_bar: idle (no segments lit) → full.
@@ -61,9 +62,9 @@ _SEG_ON: tuple[rl.Color, ...] = (
 # +y nudges strip down (frees dmoji face; bar may extend below cell bottom)
 _DM_BAR_SHIFT_DOWN_PX = 31.0
 # Allow the DM strip to extend beyond the dmoji circle width.
-_DM_BAR_WIDTH_SCALE = 1.16
+_DM_BAR_WIDTH_SCALE = 1.14
 # Keep bar thickness independent from width so widening does not make it taller.
-_DM_BAR_HEIGHT_SCALE = 0.53
+_DM_BAR_HEIGHT_SCALE = 0.54
 
 
 def _layout_gaps(inner_w: float) -> tuple[float, float]:
@@ -192,7 +193,7 @@ def _draw_pair_horizontal(
   if right_fill >= _MERGE_THRESHOLD:
     rl.draw_rectangle_rounded(
       rl.Rectangle(left_x, seg_y, 2 * seg_w + seg_gap, seg_h),
-      _MERGED_SEG_ROUNDNESS,
+      _PAIR_JOIN_SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
       _color_with_idle_dim(color, level),
     )
@@ -217,7 +218,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
   rh = max(1.0, rect.height)
   compact = rw < 112.0 or rh < 22.0
   # Increase panel inset so segments sit farther from all edges.
-  pad_h = max(4.0, min(14.0, rw * 0.065))
+  pad_h = max(4.0, min(14.0, rw * 0.072))
   pad_v = max(3.0, min(9.0, rh * 0.14))
   if compact:
     pad_h = max(2.0, pad_h * 0.88)
@@ -248,7 +249,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
     yc = segment_color if segment_color is not None else _SEG_YELLOW
     rl.draw_rectangle_rounded(
       rl.Rectangle(seg_area_left, seg_y, full_w, seg_h),
-      _MERGED_SEG_ROUNDNESS,
+      _MULTI_SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
       _color_with_idle_dim(yc, level),
     )
@@ -270,7 +271,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
     col = segment_color if segment_color is not None else _SEG_ON[top_block_of_collapse]
     rl.draw_rectangle_rounded(
       rl.Rectangle(c_x, seg_y, c_w, seg_h),
-      _MERGED_SEG_ROUNDNESS,
+      _MULTI_SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
       _color_with_idle_dim(col, level),
     )
