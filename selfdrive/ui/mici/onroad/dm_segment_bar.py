@@ -33,7 +33,8 @@ _BAR_ROUND_SEGMENTS = 10
 _BAR_BG_RGB = (18, 18, 22)
 # DM bar panel + segment opacity.
 _DM_BAR_IDLE_ALPHA = 210
-_DM_BAR_FULL_ALPHA = 248 # Will this always match the dmoji full alpha?
+_DM_BAR_FULL_ALPHA = 248
+# TODO: Decide whether the DM strip and dmoji should share one peak opacity constant.
 # Dmoji background/person texture opacity.
 _DMOJI_IDLE_ALPHA = 120
 _DMOJI_FULL_ALPHA = 248
@@ -112,7 +113,7 @@ def _pre_threshold(is_active_mode: bool) -> float:
 
 
 def dm_display_level(awareness: float, is_active_mode: bool) -> float:
-  """Map awareness [0,1] to bar fill [0,1], reaching full before the first alert."""
+  """Map awareness [0,1] to bar fill [0,1], reaching full before AlertLevel.one."""
   awareness = float(np.clip(awareness, 0.0, 1.0))
   risk = float(np.clip(1.0 - awareness, 0.0, 1.0))
   pre_risk = float(np.clip(1.0 - _pre_threshold(is_active_mode), 0.0, 1.0))
@@ -128,7 +129,7 @@ _RING_TURNS_ON_AFTER_N_LIT = 4.0
 
 
 def dm_n_lit_from_display_level(level: float) -> float:
-  """Match the bar: `n_lit` used in _draw_horizontal_bar (same as level * 6, clamped to [0,6])."""
+  """Convert visual fill to the segment count used by _draw_horizontal_bar."""
   v = float(np.clip(level, 0.0, 1.0)) * _N_SEGS
   return float(v)
 
@@ -146,7 +147,7 @@ def _idle_alpha(base_alpha: int, level: float, idle_alpha: int, full_alpha: int)
 
 
 def dmoji_idle_alpha(base_alpha: int, level: float) -> int:
-  """Idle-aware alpha scaler for dmoji background/person textures."""
+  """Scale dmoji texture alpha with the same idle-to-active curve as the bar."""
   return _idle_alpha(base_alpha, level, _DMOJI_IDLE_ALPHA, _DMOJI_FULL_ALPHA)
 
 
@@ -157,7 +158,7 @@ def _color_with_idle_dim(c: rl.Color, level: float, fade_alpha: int) -> rl.Color
 
 
 def dm_display_ring_band(level: float) -> Literal["none", "yellow", "orange"]:
-  """Single ring: off until the last (yellow) pair gets any fill; “orange” unused here."""
+  """Return the dmoji ring band for the current visual fill level."""
   # TODO: drop "orange" from return type + callers once orange ring is removed
   n = dm_n_lit_from_display_level(level)
   if n <= _RING_TURNS_ON_AFTER_N_LIT + 1e-9:
@@ -303,7 +304,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, fade_alpha: int = _DM
 
 
 def dm_segment_bar_rect(dmoji_rect: rl.Rectangle) -> rl.Rectangle:
-  """Place the LED strip along the bottom of the dmoji rect (body band); +y = down."""
+  """Place the awareness strip along the bottom of the dmoji rect; +y = down."""
   w = max(48.0, float(dmoji_rect.width) * _DM_BAR_WIDTH_SCALE)
   h_bar = max(4.0, float(dmoji_rect.height) * _DM_BAR_HEIGHT_SCALE)
   cx = dmoji_rect.x + dmoji_rect.width / 2
