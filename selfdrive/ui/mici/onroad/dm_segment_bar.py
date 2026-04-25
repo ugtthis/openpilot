@@ -34,7 +34,6 @@ _DM_BAR_FULL_ALPHA = 248 # Will this always match the dmoji full alpha?
 # Dmoji background/person texture opacity.
 _DMOJI_IDLE_ALPHA = 120
 _DMOJI_FULL_ALPHA = 248
-_BAR_FRAME_COLOR = rl.Color(88, 88, 96, 90)
 _SEG_OFF_COLOR = rl.Color(38, 38, 44, 255)
 
 # DM awareness anchors (same as DAC)
@@ -233,7 +232,6 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
   bar_a = _idle_alpha(_DM_BAR_FULL_ALPHA, level, _DM_BAR_IDLE_ALPHA, _DM_BAR_FULL_ALPHA)
   bar_bg = rl.Color(_BAR_BG_RGB[0], _BAR_BG_RGB[1], _BAR_BG_RGB[2], bar_a)
   rl.draw_rectangle_rounded(rect, _BAR_ROUNDNESS, _BAR_ROUND_SEGMENTS, bar_bg)
-  rl.draw_rectangle_rounded_lines_ex(rect, _BAR_ROUNDNESS, _BAR_ROUND_SEGMENTS, 1.0, _BAR_FRAME_COLOR)
 
   seg_y = rect.y + pad_v
   seg_area_h = rh - 2 * pad_v
