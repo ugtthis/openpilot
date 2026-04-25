@@ -27,3 +27,4 @@ selfdrive/assets/icons_mici/onroad/driver_monitoring/dm_ring_yellow.png -filter 
 selfdrive/assets/icons_mici/onroad/driver_monitoring/dm_ring_orange.png -filter -diff -merge -text
 selfdrive/assets/icons_mici/onroad/driver_monitoring/dm_cone_neutral.png -filter -diff -merge -text
 selfdrive/assets/icons_mici/onroad/driver_monitoring/dm_person_half.png -filter -diff -merge -text
+selfdrive/assets/icons_mici/onroad/driver_monitoring/dm_background_half.png -filter -diff -merge -text
