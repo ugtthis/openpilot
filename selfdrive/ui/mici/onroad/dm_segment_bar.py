@@ -27,7 +27,14 @@ _TILE_ROUNDNESS = 0.14
 _TILE_SEGMENTS = 10
 
 # Softer panel than raw DAC tile (reads better on small dmoji and over camera)
-_BAR_BG_COLOR = rl.Color(18, 18, 22, 248)
+# RGB fixed; alpha is lerp’d in _draw_horizontal_bar: idle (no segments lit) → full.
+_BAR_BG_RGB = (18, 18, 22)
+# DM bar panel + segment opacity.
+_DM_BAR_IDLE_ALPHA = 210
+_DM_BAR_FULL_ALPHA = 248 # Will this always match the dmoji full alpha?
+# Dmoji background/person texture opacity.
+_DMOJI_IDLE_ALPHA = 120
+_DMOJI_FULL_ALPHA = 248
 _BAR_FRAME_COLOR = rl.Color(88, 88, 96, 90)
 _SEG_OFF_COLOR = rl.Color(38, 38, 44, 255)
 
@@ -129,6 +136,28 @@ def dm_n_lit_from_display_level(level: float) -> float:
   return float(v)
 
 
+def _first_segment_fill(level: float) -> float:
+  """Progress through the first segment: 0 at idle, 1 once any segment is fully lit."""
+  return min(1.0, dm_n_lit_from_display_level(level))
+
+
+def _idle_alpha(base_alpha: int, level: float, idle_alpha: int, full_alpha: int) -> int:
+  """Scale a draw alpha by an idle-to-full reference alpha curve."""
+  alpha_scale = np.interp(_first_segment_fill(level), [0.0, 1.0], [idle_alpha / full_alpha, 1.0])
+  a = float(base_alpha) * alpha_scale
+  return int(max(0, min(255, round(a))))
+
+
+def dmoji_idle_alpha(base_alpha: int, level: float) -> int:
+  """Idle-aware alpha scaler for dmoji background/person textures."""
+  return _idle_alpha(base_alpha, level, _DMOJI_IDLE_ALPHA, _DMOJI_FULL_ALPHA)
+
+
+def _color_with_idle_dim(c: rl.Color, level: float) -> rl.Color:
+  """Apply the DM bar idle curve to segment colors."""
+  return rl.Color(c.r, c.g, c.b, _idle_alpha(c.a, level, _DM_BAR_IDLE_ALPHA, _DM_BAR_FULL_ALPHA))
+
+
 def dm_display_ring_band(level: float) -> Literal["none", "yellow", "orange"]:
   """Single ring: off until the last (yellow) pair gets any fill; “orange” unused here."""
   # TODO: drop "orange" from return type + callers once orange ring is removed
@@ -141,6 +170,7 @@ def dm_display_ring_band(level: float) -> Literal["none", "yellow", "orange"]:
 def _draw_pair_horizontal(
   pair: int,
   n_lit: float,
+  level: float,
   seg_h: float,
   seg_y: float,
   seg_w: float,
@@ -170,20 +200,20 @@ def _draw_pair_horizontal(
       rl.Rectangle(left_x, seg_y, 2 * seg_w + seg_gap, seg_h),
       seg_round,
       _SEG_ROUND_SEGS,
-      color,
+      _color_with_idle_dim(color, level),
     )
   else:
     rl.draw_rectangle_rounded(
       rl.Rectangle(left_x, seg_y, seg_w, seg_h),
       seg_round,
       _SEG_ROUND_SEGS,
-      _blend_seg(on_l, left_fill),
+      _color_with_idle_dim(_blend_seg(on_l, left_fill), level),
     )
     rl.draw_rectangle_rounded(
       rl.Rectangle(right_x, seg_y, seg_w, seg_h),
       seg_round,
       _SEG_ROUND_SEGS,
-      _blend_seg(on_r, right_fill),
+      _color_with_idle_dim(_blend_seg(on_r, right_fill), level),
     )
 
 
@@ -200,7 +230,11 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
     pad_v = max(2.0, pad_v * 0.88)
 
   tile_r = min(0.22, rh / max(rw, 1.0) * 0.9)
-  rl.draw_rectangle_rounded(rect, tile_r, _TILE_SEGMENTS, _BAR_BG_COLOR)
+  n_lit = dm_n_lit_from_display_level(level)
+  # DM bar opacity: panel and segments share the same idle curve.
+  bar_a = _idle_alpha(_DM_BAR_FULL_ALPHA, level, _DM_BAR_IDLE_ALPHA, _DM_BAR_FULL_ALPHA)
+  bar_bg = rl.Color(_BAR_BG_RGB[0], _BAR_BG_RGB[1], _BAR_BG_RGB[2], bar_a)
+  rl.draw_rectangle_rounded(rect, tile_r, _TILE_SEGMENTS, bar_bg)
   rl.draw_rectangle_rounded_lines_ex(rect, tile_r, _TILE_SEGMENTS, 1.0, _BAR_FRAME_COLOR)
 
   seg_y = rect.y + pad_v
@@ -214,19 +248,18 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
   seg_h = max(2.0, seg_area_h)
   seg_round = _seg_roundness(seg_w, seg_h)
 
-  n_lit = level * _N_SEGS
-
   if n_lit + 1e-3 >= _PEAK_YELLOW_START_N_LIT:
     full_w = (
       _block_left_x(_N_SEGS - 1, seg_w, seg_area_left, seg_gap, pair_extra)
       + seg_w
       - seg_area_left
     )
+    yc = segment_color if segment_color is not None else _SEG_YELLOW
     rl.draw_rectangle_rounded(
       rl.Rectangle(seg_area_left, seg_y, full_w, seg_h),
       seg_round,
       _SEG_ROUND_SEGS,
-      segment_color if segment_color is not None else _SEG_YELLOW,
+      _color_with_idle_dim(yc, level),
     )
     return
 
@@ -243,11 +276,12 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
       + seg_w
       - seg_area_left
     )
+    col = segment_color if segment_color is not None else _SEG_ON[top_block_of_collapse]
     rl.draw_rectangle_rounded(
       rl.Rectangle(c_x, seg_y, c_w, seg_h),
       seg_round,
       _SEG_ROUND_SEGS,
-      segment_color if segment_color is not None else _SEG_ON[top_block_of_collapse],
+      _color_with_idle_dim(col, level),
     )
     first_normal_pair = collapse_until + 1
   else:
@@ -257,6 +291,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
     _draw_pair_horizontal(
       pair,
       n_lit,
+      level,
       seg_h,
       seg_y,
       seg_w,

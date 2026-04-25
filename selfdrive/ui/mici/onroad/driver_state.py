@@ -5,7 +5,11 @@ from cereal import log
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import Widget
-from openpilot.selfdrive.ui.mici.onroad.dm_segment_bar import dm_display_level, dm_display_ring_band
+from openpilot.selfdrive.ui.mici.onroad.dm_segment_bar import (
+  dmoji_idle_alpha,
+  dm_display_level,
+  dm_display_ring_band,
+)
 from openpilot.selfdrive.ui.ui_state import ui_state
 
 
@@ -39,6 +43,8 @@ class DriverStateRenderer(Widget):
     self._ring_yellow_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
     # TODO: remove orange ring (asset, filter, draw) and simplify dm_display_ring_band when cleaning up DM UX
     self._ring_orange_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
+    # Same time constant as DmSegmentBar so dmoji opacity tracks the bar smoothly.
+    self._dm_level_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     self._awareness_01 = 0.0
 
     # In line mode, track smoothed angles
@@ -111,9 +117,10 @@ class DriverStateRenderer(Widget):
       rl.draw_rectangle_lines_ex(self._rect, 1, rl.RED)
 
     fade_a = int(255 * self._fade_filter.x)
+    bg_a = dmoji_idle_alpha(fade_a, self._dm_level_filter.x)
     rl.draw_texture_ex(self._dm_background,
                        rl.Vector2(self._rect.x, self._rect.y), 0.0, 1.0,
-                       rl.Color(255, 255, 255, fade_a))
+                       rl.Color(255, 255, 255, bg_a))
 
     if self._show_dm_rings and fade_a > 0:
       # Slight centered upscale helps compensate perceived 1px inset from ring asset AA/falloff.
@@ -135,10 +142,11 @@ class DriverStateRenderer(Widget):
           rl.Color(255, 255, 255, int(fade_a * self._ring_orange_filter.x)),
         )
 
+    person_a = dmoji_idle_alpha(int(0.9 * fade_a), self._dm_level_filter.x)
     rl.draw_texture_ex(self._dm_person,
                        rl.Vector2(self._rect.x + (self._rect.width - self._dm_person.width) / 2,
                                   self._rect.y + (self._rect.height - self._dm_person.height) / 2), 0.0, 1.0,
-                       rl.Color(255, 255, 255, int(0.9 * fade_a)))
+                       rl.Color(255, 255, 255, person_a))
 
     if self.effective_active:
       source_rect = rl.Rectangle(0, 0, self._dm_cone.width, self._dm_cone.height)
@@ -201,9 +209,8 @@ class DriverStateRenderer(Widget):
     self._face_detected = dm_state.visionPolicyState.faceDetected
     self._face_pitch = dm_state.visionPolicyState.pose.pitch + math.radians(6) # calib or DM pose is not accurate, add a fake upward pitch to bias forward
     self._face_yaw = -dm_state.visionPolicyState.pose.yaw # undo sign flip in face_orientation_from_model to match UI convention
-    if self._show_dm_rings:
-      pct = dm_state.visionPolicyState.awarenessPercent if self._is_active else dm_state.wheeltouchPolicyState.awarenessPercent
-      self._awareness_01 = float(max(min(float(pct) / 100.0, 1.0), 0.0))
+    pct = dm_state.visionPolicyState.awarenessPercent if self._is_active else dm_state.wheeltouchPolicyState.awarenessPercent
+    self._awareness_01 = float(max(min(float(pct) / 100.0, 1.0), 0.0))
 
     driverstate = sm["driverStateV2"]
     driver_data = driverstate.rightDriverData if self._is_rhd else driverstate.leftDriverData
@@ -248,12 +255,13 @@ class DriverStateRenderer(Widget):
     else:
       self._fade_filter.update(1.0)
 
+    level = dm_display_level(self._awareness_01, self._is_active)
+    self._dm_level_filter.update(level)
     if self._show_dm_rings:
       if not self.should_draw:
         self._ring_yellow_filter.update(0.0)
         self._ring_orange_filter.update(0.0)
       else:
-        level = dm_display_level(self._awareness_01, self._is_active)
         band = dm_display_ring_band(level)
         self._ring_yellow_filter.update(1.0 if band == "yellow" else 0.0)
         self._ring_orange_filter.update(0.0)  # unused; orange ring ignored for now
