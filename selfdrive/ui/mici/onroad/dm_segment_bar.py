@@ -29,7 +29,7 @@ _BAR_ROUNDNESS = 0.42
 _BAR_ROUND_SEGMENTS = 10
 
 # +y nudges strip down (frees dmoji face; bar may extend below cell bottom)
-_DM_BAR_SHIFT_DOWN_PX = 31.0
+_DM_BAR_SHIFT_DOWN_PX = 33.0
 # Allow the DM strip to extend beyond the dmoji circle width.
 _DM_BAR_WIDTH_SCALE = 1.14
 # Keep bar thickness independent from width so widening does not make it taller.
