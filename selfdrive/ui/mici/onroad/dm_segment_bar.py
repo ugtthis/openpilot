@@ -65,7 +65,7 @@ _DM_BAR_SHIFT_DOWN_PX = 31.0
 # Allow the DM strip to extend beyond the dmoji circle width.
 _DM_BAR_WIDTH_SCALE = 1.14
 # Keep bar thickness independent from width so widening does not make it taller.
-_DM_BAR_HEIGHT_SCALE = 0.54
+_DM_BAR_HEIGHT_SCALE = 0.57
 
 
 def _layout_gaps(inner_w: float) -> tuple[float, float]:
