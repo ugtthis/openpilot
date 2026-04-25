@@ -38,11 +38,11 @@ _DM_BAR_HEIGHT_SCALE = 0.57
 # --- Colors and alpha (RGB fixed; bar alpha lerp’d in _draw_horizontal_bar) ---
 _BAR_BG_RGB = (18, 18, 22)
 # DM bar panel + segment opacity.
-_DM_BAR_IDLE_ALPHA = 210
+_DM_BAR_IDLE_ALPHA = 205
 _DM_BAR_FULL_ALPHA = 248
 # TODO: Decide whether the DM strip and dmoji should share one peak opacity constant.
 # Dmoji background/person texture opacity.
-_DMOJI_IDLE_ALPHA = 120
+_DMOJI_IDLE_ALPHA = 119
 _DMOJI_FULL_ALPHA = 248
 _SEG_OFF_COLOR = rl.Color(38, 38, 44, 255)
 _SEG_DIM_GREY = rl.Color(152, 152, 152, 255)
