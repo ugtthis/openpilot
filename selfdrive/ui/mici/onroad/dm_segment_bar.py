@@ -23,8 +23,8 @@ _COLLAPSE_STARTS_AT_PAIR = 1
 _SEG_ROUND_SEGS = 6
 _PEAK_YELLOW_START_N_LIT = 5.0
 
-_TILE_ROUNDNESS = 0.14
-_TILE_SEGMENTS = 10
+_BAR_ROUNDNESS = 0.40
+_BAR_ROUND_SEGMENTS = 10
 
 # Softer panel than raw DAC tile (reads better on small dmoji and over camera)
 # RGB fixed; alpha is lerp’d in _draw_horizontal_bar: idle (no segments lit) → full.
@@ -229,13 +229,12 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
     pad_h = max(2.0, pad_h * 0.88)
     pad_v = max(2.0, pad_v * 0.88)
 
-  tile_r = min(0.22, rh / max(rw, 1.0) * 0.9)
   n_lit = dm_n_lit_from_display_level(level)
   # DM bar opacity: panel and segments share the same idle curve.
   bar_a = _idle_alpha(_DM_BAR_FULL_ALPHA, level, _DM_BAR_IDLE_ALPHA, _DM_BAR_FULL_ALPHA)
   bar_bg = rl.Color(_BAR_BG_RGB[0], _BAR_BG_RGB[1], _BAR_BG_RGB[2], bar_a)
-  rl.draw_rectangle_rounded(rect, tile_r, _TILE_SEGMENTS, bar_bg)
-  rl.draw_rectangle_rounded_lines_ex(rect, tile_r, _TILE_SEGMENTS, 1.0, _BAR_FRAME_COLOR)
+  rl.draw_rectangle_rounded(rect, _BAR_ROUNDNESS, _BAR_ROUND_SEGMENTS, bar_bg)
+  rl.draw_rectangle_rounded_lines_ex(rect, _BAR_ROUNDNESS, _BAR_ROUND_SEGMENTS, 1.0, _BAR_FRAME_COLOR)
 
   seg_y = rect.y + pad_v
   seg_area_h = rh - 2 * pad_v
