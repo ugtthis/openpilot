@@ -20,6 +20,8 @@ _SEG_GAP_REF = 5
 _PAIR_EXTRA_REF = 7
 _MERGE_THRESHOLD = 0.5
 _COLLAPSE_STARTS_AT_PAIR = 1
+_SEG_ROUNDNESS = 0.58
+_MERGED_SEG_ROUNDNESS = 0.30
 _SEG_ROUND_SEGS = 6
 _PEAK_YELLOW_START_N_LIT = 5.0
 
@@ -91,11 +93,6 @@ def _block_left_x(
     + block_idx * seg_gap
     + pair_idx * pair_extra
   )
-
-
-def _seg_roundness(seg_w: float, seg_h: float) -> float:
-  m = min(seg_w, seg_h)
-  return min(0.32, max(0.1, m / 20.0))
 
 
 def _blend_seg(on: rl.Color, fill: float) -> rl.Color:
@@ -175,7 +172,6 @@ def _draw_pair_horizontal(
   seg_area_left: float,
   seg_gap: float,
   pair_extra: float,
-  seg_round: float,
   segment_color: rl.Color | None,
 ) -> None:
   i_left = pair * 2
@@ -196,20 +192,20 @@ def _draw_pair_horizontal(
   if right_fill >= _MERGE_THRESHOLD:
     rl.draw_rectangle_rounded(
       rl.Rectangle(left_x, seg_y, 2 * seg_w + seg_gap, seg_h),
-      seg_round,
+      _MERGED_SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
       _color_with_idle_dim(color, level),
     )
   else:
     rl.draw_rectangle_rounded(
       rl.Rectangle(left_x, seg_y, seg_w, seg_h),
-      seg_round,
+      _SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
       _color_with_idle_dim(_blend_seg(on_l, left_fill), level),
     )
     rl.draw_rectangle_rounded(
       rl.Rectangle(right_x, seg_y, seg_w, seg_h),
-      seg_round,
+      _SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
       _color_with_idle_dim(_blend_seg(on_r, right_fill), level),
     )
@@ -242,7 +238,6 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
   total_gap_w = (_N_SEGS - 1) * seg_gap + (_N_PAIRS - 1) * pair_extra
   seg_w = max(1.5, (seg_w_total - total_gap_w) / _N_SEGS)
   seg_h = max(2.0, seg_area_h)
-  seg_round = _seg_roundness(seg_w, seg_h)
 
   if n_lit + 1e-3 >= _PEAK_YELLOW_START_N_LIT:
     full_w = (
@@ -253,7 +248,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
     yc = segment_color if segment_color is not None else _SEG_YELLOW
     rl.draw_rectangle_rounded(
       rl.Rectangle(seg_area_left, seg_y, full_w, seg_h),
-      seg_round,
+      _MERGED_SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
       _color_with_idle_dim(yc, level),
     )
@@ -275,7 +270,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
     col = segment_color if segment_color is not None else _SEG_ON[top_block_of_collapse]
     rl.draw_rectangle_rounded(
       rl.Rectangle(c_x, seg_y, c_w, seg_h),
-      seg_round,
+      _MERGED_SEG_ROUNDNESS,
       _SEG_ROUND_SEGS,
       _color_with_idle_dim(col, level),
     )
@@ -294,7 +289,6 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, segment_color: rl.Col
       seg_area_left,
       seg_gap,
       pair_extra,
-      seg_round,
       segment_color,
     )
 
