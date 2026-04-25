@@ -5,7 +5,7 @@ from cereal import log
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import Widget
-from openpilot.selfdrive.ui.mici.onroad.dm_segment_bar import (
+from openpilot.selfdrive.ui.mici.onroad.dmoji_bar import (
   dmoji_idle_alpha,
   dm_display_level,
   dm_display_ring_band,
@@ -41,12 +41,12 @@ class DriverStateRenderer(Widget):
     self._inset = inset
     self._show_dm_rings = show_dm_rings
     self._person_icon = person_icon
-    # Same frame constant as DmSegmentBar level smoothing; rings can feel a touch slower at 0.12
+    # Same frame constant as DmojiBar level smoothing; rings can feel a touch slower at 0.12
     _ring_tau = 0.1
     self._ring_yellow_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
     # TODO: remove orange ring (asset, filter, draw) and simplify dm_display_ring_band when cleaning up DM UX
     self._ring_orange_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
-    # Same time constant as DmSegmentBar so dmoji opacity tracks the bar smoothly.
+    # Same time constant as DmojiBar so dmoji opacity tracks the bar smoothly.
     self._dm_level_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     self._awareness_01 = 0.0
 
