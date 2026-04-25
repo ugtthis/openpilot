@@ -262,7 +262,7 @@ class DriverStateRenderer(Widget):
     else:
       self._fade_filter.update(1.0)
 
-    level = dm_display_level(self._awareness_01, self._is_active)
+    level = dm_display_level(self._awareness_01, is_vision_policy=self._is_active)
     self._dm_level_filter.update(level)
     if self._show_dm_rings:
       if not self.should_draw:

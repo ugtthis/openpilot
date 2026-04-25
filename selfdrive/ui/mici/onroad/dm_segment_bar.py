@@ -24,12 +24,11 @@ _SEG_ROUNDNESS = 0.88
 _PAIR_JOIN_SEG_ROUNDNESS = 0.46
 _MULTI_SEG_ROUNDNESS = 0.34
 _SEG_ROUND_SEGS = 6
-_PEAK_YELLOW_START_N_LIT = float(_N_SEGS)
 
 _BAR_ROUNDNESS = 0.42
 _BAR_ROUND_SEGMENTS = 10
 
-# RGB fixed; alpha is lerp’d in _draw_horizontal_bar: idle (no segments lit) → full.
+# --- Colors and alpha (RGB fixed; bar alpha lerp’d in _draw_horizontal_bar) ---
 _BAR_BG_RGB = (18, 18, 22)
 # DM bar panel + segment opacity.
 _DM_BAR_IDLE_ALPHA = 210
@@ -40,13 +39,20 @@ _DMOJI_IDLE_ALPHA = 120
 _DMOJI_FULL_ALPHA = 248
 _SEG_OFF_COLOR = rl.Color(38, 38, 44, 255)
 
-# DM awareness anchors (same as DAC)
-_DM_AWARENESS_PRE_ALERT = 0.727
-_DM_AWARENESS_PRE_ALERT_PASSIVE = 0.5
-# Visual ramp progress through the pre-alert risk window. The remaining window
-# shows the peak state, keeping the order clear:
-# second yellow segment -> full yellow bar -> alert.
-_DM_FULL_YELLOW_AT_PRE_ALERT_RISK_FRACTION = 0.70
+# --- Awareness display (AlertLevel.one; mirrors monitoring policy time ratios) ---
+# AlertLevel.one anchors: 1 - t1 / t3 for the active policy (see monitoring policy).
+# Vision intentionally uses the exact 1 - 3/11 ratio, not the old rounded 0.727 literal
+# (tiny difference in the bar ramp; policy alignment is preferred here).
+_VISION_ALERT_1_AWARENESS = 1.0 - 3.0 / 11.0
+# Wheeltouch: 1 - 15/30
+_WHEELTOUCH_ALERT_1_AWARENESS = 1.0 - 15.0 / 30.0
+# In risk (1 - awareness), fill the bar by this fraction of the window down to alert one; then
+# hold full until alert one. Order: second yellow segment -> full bar -> first alert.
+_FULL_BAR_AT_ALERT_1_RISK_FRACTION = 0.70
+# n_lit = level * _N_SEGS. Ring turns on when the yellow pair (last pair) gets any fill (n_lit > 4).
+_YELLOW_PAIR_START_N_LIT = 4.0
+# All segments lit: collapse to one full-width yellow block.
+_FULL_BAR_N_LIT = float(_N_SEGS)
 
 _SEG_DIM_GREY = rl.Color(152, 152, 152, 255)
 _SEG_BRIGHT_GREY = rl.Color(232, 232, 232, 255)
@@ -108,24 +114,24 @@ def _blend_seg(on: rl.Color, fill: float) -> rl.Color:
   )
 
 
-def _pre_threshold(is_active_mode: bool) -> float:
-  return _DM_AWARENESS_PRE_ALERT if is_active_mode else _DM_AWARENESS_PRE_ALERT_PASSIVE
+def _alert_1_awareness(is_vision_policy: bool) -> float:
+  return _VISION_ALERT_1_AWARENESS if is_vision_policy else _WHEELTOUCH_ALERT_1_AWARENESS
 
 
-def dm_display_level(awareness: float, is_active_mode: bool) -> float:
-  """Map awareness [0,1] to bar fill [0,1], reaching full before AlertLevel.one."""
+def _full_bar_awareness(is_vision_policy: bool) -> float:
+  """Awareness at which the strip reaches full fill (start of the full-yellow plateau)."""
+  pre = 1.0 - _alert_1_awareness(is_vision_policy)
+  return 1.0 - pre * _FULL_BAR_AT_ALERT_1_RISK_FRACTION
+
+
+def dm_display_level(awareness: float, is_vision_policy: bool) -> float:
+  """Map awareness [0,1] to bar fill [0,1], reaching 1.0 before AlertLevel.one."""
   awareness = float(np.clip(awareness, 0.0, 1.0))
   risk = float(np.clip(1.0 - awareness, 0.0, 1.0))
-  pre_risk = float(np.clip(1.0 - _pre_threshold(is_active_mode), 0.0, 1.0))
-  ramp_risk = pre_risk * _DM_FULL_YELLOW_AT_PRE_ALERT_RISK_FRACTION
+  ramp_risk = 1.0 - _full_bar_awareness(is_vision_policy)
   if ramp_risk <= 1e-6:
     return 1.0
   return float(np.clip(risk / ramp_risk, 0.0, 1.0))
-
-
-# Last pair (yellow) starts at n_lit = 4; ring turns on when that pair first gets
-# any fill. `n_lit = level * _N_SEGS` in _draw_horizontal_bar
-_RING_TURNS_ON_AFTER_N_LIT = 4.0
 
 
 def dm_n_lit_from_display_level(level: float) -> float:
@@ -161,7 +167,7 @@ def dm_display_ring_band(level: float) -> Literal["none", "yellow", "orange"]:
   """Return the dmoji ring band for the current visual fill level."""
   # TODO: drop "orange" from return type + callers once orange ring is removed
   n = dm_n_lit_from_display_level(level)
-  if n <= _RING_TURNS_ON_AFTER_N_LIT + 1e-9:
+  if n <= _YELLOW_PAIR_START_N_LIT + 1e-9:
     return "none"  # dim + bright grey pairs; last pair not started
   return "yellow"  # last pair (yellow segments) has started
 
@@ -248,7 +254,7 @@ def _draw_horizontal_bar(rect: rl.Rectangle, level: float, fade_alpha: int = _DM
 
   # Let the second yellow segment fill normally before collapsing into the
   # peak full-yellow state.
-  if n_lit + 1e-3 >= _PEAK_YELLOW_START_N_LIT:
+  if n_lit + 1e-3 >= _FULL_BAR_N_LIT:
     full_w = (
       _block_left_x(_N_SEGS - 1, seg_w, seg_area_left, seg_gap, pair_extra)
       + seg_w
@@ -328,10 +334,10 @@ class DmSegmentBar(Widget):
 
   def _update_state(self) -> None:
     dm = ui_state.sm["driverMonitoringState"]
-    is_active = dm.activePolicy == log.DriverMonitoringState.MonitoringPolicy.vision
-    pct = dm.visionPolicyState.awarenessPercent if is_active else dm.wheeltouchPolicyState.awarenessPercent
+    is_vision_policy = dm.activePolicy == log.DriverMonitoringState.MonitoringPolicy.vision
+    pct = dm.visionPolicyState.awarenessPercent if is_vision_policy else dm.wheeltouchPolicyState.awarenessPercent
     awareness = max(0.0, min(1.0, float(pct) / 100.0))
-    self._level_filter.update(dm_display_level(awareness, is_active))
+    self._level_filter.update(dm_display_level(awareness, is_vision_policy))
 
   def _render(self, rect: rl.Rectangle) -> None:
     _draw_horizontal_bar(rect, self._level_filter.x, self._dmoji_fade_alpha)
