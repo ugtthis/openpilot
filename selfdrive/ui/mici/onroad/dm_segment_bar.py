@@ -67,7 +67,7 @@ _VISION_ALERT_1_AWARENESS = 1.0 - 3.0 / 11.0
 _WHEELTOUCH_ALERT_1_AWARENESS = 1.0 - 15.0 / 30.0
 # In risk (1 - awareness), fill the bar by this fraction of the window down to alert one; then
 # hold full until alert one. Order: second yellow segment -> full bar -> first alert.
-_FULL_BAR_AT_ALERT_1_RISK_FRACTION = 0.70
+_FULL_BAR_AT_ALERT_1_RISK_FRACTION = 0.69
 # n_lit = level * _N_SEGS. Ring turns on when the yellow pair (last pair) gets any fill (n_lit > 4).
 _YELLOW_PAIR_START_N_LIT = 4.0
 # All segments lit: collapse to one full-width yellow block.
