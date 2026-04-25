@@ -156,6 +156,7 @@ class AugmentedRoadView(CameraView):
     self._driver_state_renderer = DriverStateRenderer(
       show_dm_rings=True,
       person_icon="icons_mici/onroad/driver_monitoring/dm_person_half.png",
+      background_icon="icons_mici/onroad/driver_monitoring/dm_background_half.png",
     )
     self._dmoji_bar = DmojiBar()
     self._confidence_ball = ConfidenceBall()

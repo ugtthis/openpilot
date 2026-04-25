@@ -32,15 +32,18 @@ class DriverStateRenderer(Widget):
   LINES_ANGLE_INCREMENT = 5
   LINES_STALE_ANGLES = 3.0  # seconds
   DEFAULT_PERSON_ICON = "icons_mici/onroad/driver_monitoring/dm_person.png"
+  DEFAULT_BACKGROUND_ICON = "icons_mici/onroad/driver_monitoring/dm_background.png"
 
   def __init__(self, lines: bool = False, inset: bool = False, show_dm_rings: bool = False,
-               person_icon: str = DEFAULT_PERSON_ICON):
+               person_icon: str = DEFAULT_PERSON_ICON,
+               background_icon: str = DEFAULT_BACKGROUND_ICON):
     super().__init__()
     self.set_rect(rl.Rectangle(0, 0, _DEFAULT_ONROAD_SIZE, _DEFAULT_ONROAD_SIZE))
     self._lines = lines
     self._inset = inset
     self._show_dm_rings = show_dm_rings
     self._person_icon = person_icon
+    self._background_icon = background_icon
     # Same frame constant as DmojiBar level smoothing; rings can feel a touch slower at 0.12
     _ring_tau = 0.1
     self._ring_yellow_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
@@ -89,7 +92,7 @@ class DriverStateRenderer(Widget):
     # keep_aspect_ratio=False: the default (True) fits each source *inside* (w,h) with aspect
     # preservation, so different PNG aspect ratios get different final texture sizes; the ring
     # Quads would not match dm_background. Stretch all three to the same exact pixel size.
-    self._dm_background = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_background.png", w_bg, h_bg, keep_aspect_ratio=False)
+    self._dm_background = gui_app.texture(self._background_icon, w_bg, h_bg, keep_aspect_ratio=False)
     if self._show_dm_rings:
       self._dm_ring_yellow = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_ring_yellow.png", w_bg, h_bg, keep_aspect_ratio=False)
       self._dm_ring_orange = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_ring_orange.png", w_bg, h_bg, keep_aspect_ratio=False)
