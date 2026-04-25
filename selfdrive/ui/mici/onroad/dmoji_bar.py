@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
@@ -74,6 +75,31 @@ _YELLOW_PAIR_START_N_LIT = 4.0
 _FULL_BAR_N_LIT = float(_N_CELLS)
 
 
+@dataclass(frozen=True)
+class BarStripLayout:
+  """Padded cell strip: geometry shared by all cells, before fill-aware drawing."""
+  cell_y: float
+  cell_h: float
+  cell_w: float
+  cell_area_left: float
+  cell_gap: float
+  pair_extra: float
+
+
+@dataclass(frozen=True)
+class CellLayout:
+  index: int
+  pair: int
+  rect: rl.Rectangle  # unscaled cell hit rect (x, y, w, h)
+
+
+@dataclass(frozen=True)
+class CellDraw:
+  rect: rl.Rectangle
+  roundness: float
+  color: rl.Color
+
+
 def _layout_gaps(inner_w: float) -> tuple[float, float]:
   """Scale cell and pair gaps so all blocks fit without crowding on narrow strips."""
   s = min(1.0, max(0.22, inner_w / _REF_INNER_W))
@@ -101,6 +127,45 @@ def _cell_left_x(
     + cell_idx * cell_gap
     + pair_idx * pair_extra
   )
+
+
+def _bar_strip_layout(rect: rl.Rectangle) -> BarStripLayout:
+  """Panel padding, gap scaling, and cell W/H for the cell strip; same math as _draw_horizontal_bar body."""
+  rw = max(1.0, rect.width)
+  rh = max(1.0, rect.height)
+  compact = rw < 112.0 or rh < 22.0
+  pad_h = max(4.0, min(14.0, rw * 0.072))
+  pad_v = max(3.0, min(9.0, rh * 0.14))
+  if compact:
+    pad_h = max(2.0, pad_h * 0.88)
+    pad_v = max(2.0, pad_v * 0.88)
+
+  cell_y = rect.y + pad_v
+  cell_area_h = rh - 2 * pad_v
+  cell_area_left = rect.x + pad_h
+  cell_w_total = rw - 2 * pad_h
+  cell_gap, pair_extra = _layout_gaps(cell_w_total)
+  total_gap_w = (_N_CELLS - 1) * cell_gap + (_N_PAIRS - 1) * pair_extra
+  cell_w = max(1.5, (cell_w_total - total_gap_w) / _N_CELLS)
+  cell_h = max(2.0, cell_area_h)
+  return BarStripLayout(
+    cell_y=cell_y, cell_h=cell_h, cell_w=cell_w, cell_area_left=cell_area_left, cell_gap=cell_gap, pair_extra=pair_extra,
+  )
+
+
+def _cell_layouts(strip: BarStripLayout) -> list[CellLayout]:
+  """One layout entry per cell index (0.._N_CELLS-1)."""
+  out: list[CellLayout] = []
+  for i in range(_N_CELLS):
+    left = _cell_left_x(i, strip.cell_w, strip.cell_area_left, strip.cell_gap, strip.pair_extra)
+    r = rl.Rectangle(left, strip.cell_y, strip.cell_w, strip.cell_h)
+    out.append(CellLayout(index=i, pair=i // 2, rect=r))
+  return out
+
+
+def _lit_cell_count(level: float) -> float:
+  """How many fully-equivalent cell units are lit; alias for public helper used by this module."""
+  return dm_n_cells_lit_from_display_level(level)
 
 
 def _blend_cell(on: rl.Color, fill: float) -> rl.Color:
@@ -171,19 +236,7 @@ def dm_display_ring_band(level: float) -> Literal["none", "yellow", "orange"]:
   return "yellow"  # last pair (yellow cells) has started
 
 
-def _draw_pair_horizontal(
-  pair: int,
-  n_lit: float,
-  level: float,
-  fade_alpha: int,
-  cell_h: float,
-  cell_y: float,
-  cell_w: float,
-  cell_area_left: float,
-  cell_gap: float,
-  pair_extra: float,
-  cell_color: rl.Color | None,
-) -> None:
+def _cell_on_colors(pair: int, cell_color: rl.Color | None) -> tuple[rl.Color, rl.Color]:
   i_left = pair * 2
   i_right = pair * 2 + 1
   if cell_color is not None:
@@ -191,121 +244,156 @@ def _draw_pair_horizontal(
   else:
     on_l = _CELL_ON[i_left]
     on_r = _CELL_ON[i_right]
-  color = on_l
+  return on_l, on_r
 
+
+def _cells_for_pair(cells: list[CellLayout], pair: int) -> tuple[CellLayout, CellLayout]:
+  pair_cells = [cell for cell in cells if cell.pair == pair]
+  assert len(pair_cells) == 2
+  return pair_cells[0], pair_cells[1]
+
+
+def _draw_panel(rect: rl.Rectangle, level: float, fade_alpha: int) -> None:
+  bar_a = _idle_alpha(fade_alpha, level, _DMOJI_BAR_IDLE_ALPHA, _DMOJI_BAR_FULL_ALPHA)
+  bar_bg = rl.Color(_BAR_BG_RGB[0], _BAR_BG_RGB[1], _BAR_BG_RGB[2], bar_a)
+  rl.draw_rectangle_rounded(rect, _BAR_ROUNDNESS, _BAR_ROUND_SEGMENTS, bar_bg)
+
+
+def _draw_cells(draws: list[CellDraw], level: float, fade_alpha: int) -> None:
+  for d in draws:
+    rl.draw_rectangle_rounded(
+      d.rect, d.roundness, _SEG_ROUND_SEGS, _color_with_idle_dim(d.color, level, fade_alpha),
+    )
+
+
+def _pair_cell_draws(
+  pair: int,
+  n_lit: float,
+  strip: BarStripLayout,
+  cells: list[CellLayout],
+  cell_color: rl.Color | None,
+) -> list[CellDraw]:
+  on_l, on_r = _cell_on_colors(pair, cell_color)
+  color = on_l
+  i_left = pair * 2
+  i_right = pair * 2 + 1
   left_fill = min(max(n_lit - i_left, 0.0), 1.0)
   right_fill = min(max(n_lit - i_right, 0.0), 1.0)
-
-  left_x = _cell_left_x(i_left, cell_w, cell_area_left, cell_gap, pair_extra)
-  right_x = _cell_left_x(i_right, cell_w, cell_area_left, cell_gap, pair_extra)
+  left_cell, right_cell = _cells_for_pair(cells, pair)
+  left = left_cell.rect
+  right = right_cell.rect
+  left_x, y = left.x, left.y
+  w, h = left.width, left.height
+  right_x = right.x
 
   if right_fill >= _MERGE_THRESHOLD:
-    rl.draw_rectangle_rounded(
-      rl.Rectangle(left_x, cell_y, 2 * cell_w + cell_gap, cell_h),
-      _PAIR_JOIN_CELL_ROUNDNESS,
-      _SEG_ROUND_SEGS,
-      _color_with_idle_dim(color, level, fade_alpha),
-    )
-  else:
-    rl.draw_rectangle_rounded(
-      rl.Rectangle(left_x, cell_y, cell_w, cell_h),
-      _CELL_ROUNDNESS,
-      _SEG_ROUND_SEGS,
-      _color_with_idle_dim(_blend_cell(on_l, left_fill), level, fade_alpha),
-    )
-    rl.draw_rectangle_rounded(
-      rl.Rectangle(right_x, cell_y, cell_w, cell_h),
-      _CELL_ROUNDNESS,
-      _SEG_ROUND_SEGS,
-      _color_with_idle_dim(_blend_cell(on_r, right_fill), level, fade_alpha),
-    )
+    return [
+      CellDraw(
+        rect=rl.Rectangle(left_x, y, 2 * w + strip.cell_gap, h),
+        roundness=_PAIR_JOIN_CELL_ROUNDNESS,
+        color=color,
+      ),
+    ]
+  return [
+    CellDraw(
+      rect=rl.Rectangle(left_x, y, w, h), roundness=_CELL_ROUNDNESS, color=_blend_cell(on_l, left_fill)
+    ),
+    CellDraw(
+      rect=rl.Rectangle(right_x, y, w, h), roundness=_CELL_ROUNDNESS, color=_blend_cell(on_r, right_fill)
+    ),
+  ]
+
+
+def _peak_full_bar_draw(n_lit: float, strip: BarStripLayout, cell_color: rl.Color | None) -> CellDraw | None:
+  """All cells on: one full-width yellow block (let second yellow cell finish before this)."""
+  if n_lit + 1e-3 < _FULL_BAR_N_LIT:
+    return None
+  last_i = _N_CELLS - 1
+  full_w = (
+    _cell_left_x(last_i, strip.cell_w, strip.cell_area_left, strip.cell_gap, strip.pair_extra) + strip.cell_w
+    - strip.cell_area_left
+  )
+  yc = cell_color if cell_color is not None else _CELL_YELLOW
+  return CellDraw(
+    rect=rl.Rectangle(strip.cell_area_left, strip.cell_y, full_w, strip.cell_h),
+    roundness=_MULTI_CELL_ROUNDNESS,
+    color=yc,
+  )
+
+
+def _last_collapsed_pair(n_lit: float) -> int:
+  """
+  Highest pair index p in [_COLLAPSE_STARTS_AT_PAIR, _N_PAIRS) where the pair p is fully covered
+  (n_lit >= 2 * (p + 1)). -1 if no collapsed prefix.
+  """
+  last = -1
+  for p in range(_COLLAPSE_STARTS_AT_PAIR, _N_PAIRS):
+    if n_lit >= 2 * (p + 1):
+      last = p
+  return last
+
+
+def _collapsed_prefix_draw(
+  last_collapsed_pair: int,
+  strip: BarStripLayout,
+  cell_color: rl.Color | None,
+) -> CellDraw | None:
+  if last_collapsed_pair < 0:
+    return None
+  # Rightmost cell index of the collapsed run (inclusive)
+  top_cell = 2 * (last_collapsed_pair + 1) - 1
+  c_x = strip.cell_area_left
+  c_w = (
+    _cell_left_x(top_cell, strip.cell_w, strip.cell_area_left, strip.cell_gap, strip.pair_extra) + strip.cell_w
+    - strip.cell_area_left
+  )
+  col = cell_color if cell_color is not None else _CELL_ON[top_cell]
+  return CellDraw(
+    rect=rl.Rectangle(c_x, strip.cell_y, c_w, strip.cell_h),
+    roundness=_MULTI_CELL_ROUNDNESS,
+    color=col,
+  )
+
+
+def _first_discrete_pair(last_collapsed_pair: int) -> int:
+  return last_collapsed_pair + 1 if last_collapsed_pair >= 0 else 0
+
+
+def _cell_draws_for_level(
+  lit_cells: float,
+  strip: BarStripLayout,
+  cells: list[CellLayout],
+  cell_color: rl.Color | None,
+) -> list[CellDraw]:
+  peak_full_bar = _peak_full_bar_draw(lit_cells, strip, cell_color)
+  if peak_full_bar is not None:
+    return [peak_full_bar]
+
+  last_collapsed_pair = _last_collapsed_pair(lit_cells)
+  first_discrete_pair = _first_discrete_pair(last_collapsed_pair)
+
+  draws: list[CellDraw] = []
+  collapsed_prefix = _collapsed_prefix_draw(last_collapsed_pair, strip, cell_color)
+  if collapsed_prefix is not None:
+    draws.append(collapsed_prefix)
+
+  for pair in range(first_discrete_pair, _N_PAIRS):
+    draws.extend(_pair_cell_draws(pair, lit_cells, strip, cells, cell_color))
+
+  return draws
 
 
 def _draw_horizontal_bar(rect: rl.Rectangle, level: float, fade_alpha: int = _DMOJI_BAR_FULL_ALPHA,
                          cell_color: rl.Color | None = None) -> None:
   """Draw only the cell strip + panel (no DM label/icons). Level in [0, 1]."""
-  rw = max(1.0, rect.width)
-  rh = max(1.0, rect.height)
   fade_alpha = int(np.clip(fade_alpha, 0, _DMOJI_BAR_FULL_ALPHA))
-  compact = rw < 112.0 or rh < 22.0
-  # Increase panel inset so cells sit farther from all edges.
-  pad_h = max(4.0, min(14.0, rw * 0.072))
-  pad_v = max(3.0, min(9.0, rh * 0.14))
-  if compact:
-    pad_h = max(2.0, pad_h * 0.88)
-    pad_v = max(2.0, pad_v * 0.88)
+  _draw_panel(rect, level, fade_alpha)
 
-  n_lit = dm_n_cells_lit_from_display_level(level)
-  # Dmoji bar opacity: panel and cells share the same idle curve.
-  bar_a = _idle_alpha(fade_alpha, level, _DMOJI_BAR_IDLE_ALPHA, _DMOJI_BAR_FULL_ALPHA)
-  bar_bg = rl.Color(_BAR_BG_RGB[0], _BAR_BG_RGB[1], _BAR_BG_RGB[2], bar_a)
-  rl.draw_rectangle_rounded(rect, _BAR_ROUNDNESS, _BAR_ROUND_SEGMENTS, bar_bg)
-
-  cell_y = rect.y + pad_v
-  cell_area_h = rh - 2 * pad_v
-  cell_area_left = rect.x + pad_h
-  cell_w_total = rw - 2 * pad_h
-
-  cell_gap, pair_extra = _layout_gaps(cell_w_total)
-  total_gap_w = (_N_CELLS - 1) * cell_gap + (_N_PAIRS - 1) * pair_extra
-  cell_w = max(1.5, (cell_w_total - total_gap_w) / _N_CELLS)
-  cell_h = max(2.0, cell_area_h)
-
-  # Let the second yellow cell fill normally before collapsing into the
-  # peak full-yellow state.
-  if n_lit + 1e-3 >= _FULL_BAR_N_LIT:
-    full_w = (
-      _cell_left_x(_N_CELLS - 1, cell_w, cell_area_left, cell_gap, pair_extra)
-      + cell_w
-      - cell_area_left
-    )
-    yc = cell_color if cell_color is not None else _CELL_YELLOW
-    rl.draw_rectangle_rounded(
-      rl.Rectangle(cell_area_left, cell_y, full_w, cell_h),
-      _MULTI_CELL_ROUNDNESS,
-      _SEG_ROUND_SEGS,
-      _color_with_idle_dim(yc, level, fade_alpha),
-    )
-    return
-
-  collapse_until = -1
-  for p in range(_COLLAPSE_STARTS_AT_PAIR, _N_PAIRS):
-    if n_lit >= 2 * (p + 1):
-      collapse_until = p
-
-  if collapse_until >= 0:
-    top_cell_of_collapse = 2 * (collapse_until + 1) - 1
-    c_x = cell_area_left
-    c_w = (
-      _cell_left_x(top_cell_of_collapse, cell_w, cell_area_left, cell_gap, pair_extra)
-      + cell_w
-      - cell_area_left
-    )
-    col = cell_color if cell_color is not None else _CELL_ON[top_cell_of_collapse]
-    rl.draw_rectangle_rounded(
-      rl.Rectangle(c_x, cell_y, c_w, cell_h),
-      _MULTI_CELL_ROUNDNESS,
-      _SEG_ROUND_SEGS,
-      _color_with_idle_dim(col, level, fade_alpha),
-    )
-    first_normal_pair = collapse_until + 1
-  else:
-    first_normal_pair = 0
-
-  for pair in range(first_normal_pair, _N_PAIRS):
-    _draw_pair_horizontal(
-      pair,
-      n_lit,
-      level,
-      fade_alpha,
-      cell_h,
-      cell_y,
-      cell_w,
-      cell_area_left,
-      cell_gap,
-      pair_extra,
-      cell_color,
-    )
+  strip = _bar_strip_layout(rect)
+  cells = _cell_layouts(strip)
+  lit_cells = _lit_cell_count(level)
+  draws = _cell_draws_for_level(lit_cells, strip, cells, cell_color)
+  _draw_cells(draws, level, fade_alpha)
 
 
 def dmoji_bar_rect(dmoji_rect: rl.Rectangle) -> rl.Rectangle:
