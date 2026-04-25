@@ -28,6 +28,13 @@ _SEG_ROUND_SEGS = 6
 _BAR_ROUNDNESS = 0.42
 _BAR_ROUND_SEGMENTS = 10
 
+# +y nudges strip down (frees dmoji face; bar may extend below cell bottom)
+_DM_BAR_SHIFT_DOWN_PX = 31.0
+# Allow the DM strip to extend beyond the dmoji circle width.
+_DM_BAR_WIDTH_SCALE = 1.14
+# Keep bar thickness independent from width so widening does not make it taller.
+_DM_BAR_HEIGHT_SCALE = 0.57
+
 # --- Colors and alpha (RGB fixed; bar alpha lerp’d in _draw_horizontal_bar) ---
 _BAR_BG_RGB = (18, 18, 22)
 # DM bar panel + segment opacity.
@@ -38,6 +45,18 @@ _DM_BAR_FULL_ALPHA = 248
 _DMOJI_IDLE_ALPHA = 120
 _DMOJI_FULL_ALPHA = 248
 _SEG_OFF_COLOR = rl.Color(38, 38, 44, 255)
+_SEG_DIM_GREY = rl.Color(152, 152, 152, 255)
+_SEG_BRIGHT_GREY = rl.Color(232, 232, 232, 255)
+_SEG_YELLOW = rl.Color(255, 215, 0, 255)
+
+_SEG_ON: tuple[rl.Color, ...] = (
+  _SEG_DIM_GREY,
+  _SEG_DIM_GREY,
+  _SEG_BRIGHT_GREY,
+  _SEG_BRIGHT_GREY,
+  _SEG_YELLOW,
+  _SEG_YELLOW,
+)
 
 # --- Awareness display (AlertLevel.one; mirrors monitoring policy time ratios) ---
 # AlertLevel.one anchors: 1 - t1 / t3 for the active policy (see monitoring policy).
@@ -53,26 +72,6 @@ _FULL_BAR_AT_ALERT_1_RISK_FRACTION = 0.70
 _YELLOW_PAIR_START_N_LIT = 4.0
 # All segments lit: collapse to one full-width yellow block.
 _FULL_BAR_N_LIT = float(_N_SEGS)
-
-_SEG_DIM_GREY = rl.Color(152, 152, 152, 255)
-_SEG_BRIGHT_GREY = rl.Color(232, 232, 232, 255)
-_SEG_YELLOW = rl.Color(255, 215, 0, 255)
-
-_SEG_ON: tuple[rl.Color, ...] = (
-  _SEG_DIM_GREY,
-  _SEG_DIM_GREY,
-  _SEG_BRIGHT_GREY,
-  _SEG_BRIGHT_GREY,
-  _SEG_YELLOW,
-  _SEG_YELLOW,
-)
-
-# +y nudges strip down (frees dmoji face; bar may extend below cell bottom)
-_DM_BAR_SHIFT_DOWN_PX = 31.0
-# Allow the DM strip to extend beyond the dmoji circle width.
-_DM_BAR_WIDTH_SCALE = 1.14
-# Keep bar thickness independent from width so widening does not make it taller.
-_DM_BAR_HEIGHT_SCALE = 0.57
 
 
 def _layout_gaps(inner_w: float) -> tuple[float, float]:
