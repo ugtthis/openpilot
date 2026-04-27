@@ -30,7 +30,7 @@ _BAR_ROUNDNESS = 0.42
 _BAR_ROUND_SEGMENTS = 10
 
 # +y nudges strip down (frees dmoji face; bar may extend below cell bottom)
-_DMOJI_BAR_SHIFT_DOWN_PX = 34.0
+_DMOJI_BAR_SHIFT_DOWN_PX = 34.5
 # Allow the dmoji bar to extend beyond the dmoji circle width.
 _DMOJI_BAR_WIDTH_SCALE = 1.14
 # Keep bar thickness independent from width so widening does not make it taller.
@@ -39,7 +39,7 @@ _DMOJI_BAR_HEIGHT_SCALE = 0.58
 # --- Colors and alpha (RGB fixed; bar alpha lerp'd in _draw_horizontal_bar) ---
 _BAR_BG_RGB = (18, 18, 22)
 # Dmoji bar panel + cell opacity.
-_DMOJI_BAR_IDLE_ALPHA = 190
+_DMOJI_BAR_IDLE_ALPHA = 150
 _DMOJI_BAR_FULL_ALPHA = 248
 # TODO: Decide whether the dmoji bar and dmoji should share one peak opacity constant.
 # Dmoji background/person texture opacity.
