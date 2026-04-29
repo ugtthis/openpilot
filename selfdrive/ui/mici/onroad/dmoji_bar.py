@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
-
 import numpy as np
 import pyray as rl
 from cereal import log
@@ -151,13 +149,10 @@ def dmoji_idle_alpha(base_alpha: int, level: float) -> int:
   return _idle_alpha(base_alpha, level, _DMOJI_IDLE_ALPHA, _DMOJI_FULL_ALPHA)
 
 
-def dm_display_ring_band(level: float) -> Literal["none", "yellow", "orange"]:
-  """Return the dmoji ring band for the current visual fill level."""
-  # TODO: drop "orange" from return type + callers once orange ring is removed
+def dm_should_show_ring(level: float) -> bool:
+  """Return whether the yellow dmoji ring should be visible."""
   n = dm_n_cells_lit_from_display_level(level)
-  if n <= _YELLOW_PAIR_START_N_LIT + 1e-9:
-    return "none"
-  return "yellow"
+  return n > _YELLOW_PAIR_START_N_LIT + 1e-9
 
 
 # Layout
