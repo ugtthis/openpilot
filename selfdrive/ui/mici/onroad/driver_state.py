@@ -8,7 +8,7 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.mici.onroad.dmoji_bar import (
   dmoji_idle_alpha,
   dm_display_level,
-  dm_display_ring_band,
+  dm_should_show_ring,
 )
 from openpilot.selfdrive.ui.ui_state import ui_state
 
@@ -34,21 +34,18 @@ class DriverStateRenderer(Widget):
   DEFAULT_PERSON_ICON = "icons_mici/onroad/driver_monitoring/dm_person.png"
   DEFAULT_BACKGROUND_ICON = "icons_mici/onroad/driver_monitoring/dm_background.png"
 
-  def __init__(self, lines: bool = False, inset: bool = False, show_dm_rings: bool = False,
+  def __init__(self, lines: bool = False, inset: bool = False, show_dm_ring: bool = False,
                person_icon: str = DEFAULT_PERSON_ICON,
                background_icon: str = DEFAULT_BACKGROUND_ICON):
     super().__init__()
     self.set_rect(rl.Rectangle(0, 0, _DEFAULT_ONROAD_SIZE, _DEFAULT_ONROAD_SIZE))
     self._lines = lines
     self._inset = inset
-    self._show_dm_rings = show_dm_rings
+    self._show_dm_ring = show_dm_ring
     self._person_icon = person_icon
     self._background_icon = background_icon
-    # Same frame constant as DmojiBar level smoothing; rings can feel a touch slower at 0.12
-    _ring_tau = 0.1
-    self._ring_yellow_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
-    # TODO: remove orange ring (asset, filter, draw) and simplify dm_display_ring_band when cleaning up DM UX
-    self._ring_orange_filter = FirstOrderFilter(0.0, _ring_tau, 1 / gui_app.target_fps)
+    # Match DmojiBar smoothing so the ring fade tracks the bar fill.
+    self._ring_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     # Same time constant as DmojiBar so dmoji opacity tracks the bar smoothly.
     self._dm_level_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
     self._awareness_01 = 0.0
@@ -89,13 +86,10 @@ class DriverStateRenderer(Widget):
     self._dm_person = gui_app.texture(self._person_icon, cone_and_person_size, cone_and_person_size)
     self._dm_cone = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_cone_neutral.png", cone_and_person_size, cone_and_person_size)
     w_bg, h_bg = int(self._rect.width), int(self._rect.height)
-    # keep_aspect_ratio=False: the default (True) fits each source *inside* (w,h) with aspect
-    # preservation, so different PNG aspect ratios get different final texture sizes; the ring
-    # Quads would not match dm_background. Stretch all three to the same exact pixel size.
+    # keep_aspect_ratio=False keeps the ring texture aligned exactly with dm_background.
     self._dm_background = gui_app.texture(self._background_icon, w_bg, h_bg, keep_aspect_ratio=False)
-    if self._show_dm_rings:
-      self._dm_ring_yellow = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_ring_yellow.png", w_bg, h_bg, keep_aspect_ratio=False)
-      self._dm_ring_orange = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_ring_orange.png", w_bg, h_bg, keep_aspect_ratio=False)
+    if self._show_dm_ring:
+      self._dm_ring = gui_app.texture("icons_mici/onroad/driver_monitoring/dm_ring_yellow.png", w_bg, h_bg, keep_aspect_ratio=False)
 
   def set_should_draw(self, should_draw: bool):
     self._should_draw = should_draw
@@ -132,25 +126,19 @@ class DriverStateRenderer(Widget):
                        rl.Vector2(self._rect.x, self._rect.y), 0.0, 1.0,
                        rl.Color(255, 255, 255, bg_a))
 
-    if self._show_dm_rings and fade_a > 0:
+    ring_opacity = self._ring_filter.x if self._show_dm_ring else 0.0
+    if ring_opacity > 0.01 and fade_a > 0:
       # Slight centered upscale helps compensate perceived 1px inset from ring asset AA/falloff.
       ring_scale = _DM_RING_SCALE
       ring_dx = (self._dm_background.width * ring_scale - self._dm_background.width) * 0.5
       ring_dy = (self._dm_background.height * ring_scale - self._dm_background.height) * 0.5
       ring_pos = rl.Vector2(self._rect.x - ring_dx, self._rect.y - ring_dy)
 
-      if self._ring_yellow_filter.x > 0.01:
-        rl.draw_texture_ex(
-          self._dm_ring_yellow,
-          ring_pos, 0.0, ring_scale,
-          rl.Color(255, 255, 255, int(fade_a * self._ring_yellow_filter.x)),
-        )
-      if self._ring_orange_filter.x > 0.01:
-        rl.draw_texture_ex(
-          self._dm_ring_orange,
-          ring_pos, 0.0, ring_scale,
-          rl.Color(255, 255, 255, int(fade_a * self._ring_orange_filter.x)),
-        )
+      rl.draw_texture_ex(
+        self._dm_ring,
+        ring_pos, 0.0, ring_scale,
+        rl.Color(255, 255, 255, int(fade_a * ring_opacity)),
+      )
 
     person_a = dmoji_idle_alpha(int(0.9 * fade_a), self._dm_level_filter.x)
     rl.draw_texture_ex(self._dm_person,
@@ -267,11 +255,9 @@ class DriverStateRenderer(Widget):
 
     level = dm_display_level(self._awareness_01, is_vision_policy=self._is_active)
     self._dm_level_filter.update(level)
-    if self._show_dm_rings:
+    if self._show_dm_ring:
       if not self.should_draw:
-        self._ring_yellow_filter.update(0.0)
-        self._ring_orange_filter.update(0.0)
+        self._ring_filter.update(0.0)
       else:
-        band = dm_display_ring_band(level)
-        self._ring_yellow_filter.update(1.0 if band == "yellow" else 0.0)
-        self._ring_orange_filter.update(0.0)  # unused; orange ring ignored for now
+        visual_level = self._dm_level_filter.x
+        self._ring_filter.update(1.0 if dm_should_show_ring(visual_level) else 0.0)
