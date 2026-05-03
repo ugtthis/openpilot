@@ -39,7 +39,7 @@ _DMOJI_BAR_HEIGHT_SCALE = 0.58
 
 # Colors and alpha
 _BAR_BG_RGB = (18, 18, 22)
-_DMOJI_BAR_IDLE_ALPHA = 130
+_DMOJI_BAR_IDLE_ALPHA = 120
 _DMOJI_BAR_FULL_ALPHA = 248
 # TODO: Decide whether the dmoji bar and dmoji should share one peak opacity constant.
 _DMOJI_IDLE_ALPHA = 120
