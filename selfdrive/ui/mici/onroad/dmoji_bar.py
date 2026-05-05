@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import numpy as np
 import pyray as rl
 from cereal import log
 
@@ -120,17 +119,17 @@ def _full_bar_awareness(is_vision_policy: bool) -> float:
 
 def dm_display_level(awareness: float, is_vision_policy: bool) -> float:
   """Map awareness [0,1] to bar fill [0,1], reaching 1.0 before AlertLevel.one."""
-  awareness_f = float(np.clip(awareness, 0.0, 1.0))
-  risk = float(np.clip(1.0 - awareness_f, 0.0, 1.0))
+  awareness_f = max(0.0, min(1.0, float(awareness)))
+  risk = max(0.0, min(1.0, 1.0 - awareness_f))
   ramp_risk = 1.0 - _full_bar_awareness(is_vision_policy)
   if ramp_risk <= 1e-6:
     return 1.0
-  return float(np.clip(risk / ramp_risk, 0.0, 1.0))
+  return max(0.0, min(1.0, risk / ramp_risk))
 
 
 def dm_n_cells_lit_from_display_level(level: float) -> float:
   """Visual fill [0,1] -> equivalent lit cell units (fractional OK)."""
-  return float(np.clip(level, 0.0, 1.0)) * _N_CELLS
+  return max(0.0, min(1.0, float(level))) * _N_CELLS
 
 
 def _first_cell_fill(level: float) -> float:
@@ -139,7 +138,7 @@ def _first_cell_fill(level: float) -> float:
 
 
 def _idle_alpha(base_alpha: int, level: float, idle_alpha: int, full_alpha: int) -> int:
-  alpha_scale = np.interp(_first_cell_fill(level), [0.0, 1.0], [idle_alpha / full_alpha, 1.0])
+  alpha_scale = idle_alpha / full_alpha + _first_cell_fill(level) * (1.0 - idle_alpha / full_alpha)
   a = float(base_alpha) * alpha_scale
   return int(max(0, min(255, round(a))))
 
@@ -294,9 +293,8 @@ def _draw_horizontal_bar(
   cell_color: rl.Color | None = None,
 ) -> None:
   """Draw cell strip + panel. level in [0, 1]."""
-  fade_alpha = int(np.clip(fade_alpha, 0, _DMOJI_BAR_FULL_ALPHA))
+  fade_alpha = int(max(0, min(_DMOJI_BAR_FULL_ALPHA, fade_alpha)))
   _draw_panel(rect, level, fade_alpha)
-
   layout = _bar_layout(rect)
   n_lit = dm_n_cells_lit_from_display_level(level)
   _draw_cells(n_lit, layout, level, fade_alpha, cell_color)
