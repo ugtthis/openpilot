@@ -32,6 +32,13 @@ if HARDWARE.get_device_type() == "tizi":
 
 AudibleAlert = car.CarControl.HUDControl.AudibleAlert
 
+SOUND_REQUEST_MAP: dict[str, int] = {
+  "engage": AudibleAlert.engage,
+  "disengage": AudibleAlert.disengage,
+  "prompt": AudibleAlert.prompt,
+  "warningImmediate": AudibleAlert.warningImmediate,
+}
+
 
 sound_list: dict[int, tuple[str, int | None, float]] = {
   # AudibleAlert, file name, play count (none for infinite)
@@ -128,7 +135,11 @@ class Soundd:
       self.current_sound_frame = 0
 
   def get_audible_alert(self, sm):
-    if sm.updated['selfdriveState']:
+    if sm.updated['soundRequest']:
+      sound_key = sm['soundRequest'].sound
+      new_alert = SOUND_REQUEST_MAP.get(sound_key, AudibleAlert.prompt)
+      self.update_alert(new_alert)
+    elif sm.updated['selfdriveState']:
       new_alert = sm['selfdriveState'].alertSound.raw
       self.update_alert(new_alert)
     elif check_selfdrive_timeout_alert(sm):
@@ -153,7 +164,7 @@ class Soundd:
     # sounddevice must be imported after forking processes
     import sounddevice as sd
 
-    sm = messaging.SubMaster(['selfdriveState', 'soundPressure'])
+    sm = messaging.SubMaster(['selfdriveState', 'soundPressure', 'soundRequest'])
 
     with self.get_stream(sd) as stream:
       rk = Ratekeeper(20)

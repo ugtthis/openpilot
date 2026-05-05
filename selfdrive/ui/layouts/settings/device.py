@@ -21,6 +21,7 @@ from openpilot.system.ui.widgets.scroller_tici import Scroller
 # Description constants
 DESCRIPTIONS = {
   'pair_device': tr_noop("Pair your device with comma connect (connect.comma.ai) and claim your comma prime offer."),
+  'photobooth_qr': tr_noop("POC Photobooth: show a QR for comma connect. Your phone must be on the same Wi-Fi as this device. The device must be offroad."),
   'driver_camera': tr_noop("Preview the driver facing camera to ensure that driver monitoring has good visibility. (vehicle must be off)"),
   'reset_calibration': tr_noop("openpilot requires the device to be mounted within 4° left or right and within 5° up or 9° down."),
   'review_guide': tr_noop("Review the rules, features, and limitations of openpilot"),
@@ -46,6 +47,10 @@ class DeviceLayout(Widget):
                                         callback=lambda: gui_app.push_widget(PairingDialog()))
     self._pair_device_btn.set_visible(lambda: not ui_state.prime_state.is_paired())
 
+    self._photobooth_qr_btn = button_item(lambda: tr("Photobooth QR"), lambda: tr("SHOW"), lambda: tr(DESCRIPTIONS['photobooth_qr']),
+                                          callback=lambda: gui_app.push_widget(PairingDialog(photobooth=True)),
+                                          enabled=ui_state.is_offroad)
+
     self._reset_calib_btn = button_item(lambda: tr("Reset Calibration"), lambda: tr("RESET"), lambda: tr(DESCRIPTIONS['reset_calibration']),
                                         callback=self._reset_calibration_prompt)
     self._reset_calib_btn.set_description_opened_callback(self._update_calib_description)
@@ -57,6 +62,7 @@ class DeviceLayout(Widget):
       text_item(lambda: tr("Dongle ID"), self._params.get("DongleId") or (lambda: tr("N/A"))),
       text_item(lambda: tr("Serial"), self._params.get("HardwareSerial") or (lambda: tr("N/A"))),
       self._pair_device_btn,
+      self._photobooth_qr_btn,
       button_item(lambda: tr("Driver Camera"), lambda: tr("PREVIEW"), lambda: tr(DESCRIPTIONS['driver_camera']),
                   callback=lambda: gui_app.push_widget(DriverCameraDialog()), enabled=ui_state.is_offroad),
       self._reset_calib_btn,

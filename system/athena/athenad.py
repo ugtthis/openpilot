@@ -557,6 +557,57 @@ def getNetworks():
   return HARDWARE.get_networks()
 
 
+WEBRTCD_STREAM_URL = os.getenv("WEBRTCD_STREAM_URL", "http://127.0.0.1:5001/stream")
+
+
+@dispatcher.add_method
+def getPhotoboothState() -> dict[str, str | bool | None]:
+  if PC:
+    return {"supported": False, "offroad": False, "ready": False, "reason": "unsupported_device"}
+  params = Params()
+  device_type = HARDWARE.get_device_type()
+  supported = device_type in ("tizi", "mici")
+  offroad = params.get_bool("IsOffroad")
+  reason: str | None = None
+  if not supported:
+    reason = "unsupported_device"
+  elif not offroad:
+    reason = "device_onroad"
+  ready = supported and offroad
+  return {"supported": supported, "offroad": offroad, "ready": ready, "reason": reason}
+
+
+@dispatcher.add_method
+def startPhotoboothStream(sdp: str) -> dict[str, str]:
+  params = Params()
+  if not params.get_bool("IsOffroad"):
+    raise Exception("photobooth requires offroad")
+  if PC:
+    raise Exception("unsupported_device")
+  params.put_bool("PhotoboothStreamActive", True)
+  body = {"sdp": sdp, "cameras": ["driver"], "bridge_services_in": ["soundRequest"], "bridge_services_out": []}
+  last_exc: BaseException | None = None
+  for _ in range(40):
+    try:
+      r = requests.post(WEBRTCD_STREAM_URL, json=body, timeout=10)
+      if not r.ok:
+        params.put_bool("PhotoboothStreamActive", False)
+        raise Exception(f"webrtcd http {r.status_code}: {r.text[:200]}")
+      j = r.json()
+      return {"sdp": j["sdp"], "type": j["type"]}
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+      last_exc = e
+      time.sleep(0.25)
+  params.put_bool("PhotoboothStreamActive", False)
+  raise Exception("stream_not_ready") from last_exc
+
+
+@dispatcher.add_method
+def stopPhotoboothStream() -> dict[str, bool]:
+  Params().put_bool("PhotoboothStreamActive", False)
+  return {"success": True}
+
+
 @dispatcher.add_method
 def takeSnapshot() -> str | dict[str, str] | None:
   from openpilot.system.camerad.snapshot import jpeg_write, snapshot

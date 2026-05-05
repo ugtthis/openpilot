@@ -164,6 +164,26 @@ class PairBigButton(BigButton):
     gui_app.push_widget(dlg)
 
 
+class PhotoboothPairingBigButton(BigButton):
+  def __init__(self):
+    super().__init__("photobooth", "same wi-fi (POC)", None)
+
+  def _get_label_font_size(self):
+    return 56
+
+  def _handle_mouse_release(self, mouse_pos: MousePos):
+    super()._handle_mouse_release(mouse_pos)
+
+    if not ui_state.is_offroad():
+      gui_app.push_widget(BigDialog("", tr("Photobooth works when parked/offroad.")))
+      return
+    if not system_time_valid():
+      dlg = BigDialog("", tr("Please connect to Wi-Fi to complete initial pairing."))
+    else:
+      dlg = PairingDialog(photobooth=True)
+    gui_app.push_widget(dlg)
+
+
 UPDATER_TIMEOUT = 10.0  # seconds to wait for updater to respond
 
 
@@ -341,6 +361,7 @@ class DeviceLayoutMici(NavScroller):
       DeviceInfoLayoutMici(),
       UpdateOpenpilotBigButton(),
       PairBigButton(),
+      PhotoboothPairingBigButton(),
       review_training_guide_btn,
       driver_cam_btn,
       terms_btn,

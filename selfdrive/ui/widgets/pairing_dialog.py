@@ -13,6 +13,23 @@ from openpilot.system.ui.lib.wrap_text import wrap_text
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets.button import IconButton
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.selfdrive.ui.photobooth_connect_origin import photobooth_connect_origin
+
+
+def _first_lan_ipv4() -> str | None:
+  """First non-loopback IPv4 from `hostname -I` (for Body-style direct Connect URLs)."""
+  try:
+    import subprocess
+    r = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=2, check=False)
+    if r.returncode != 0 or not r.stdout.strip():
+      return None
+    for raw in r.stdout.split():
+      ip = raw.strip()
+      if ip and not ip.startswith("127."):
+        return ip
+  except Exception:
+    cloudlog.exception("photobooth QR: hostname -I failed")
+  return None
 
 
 class PairingDialog(Widget):
@@ -20,8 +37,9 @@ class PairingDialog(Widget):
 
   QR_REFRESH_INTERVAL = 300  # 5 minutes in seconds
 
-  def __init__(self):
+  def __init__(self, photobooth: bool = False):
     super().__init__()
+    self.photobooth = photobooth
     self.params = Params()
     self.qr_texture: rl.Texture | None = None
     self.last_qr_generation = float('-inf')
@@ -29,13 +47,29 @@ class PairingDialog(Widget):
     self._close_btn.set_click_callback(gui_app.pop_widget)
 
   def _get_pairing_url(self) -> str:
+    dongle_id = self.params.get("DongleId") or ""
+
+    # POC: phone and device are on the same Wi-Fi — use Body-style direct URL to webrtcd (no Athena).
+    if self.photobooth:
+      origin = photobooth_connect_origin()
+      lan = _first_lan_ipv4()
+      if lan:
+        return f"{origin}/?body={lan}&photobooth=1"
+      cloudlog.warning("Photobooth POC: no LAN IP from hostname -I; falling back to pair token URL")
+
     try:
-      dongle_id = self.params.get("DongleId") or ""
       token = Api(dongle_id).get_token({'pair': True})
     except Exception:
       cloudlog.exception("Failed to get pairing token")
       token = ""
-    return f"https://connect.comma.ai/?pair={token}"
+    url = (
+      f"{photobooth_connect_origin()}/?pair={token}"
+      if self.photobooth
+      else f"https://connect.comma.ai/?pair={token}"
+    )
+    if self.photobooth:
+      url += "&photobooth=1"
+    return url
 
   def _generate_qr_code(self) -> None:
     try:
@@ -68,7 +102,7 @@ class PairingDialog(Widget):
       self.last_qr_generation = current_time
 
   def _update_state(self):
-    if ui_state.prime_state.is_paired():
+    if not self.photobooth and ui_state.prime_state.is_paired():
       gui_app.pop_widget()
 
   def _render(self, rect: rl.Rectangle) -> int:
@@ -89,7 +123,11 @@ class PairingDialog(Widget):
     y += close_size + 40
 
     # Title
-    title = tr("Pair your device to your comma account")
+    title = (
+      tr("Open Photobooth in comma connect")
+      if self.photobooth
+      else tr("Pair your device to your comma account")
+    )
     title_font = gui_app.font(FontWeight.NORMAL)
     left_width = int(content_rect.width * 0.5 - 15)
 
@@ -113,11 +151,20 @@ class PairingDialog(Widget):
     return -1
 
   def _render_instructions(self, rect: rl.Rectangle) -> None:
-    instructions = [
-      tr("Go to https://connect.comma.ai on your phone"),
-      tr("Click \"add new device\" and scan the QR code on the right"),
-      tr("Bookmark connect.comma.ai to your home screen to use it like an app"),
-    ]
+    if self.photobooth:
+      origin = photobooth_connect_origin()
+      instructions = [
+        tr("POC: use the same Wi-Fi network as this device and your phone."),
+        f"{tr('On your phone, open this address in a browser, then scan the QR code.')}\n{origin}",
+        tr("Connect talks to this device directly on your LAN (not over the internet)."),
+        tr("Device must be offroad. Photos stay on your phone only."),
+      ]
+    else:
+      instructions = [
+        tr("Go to https://connect.comma.ai on your phone"),
+        tr("Click \"add new device\" and scan the QR code on the right"),
+        tr("Bookmark connect.comma.ai to your home screen to use it like an app"),
+      ]
 
     font = gui_app.font(FontWeight.BOLD)
     y = rect.y

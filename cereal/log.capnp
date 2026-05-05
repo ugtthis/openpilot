@@ -2041,6 +2041,10 @@ struct Joystick {
   buttons @1: List(Bool);
 }
 
+struct SoundRequest {
+  sound @0 :Text;
+}
+
 struct DriverStateV2 {
   frameId @0 :UInt32;
   modelExecutionTime @1 :Float32;
@@ -2527,6 +2531,7 @@ struct Event {
     lateralManeuverPlan @150 :LateralManeuverPlan;
 
     # *********** debug ***********
+    soundRequest @152 :SoundRequest;
     testJoystick @52 :Joystick;
     roadEncodeData @86 :EncodeData;
     driverEncodeData @87 :EncodeData;

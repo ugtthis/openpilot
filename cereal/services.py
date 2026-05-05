@@ -84,6 +84,7 @@ _services: dict[str, tuple] = {
 
   # debug
   "uiDebug": (True, 0., 1),
+  "soundRequest": (True, 0., 1),
   "testJoystick": (True, 0.),
   "alertDebug": (True, 20., 5),
   "livestreamWideRoadEncodeIdx": (False, 20.),

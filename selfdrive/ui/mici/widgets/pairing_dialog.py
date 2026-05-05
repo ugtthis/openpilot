@@ -10,6 +10,22 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.widgets.nav_widget import NavWidget
 from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.widgets.label import UnifiedLabel
+from openpilot.selfdrive.ui.photobooth_connect_origin import photobooth_connect_origin
+
+
+def _first_lan_ipv4() -> str | None:
+  try:
+    import subprocess
+    r = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=2, check=False)
+    if r.returncode != 0 or not r.stdout.strip():
+      return None
+    for raw in r.stdout.split():
+      ip = raw.strip()
+      if ip and not ip.startswith("127."):
+        return ip
+  except Exception as e:
+    cloudlog.warning(f"photobooth QR: hostname -I failed: {e}")
+  return None
 
 
 class PairingDialog(NavWidget):
@@ -17,23 +33,40 @@ class PairingDialog(NavWidget):
 
   QR_REFRESH_INTERVAL = 300  # 5 minutes in seconds
 
-  def __init__(self):
+  def __init__(self, photobooth: bool = False):
     super().__init__()
+    self._photobooth = photobooth
     self._params = Params()
     self._qr_texture: rl.Texture | None = None
     self._last_qr_generation = float("-inf")
 
     self._txt_pair = gui_app.texture("icons_mici/settings/device/pair.png", 33, 60)
-    self._pair_label = UnifiedLabel("pair with comma connect", font_size=48, font_weight=FontWeight.BOLD, line_height=0.8)
+    label = "open photobooth in connect" if photobooth else "pair with comma connect"
+    self._pair_label = UnifiedLabel(label, font_size=48, font_weight=FontWeight.BOLD, line_height=0.8)
 
   def _get_pairing_url(self) -> str:
+    dongle_id = self._params.get("DongleId") or ""
+
+    if self._photobooth:
+      origin = photobooth_connect_origin()
+      lan = _first_lan_ipv4()
+      if lan:
+        return f"{origin}/?body={lan}&photobooth=1"
+      cloudlog.warning("Photobooth POC: no LAN IP from hostname -I; falling back to pair token URL")
+
     try:
-      dongle_id = self._params.get("DongleId") or ""
       token = Api(dongle_id).get_token({'pair': True})
     except Exception as e:
       cloudlog.warning(f"Failed to get pairing token: {e}")
       token = ""
-    return f"https://connect.comma.ai/?pair={token}"
+    url = (
+      f"{photobooth_connect_origin()}/?pair={token}"
+      if self._photobooth
+      else f"https://connect.comma.ai/?pair={token}"
+    )
+    if self._photobooth:
+      url += "&photobooth=1"
+    return url
 
   def _generate_qr_code(self) -> None:
     try:
@@ -67,6 +100,8 @@ class PairingDialog(NavWidget):
 
   def _update_state(self):
     super()._update_state()
+    if self._photobooth:
+      return
     if ui_state.prime_state.is_paired() and not self.is_dismissing:
       self.dismiss()
 
