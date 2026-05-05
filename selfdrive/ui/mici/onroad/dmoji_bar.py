@@ -331,4 +331,7 @@ class DmojiBar(Widget):
     self._level_filter.update(dm_display_level(awareness, is_vision_policy))
 
   def _render(self, rect: rl.Rectangle) -> None:
-    _draw_horizontal_bar(rect, self._level_filter.x, self._dmoji_fade_alpha)
+    fade = int(max(0, min(_DMOJI_BAR_FULL_ALPHA, self._dmoji_fade_alpha)))
+    if fade <= 0 or rect.width <= 0 or rect.height <= 0:
+      return
+    _draw_horizontal_bar(rect, self._level_filter.x, fade)
