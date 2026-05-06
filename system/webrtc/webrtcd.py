@@ -21,6 +21,35 @@ if TYPE_CHECKING:
 from openpilot.system.webrtc.schema import generate_field
 from cereal import messaging, log
 
+CORS_ALLOW_ORIGIN = "*"
+CORS_ALLOW_METHODS = "GET, POST, OPTIONS"
+CORS_ALLOW_HEADERS = "Content-Type, Authorization"
+
+
+def _apply_cors_headers(resp: web.StreamResponse, request: 'web.Request') -> web.StreamResponse:
+  resp.headers["Access-Control-Allow-Origin"] = CORS_ALLOW_ORIGIN
+  resp.headers["Access-Control-Allow-Methods"] = CORS_ALLOW_METHODS
+  resp.headers["Access-Control-Allow-Headers"] = CORS_ALLOW_HEADERS
+  resp.headers["Access-Control-Max-Age"] = "600"
+  # Required by modern browsers when a public origin accesses local/private addresses.
+  if request.headers.get("Access-Control-Request-Private-Network") == "true":
+    resp.headers["Access-Control-Allow-Private-Network"] = "true"
+  return resp
+
+
+@web.middleware
+async def cors_middleware(request: 'web.Request', handler):
+  if request.method == "OPTIONS":
+    return _apply_cors_headers(web.Response(status=204), request)
+
+  try:
+    resp = await handler(request)
+  except web.HTTPException as e:
+    _apply_cors_headers(e, request)
+    raise
+
+  return _apply_cors_headers(resp, request)
+
 
 class CerealOutgoingMessageProxy:
   def __init__(self, sm: messaging.SubMaster):
@@ -239,6 +268,11 @@ async def post_notify(request: 'web.Request'):
 
   return web.Response(status=200, text="OK")
 
+
+async def options_ok(_request: 'web.Request'):
+  # Preflight is handled in middleware; this keeps route matching explicit.
+  return web.Response(status=204)
+
 async def on_shutdown(app: 'web.Application'):
   for session in app['streams'].values():
     session.stop()
@@ -251,14 +285,17 @@ def webrtcd_thread(host: str, port: int, debug: bool):
   logging.getLogger("WebRTCStream").setLevel(logging_level)
   logging.getLogger("webrtcd").setLevel(logging_level)
 
-  app = web.Application()
+  app = web.Application(middlewares=[cors_middleware])
 
   app['streams'] = dict()
   app['debug'] = debug
   app.on_shutdown.append(on_shutdown)
   app.router.add_post("/stream", get_stream)
+  app.router.add_options("/stream", options_ok)
   app.router.add_post("/notify", post_notify)
+  app.router.add_options("/notify", options_ok)
   app.router.add_get("/schema", get_schema)
+  app.router.add_options("/schema", options_ok)
 
   web.run_app(app, host=host, port=port)
 
