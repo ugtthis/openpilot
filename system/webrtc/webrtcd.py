@@ -30,6 +30,7 @@ STREAM_PURPOSE_PHOTOBOOTH = "photobooth"
 PHOTBOOTH_COUNTDOWN_EVENT_TYPE = "photoboothCountdownStart"
 DEFAULT_PHOTOBOOTH_COUNTDOWN_SEC = 3
 PHOTOBOOTH_COUNTDOWN_SOUND = "countdown"
+PHOTOBOOTH_COUNTDOWN_SOUND_REQUEST = "photoboothCountdownStart"
 
 CORS_ALLOW_ORIGIN = "*"
 CORS_ALLOW_METHODS = "GET, POST, OPTIONS"
@@ -207,20 +208,21 @@ class StreamSession:
   async def message_handler(self, message: bytes):
     assert self.incoming_bridge is not None
     try:
-      self._handle_photobooth_countdown_message(message)
+      if self._handle_photobooth_countdown_message(message):
+        return
       self.incoming_bridge.send(message)
     except Exception:
       self.logger.exception("Cereal incoming proxy failure")
 
-  def _handle_photobooth_countdown_message(self, message: bytes) -> None:
+  def _handle_photobooth_countdown_message(self, message: bytes) -> bool:
     if not self._photobooth_session:
-      return
+      return False
     try:
       payload = json.loads(message)
     except Exception:
-      return
+      return False
     if not isinstance(payload, dict):
-      return
+      return False
     msg_type = payload.get("type")
     data = payload.get("data")
     if not isinstance(data, dict):
@@ -231,11 +233,11 @@ class StreamSession:
       # Backward-compatible path: existing Connect UI buttons may send soundRequest.
       # Only start countdown for the exact explicit countdown sound token.
       sound_name = str(data.get("sound", "")).lower()
-      if sound_name == PHOTOBOOTH_COUNTDOWN_SOUND:
+      if sound_name in (PHOTOBOOTH_COUNTDOWN_SOUND, PHOTOBOOTH_COUNTDOWN_SOUND_REQUEST.lower()):
         should_start_countdown = True
 
     if not should_start_countdown:
-      return
+      return False
 
     try:
       duration_sec = int(data.get("seconds", DEFAULT_PHOTOBOOTH_COUNTDOWN_SEC))
@@ -248,6 +250,8 @@ class StreamSession:
     params = Params()
     params.put("PhotoboothCountdownStartMs", str(now_ms))
     params.put("PhotoboothCountdownDurationSec", str(duration_sec))
+    self.logger.info("Photobooth countdown started for %ss", duration_sec)
+    return msg_type == PHOTBOOTH_COUNTDOWN_EVENT_TYPE
 
   async def run(self):
     photobooth_session_param_armed = False

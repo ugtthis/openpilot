@@ -15,9 +15,12 @@ class PhotoboothCameraPreview(CameraView):
 
   _WAKE_OVERRIDE_SEC = 300
   _DEFAULT_COUNTDOWN_SEC = 3
+  _COUNTDOWN_SOUND_REQUEST = "photoboothCountdownStart"
 
   def __init__(self) -> None:
     super().__init__("camerad", VisionStreamType.VISION_STREAM_DRIVER)
+    self._countdown_start: float | None = None
+    self._countdown_duration_sec = self._DEFAULT_COUNTDOWN_SEC
 
   def show_event(self):
     super().show_event()
@@ -32,7 +35,20 @@ class PhotoboothCameraPreview(CameraView):
     ui_state.params.put_bool("IsDriverViewEnabled", False)
     self.close()
 
+  def _update_state(self):
+    super()._update_state()
+    if ui_state.sm.updated["soundRequest"] and ui_state.sm["soundRequest"].sound == self._COUNTDOWN_SOUND_REQUEST:
+      self._countdown_start = time.monotonic()
+      self._countdown_duration_sec = self._DEFAULT_COUNTDOWN_SEC
+
   def _countdown_remaining(self) -> int:
+    if self._countdown_start is not None:
+      elapsed_sec = int(time.monotonic() - self._countdown_start)
+      remaining = max(0, self._countdown_duration_sec - elapsed_sec)
+      if remaining == 0:
+        self._countdown_start = None
+      return remaining
+
     start_ms_raw = ui_state.params.get("PhotoboothCountdownStartMs")
     if not start_ms_raw:
       return 0
