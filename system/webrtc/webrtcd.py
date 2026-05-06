@@ -272,11 +272,12 @@ class StreamSession:
       duration_sec = DEFAULT_PHOTOBOOTH_COUNTDOWN_SEC
     duration_sec = min(max(duration_sec, 1), 10)
 
-    # Monotonic is process-agnostic on the same machine and avoids wall-clock skew.
+    # Monotonic is comparable across processes on the device (CLOCK_MONOTONIC).
     now_ms = int(time.monotonic() * 1000)
     params = Params()
-    params.put("PhotoboothCountdownStartMs", str(now_ms))
-    params.put("PhotoboothCountdownDurationSec", str(duration_sec))
+    # INT-typed keys require Python int; str raises TypeError in Params.python2cpp and aborts this handler.
+    params.put("PhotoboothCountdownStartMs", now_ms)
+    params.put("PhotoboothCountdownDurationSec", duration_sec)
     self.logger.info("Photobooth countdown started for %ss", duration_sec)
     return msg_type == PHOTBOOTH_COUNTDOWN_EVENT_TYPE
 

@@ -50,7 +50,7 @@ class PhotoboothCameraPreview(CameraView):
       return remaining
 
     start_ms_raw = ui_state.params.get("PhotoboothCountdownStartMs")
-    if not start_ms_raw:
+    if start_ms_raw is None:
       return 0
     duration_raw = ui_state.params.get("PhotoboothCountdownDurationSec")
     try:
