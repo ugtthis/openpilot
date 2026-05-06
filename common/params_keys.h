@@ -107,6 +107,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"PandaSignatures", {CLEAR_ON_MANAGER_START, BYTES}},
     {"PhotoboothStreamActive", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL}},
     {"PhotoboothSessionActive", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL}},
+    {"PhotoboothCountdownStartMs", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, INT}},
+    {"PhotoboothCountdownDurationSec", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, INT}},
     {"PhotoboothConnectHost", {PERSISTENT, STRING}},
     {"PrimeType", {PERSISTENT, INT}},
     {"RecordAudio", {PERSISTENT, BOOL}},

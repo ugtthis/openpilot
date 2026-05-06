@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import time
 import uuid
 import logging
 from dataclasses import dataclass, field
@@ -26,6 +27,9 @@ from openpilot.common.params import Params
 
 # Must match Connect ``purpose`` in ``/stream`` and Athena ``startPhotoboothStream`` body.
 STREAM_PURPOSE_PHOTOBOOTH = "photobooth"
+PHOTBOOTH_COUNTDOWN_EVENT_TYPE = "photoboothCountdownStart"
+DEFAULT_PHOTOBOOTH_COUNTDOWN_SEC = 3
+PHOTOBOOTH_COUNTDOWN_SOUND = "countdown"
 
 CORS_ALLOW_ORIGIN = "*"
 CORS_ALLOW_METHODS = "GET, POST, OPTIONS"
@@ -203,9 +207,47 @@ class StreamSession:
   async def message_handler(self, message: bytes):
     assert self.incoming_bridge is not None
     try:
+      self._handle_photobooth_countdown_message(message)
       self.incoming_bridge.send(message)
     except Exception:
       self.logger.exception("Cereal incoming proxy failure")
+
+  def _handle_photobooth_countdown_message(self, message: bytes) -> None:
+    if not self._photobooth_session:
+      return
+    try:
+      payload = json.loads(message)
+    except Exception:
+      return
+    if not isinstance(payload, dict):
+      return
+    msg_type = payload.get("type")
+    data = payload.get("data")
+    if not isinstance(data, dict):
+      data = {}
+
+    should_start_countdown = msg_type == PHOTBOOTH_COUNTDOWN_EVENT_TYPE
+    if msg_type == "soundRequest":
+      # Backward-compatible path: existing Connect UI buttons may send soundRequest.
+      # Only start countdown for the exact explicit countdown sound token.
+      sound_name = str(data.get("sound", "")).lower()
+      if sound_name == PHOTOBOOTH_COUNTDOWN_SOUND:
+        should_start_countdown = True
+
+    if not should_start_countdown:
+      return
+
+    try:
+      duration_sec = int(data.get("seconds", DEFAULT_PHOTOBOOTH_COUNTDOWN_SEC))
+    except (TypeError, ValueError):
+      duration_sec = DEFAULT_PHOTOBOOTH_COUNTDOWN_SEC
+    duration_sec = min(max(duration_sec, 1), 10)
+
+    # Monotonic is process-agnostic on the same machine and avoids wall-clock skew.
+    now_ms = int(time.monotonic() * 1000)
+    params = Params()
+    params.put("PhotoboothCountdownStartMs", str(now_ms))
+    params.put("PhotoboothCountdownDurationSec", str(duration_sec))
 
   async def run(self):
     photobooth_session_param_armed = False
