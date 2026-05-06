@@ -11,6 +11,7 @@ from openpilot.system.ui.widgets.nav_widget import NavWidget
 from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.widgets.label import UnifiedLabel
 from openpilot.selfdrive.ui.photobooth_connect_origin import photobooth_connect_origin
+from openpilot.selfdrive.ui.photobooth_qr_stream import arm_photobooth_stream_for_direct_poc, disarm_photobooth_stream_for_direct_poc
 
 
 def _first_lan_ipv4() -> str | None:
@@ -36,6 +37,7 @@ class PairingDialog(NavWidget):
   def __init__(self, photobooth: bool = False):
     super().__init__()
     self._photobooth = photobooth
+    self._photobooth_stream_armed = False
     self._params = Params()
     self._qr_texture: rl.Texture | None = None
     self._last_qr_generation = float("-inf")
@@ -43,6 +45,17 @@ class PairingDialog(NavWidget):
     self._txt_pair = gui_app.texture("icons_mici/settings/device/pair.png", 33, 60)
     label = "open photobooth in connect" if photobooth else "pair with comma connect"
     self._pair_label = UnifiedLabel(label, font_size=48, font_weight=FontWeight.BOLD, line_height=0.8)
+  def show_event(self):
+    super().show_event()
+    if self._photobooth and not self._photobooth_stream_armed:
+      arm_photobooth_stream_for_direct_poc()
+      self._photobooth_stream_armed = True
+
+  def hide_event(self):
+    if self._photobooth and self._photobooth_stream_armed:
+      disarm_photobooth_stream_for_direct_poc()
+      self._photobooth_stream_armed = False
+    super().hide_event()
 
   def _get_pairing_url(self) -> str:
     dongle_id = self._params.get("DongleId") or ""
@@ -124,6 +137,8 @@ class PairingDialog(NavWidget):
     rl.draw_texture_ex(self._qr_texture, pos, 0.0, scale, rl.WHITE)
 
   def __del__(self):
+    if getattr(self, "_photobooth", False) and getattr(self, "_photobooth_stream_armed", False):
+      disarm_photobooth_stream_for_direct_poc()
     if self._qr_texture and self._qr_texture.id != 0:
       rl.unload_texture(self._qr_texture)
 

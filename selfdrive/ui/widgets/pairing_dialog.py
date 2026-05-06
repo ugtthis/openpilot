@@ -14,6 +14,7 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets.button import IconButton
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.photobooth_connect_origin import photobooth_connect_origin
+from openpilot.selfdrive.ui.photobooth_qr_stream import arm_photobooth_stream_for_direct_poc, disarm_photobooth_stream_for_direct_poc
 
 
 def _first_lan_ipv4() -> str | None:
@@ -40,11 +41,23 @@ class PairingDialog(Widget):
   def __init__(self, photobooth: bool = False):
     super().__init__()
     self.photobooth = photobooth
+    self._photobooth_stream_armed = False
     self.params = Params()
     self.qr_texture: rl.Texture | None = None
     self.last_qr_generation = float('-inf')
     self._close_btn = IconButton(gui_app.texture("icons/close.png", 80, 80))
     self._close_btn.set_click_callback(gui_app.pop_widget)
+  def show_event(self):
+    super().show_event()
+    if self.photobooth and not self._photobooth_stream_armed:
+      arm_photobooth_stream_for_direct_poc()
+      self._photobooth_stream_armed = True
+
+  def hide_event(self):
+    if self.photobooth and self._photobooth_stream_armed:
+      disarm_photobooth_stream_for_direct_poc()
+      self._photobooth_stream_armed = False
+    super().hide_event()
 
   def _get_pairing_url(self) -> str:
     dongle_id = self.params.get("DongleId") or ""
@@ -195,6 +208,8 @@ class PairingDialog(Widget):
     rl.draw_texture_pro(self.qr_texture, source, rect, rl.Vector2(0, 0), 0, rl.WHITE)
 
   def __del__(self):
+    if getattr(self, "photobooth", False) and getattr(self, "_photobooth_stream_armed", False):
+      disarm_photobooth_stream_for_direct_poc()
     if self.qr_texture and self.qr_texture.id != 0:
       rl.unload_texture(self.qr_texture)
 
