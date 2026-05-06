@@ -52,21 +52,14 @@ class PairingDialog(NavWidget):
       lan = _first_lan_ipv4()
       if lan:
         return f"{origin}/?body={lan}&photobooth=1"
-      cloudlog.warning("Photobooth POC: no LAN IP from hostname -I; falling back to pair token URL")
+      raise RuntimeError("Photobooth POC: no LAN IP available for direct connect QR")
 
     try:
       token = Api(dongle_id).get_token({'pair': True})
     except Exception as e:
       cloudlog.warning(f"Failed to get pairing token: {e}")
       token = ""
-    url = (
-      f"{photobooth_connect_origin()}/?pair={token}"
-      if self._photobooth
-      else f"https://connect.comma.ai/?pair={token}"
-    )
-    if self._photobooth:
-      url += "&photobooth=1"
-    return url
+    return f"https://connect.comma.ai/?pair={token}"
 
   def _generate_qr_code(self) -> None:
     try:
