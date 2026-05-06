@@ -210,9 +210,36 @@ class StreamSession:
     try:
       if self._handle_photobooth_countdown_message(message):
         return
+      if await self._forward_photobooth_sound_request_with_reset(message):
+        return
       self.incoming_bridge.send(message)
     except Exception:
       self.logger.exception("Cereal incoming proxy failure")
+
+  async def _forward_photobooth_sound_request_with_reset(self, message: bytes) -> bool:
+    if not self._photobooth_session:
+      return False
+    try:
+      payload = json.loads(message)
+    except Exception:
+      return False
+    if not isinstance(payload, dict) or payload.get("type") != "soundRequest":
+      return False
+    data = payload.get("data")
+    if not isinstance(data, dict):
+      return False
+
+    sound_name = str(data.get("sound", "")).strip()
+    if not sound_name:
+      return False
+
+    # Some sound consumers only react when the value changes. Force an edge by
+    # publishing a brief "none" reset before replaying the requested sound.
+    self.incoming_bridge.send(json.dumps({"type": "soundRequest", "data": {"sound": "none"}}).encode())
+    if sound_name.lower() != "none":
+      await asyncio.sleep(0.06)
+      self.incoming_bridge.send(message)
+    return True
 
   def _handle_photobooth_countdown_message(self, message: bytes) -> bool:
     if not self._photobooth_session:
