@@ -233,17 +233,21 @@ class StreamRequestBody:
 
 
 async def get_stream(request: 'web.Request'):
-  stream_dict, debug_mode = request.app['streams'], request.app['debug']
-  raw_body = await request.json()
-  body = StreamRequestBody(**raw_body)
+  logger = logging.getLogger("webrtcd")
+  try:
+    stream_dict, debug_mode = request.app['streams'], request.app['debug']
+    raw_body = await request.json()
+    body = StreamRequestBody(**raw_body)
 
-  session = StreamSession(body.sdp, body.cameras, body.bridge_services_in, body.bridge_services_out, debug_mode)
-  answer = await session.get_answer()
-  session.start()
+    session = StreamSession(body.sdp, body.cameras, body.bridge_services_in, body.bridge_services_out, debug_mode)
+    answer = await session.get_answer()
+    session.start()
 
-  stream_dict[session.identifier] = session
-
-  return web.json_response({"sdp": answer.sdp, "type": answer.type})
+    stream_dict[session.identifier] = session
+    return web.json_response({"sdp": answer.sdp, "type": answer.type})
+  except Exception:
+    logger.exception("Error in /stream handler")
+    raise
 
 
 async def get_schema(request: 'web.Request'):
