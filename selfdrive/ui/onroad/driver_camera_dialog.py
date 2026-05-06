@@ -10,21 +10,35 @@ from openpilot.system.ui.widgets.label import gui_label
 
 
 class DriverCameraDialog(CameraView):
-  def __init__(self):
+  # Same order of magnitude as other offroad “keep screen on” overrides.
+  _PHOTOBOOTH_WAKE_OVERRIDE_SEC = 300
+
+  def __init__(self, photobooth_session: bool = False):
+    self._photobooth_session = photobooth_session
     super().__init__("camerad", VisionStreamType.VISION_STREAM_DRIVER)
     self.driver_state_renderer = DriverStateRenderer()
-    # TODO: this can grow unbounded, should be given some thought
-    device.add_interactive_timeout_callback(gui_app.pop_widget)
+    if not photobooth_session:
+      device.add_interactive_timeout_callback(gui_app.pop_widget)
     ui_state.params.put_bool("IsDriverViewEnabled", True)
 
+  def show_event(self):
+    super().show_event()
+    if self._photobooth_session:
+      device.set_override_interactive_timeout(self._PHOTOBOOTH_WAKE_OVERRIDE_SEC)
+
   def hide_event(self):
+    if self._photobooth_session:
+      device.set_override_interactive_timeout(None)
+      ui_state.params.put_bool("PhotoboothSessionActive", False)
+      ui_state.params.put_bool("PhotoboothStreamActive", False)
     super().hide_event()
     ui_state.params.put_bool("IsDriverViewEnabled", False)
     self.close()
 
   def _handle_mouse_release(self, _):
     super()._handle_mouse_release(_)
-    gui_app.pop_widget()
+    if not self._photobooth_session:
+      gui_app.pop_widget()
 
   def __del__(self):
     self.close()

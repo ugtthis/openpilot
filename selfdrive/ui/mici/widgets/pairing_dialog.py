@@ -11,6 +11,7 @@ from openpilot.system.ui.widgets.nav_widget import NavWidget
 from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.widgets.label import UnifiedLabel
 from openpilot.selfdrive.ui.photobooth_connect_origin import photobooth_connect_origin
+from openpilot.selfdrive.ui.photobooth_dm_preview import PhotoboothDmPreview
 from openpilot.selfdrive.ui.photobooth_qr_stream import arm_photobooth_stream_for_direct_poc, disarm_photobooth_stream_for_direct_poc
 
 
@@ -38,6 +39,7 @@ class PairingDialog(NavWidget):
     super().__init__()
     self._photobooth = photobooth
     self._photobooth_stream_armed = False
+    self._photobooth_preview_pushed = False
     self._params = Params()
     self._qr_texture: rl.Texture | None = None
     self._last_qr_generation = float("-inf")
@@ -107,6 +109,10 @@ class PairingDialog(NavWidget):
   def _update_state(self):
     super()._update_state()
     if self._photobooth:
+      if self._params.get_bool("PhotoboothSessionActive") and not self._photobooth_preview_pushed:
+        self._photobooth_preview_pushed = True
+        gui_app.pop_widget()
+        gui_app.push_widget(PhotoboothDmPreview())
       return
     if ui_state.prime_state.is_paired() and not self.is_dismissing:
       self.dismiss()

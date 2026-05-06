@@ -14,6 +14,7 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets.button import IconButton
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.photobooth_connect_origin import photobooth_connect_origin
+from openpilot.selfdrive.ui.photobooth_dm_preview import PhotoboothDmPreview
 from openpilot.selfdrive.ui.photobooth_qr_stream import arm_photobooth_stream_for_direct_poc, disarm_photobooth_stream_for_direct_poc
 
 
@@ -42,6 +43,7 @@ class PairingDialog(Widget):
     super().__init__()
     self.photobooth = photobooth
     self._photobooth_stream_armed = False
+    self._photobooth_preview_pushed = False
     self.params = Params()
     self.qr_texture: rl.Texture | None = None
     self.last_qr_generation = float('-inf')
@@ -108,6 +110,11 @@ class PairingDialog(Widget):
       self.last_qr_generation = current_time
 
   def _update_state(self):
+    if self.photobooth and self.params.get_bool("PhotoboothSessionActive") and not self._photobooth_preview_pushed:
+      self._photobooth_preview_pushed = True
+      gui_app.pop_widget()
+      gui_app.push_widget(PhotoboothDmPreview())
+      return
     if not self.photobooth and ui_state.prime_state.is_paired():
       gui_app.pop_widget()
 

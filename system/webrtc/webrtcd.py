@@ -6,6 +6,7 @@ import json
 import uuid
 import logging
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Any, TYPE_CHECKING
 
 # aiortc and its dependencies have lots of internal warnings :(
@@ -20,6 +21,11 @@ if TYPE_CHECKING:
 
 from openpilot.system.webrtc.schema import generate_field
 from cereal import messaging, log
+
+from openpilot.common.params import Params
+
+# Must match Connect ``purpose`` in ``/stream`` and Athena ``startPhotoboothStream`` body.
+STREAM_PURPOSE_PHOTOBOOTH = "photobooth"
 
 CORS_ALLOW_ORIGIN = "*"
 CORS_ALLOW_METHODS = "GET, POST, OPTIONS"
@@ -147,7 +153,8 @@ class DynamicPubMaster(messaging.PubMaster):
 class StreamSession:
   shared_pub_master = DynamicPubMaster([])
 
-  def __init__(self, sdp: str, cameras: list[str], incoming_services: list[str], outgoing_services: list[str], debug_mode: bool = False):
+  def __init__(self, sdp: str, cameras: list[str], incoming_services: list[str], outgoing_services: list[str], debug_mode: bool = False,
+               photobooth_session: bool = False, on_end: Callable[[str], None] | None = None):
     from aiortc.mediastreams import VideoStreamTrack
     from openpilot.system.webrtc.device.video import LiveStreamVideoStreamTrack
     from teleoprtc import WebRTCAnswerBuilder
@@ -174,15 +181,17 @@ class StreamSession:
       self.outgoing_bridge_runner = CerealProxyRunner(self.outgoing_bridge)
 
     self.run_task: asyncio.Task | None = None
+    self._photobooth_session = photobooth_session
+    self._on_end = on_end
     self.logger = logging.getLogger("webrtcd")
-    self.logger.info("New stream session (%s), cameras %s, incoming services %s, outgoing services %s",
-                      self.identifier, cameras, incoming_services, outgoing_services)
+    self.logger.info("New stream session (%s), cameras %s, incoming services %s, outgoing services %s, photobooth_session=%s",
+                      self.identifier, cameras, incoming_services, outgoing_services, photobooth_session)
 
   def start(self):
     self.run_task = asyncio.create_task(self.run())
 
   def stop(self):
-    if self.run_task.done():
+    if self.run_task is None or self.run_task.done():
       return
     self.run_task.cancel()
     self.run_task = None
@@ -199,8 +208,12 @@ class StreamSession:
       self.logger.exception("Cereal incoming proxy failure")
 
   async def run(self):
+    photobooth_session_param_armed = False
     try:
       await self.stream.wait_for_connection()
+      if self._photobooth_session:
+        Params().put_bool("PhotoboothSessionActive", True)
+        photobooth_session_param_armed = True
       if self.stream.has_messaging_channel():
         if self.incoming_bridge is not None:
           await self.shared_pub_master.add_services_if_needed(self.incoming_bridge_services)
@@ -215,8 +228,15 @@ class StreamSession:
       await self.post_run_cleanup()
 
       self.logger.info("Stream session (%s) ended", self.identifier)
+    except asyncio.CancelledError:
+      raise
     except Exception:
       self.logger.exception("Stream session failure")
+    finally:
+      if photobooth_session_param_armed:
+        Params().put_bool("PhotoboothSessionActive", False)
+      if self._on_end is not None:
+        self._on_end(self.identifier)
 
   async def post_run_cleanup(self):
     await self.stream.stop()
@@ -230,6 +250,7 @@ class StreamRequestBody:
   cameras: list[str]
   bridge_services_in: list[str] = field(default_factory=list)
   bridge_services_out: list[str] = field(default_factory=list)
+  purpose: str = ""
 
 
 async def get_stream(request: 'web.Request'):
@@ -237,14 +258,37 @@ async def get_stream(request: 'web.Request'):
   try:
     stream_dict, debug_mode = request.app['streams'], request.app['debug']
     raw_body = await request.json()
-    body = StreamRequestBody(**raw_body)
+    if not isinstance(raw_body, dict):
+      raise web.HTTPBadRequest(text="expected JSON object")
+    try:
+      sdp, cameras = raw_body["sdp"], raw_body["cameras"]
+    except KeyError as e:
+      raise web.HTTPBadRequest(text=f"missing required field: {e.args[0]}") from e
+    body = StreamRequestBody(
+      sdp=sdp,
+      cameras=cameras,
+      bridge_services_in=list(raw_body.get("bridge_services_in", [])),
+      bridge_services_out=list(raw_body.get("bridge_services_out", [])),
+      purpose=str(raw_body.get("purpose", "")),
+    )
+    photobooth_session = body.purpose == STREAM_PURPOSE_PHOTOBOOTH
 
-    session = StreamSession(body.sdp, body.cameras, body.bridge_services_in, body.bridge_services_out, debug_mode)
+    session = StreamSession(
+      body.sdp,
+      body.cameras,
+      body.bridge_services_in,
+      body.bridge_services_out,
+      debug_mode,
+      photobooth_session=photobooth_session,
+      on_end=lambda identifier: stream_dict.pop(identifier, None),
+    )
     answer = await session.get_answer()
     session.start()
 
     stream_dict[session.identifier] = session
     return web.json_response({"sdp": answer.sdp, "type": answer.type})
+  except web.HTTPException:
+    raise
   except Exception:
     logger.exception("Error in /stream handler")
     raise
@@ -278,7 +322,7 @@ async def options_ok(_request: 'web.Request'):
   return web.Response(status=204)
 
 async def on_shutdown(app: 'web.Application'):
-  for session in app['streams'].values():
+  for session in list(app['streams'].values()):
     session.stop()
   del app['streams']
 

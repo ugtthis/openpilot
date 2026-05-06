@@ -578,14 +578,21 @@ def getPhotoboothState() -> dict[str, str | bool | None]:
 
 
 @dispatcher.add_method
-def startPhotoboothStream(sdp: str) -> dict[str, str]:
+def startPhotoboothStream(sdp: str, purpose: str = "photobooth") -> dict[str, str]:
   params = Params()
   if not params.get_bool("IsOffroad"):
     raise Exception("photobooth requires offroad")
   if PC:
     raise Exception("unsupported_device")
   params.put_bool("PhotoboothStreamActive", True)
-  body = {"sdp": sdp, "cameras": ["driver"], "bridge_services_in": ["soundRequest"], "bridge_services_out": []}
+  # ``purpose`` must match ``webrtcd`` ``STREAM_PURPOSE_PHOTOBOOTH`` and Connect ``PHOTOBOOTH_STREAM_PURPOSE``.
+  body = {
+    "sdp": sdp,
+    "cameras": ["driver"],
+    "bridge_services_in": ["soundRequest"],
+    "bridge_services_out": [],
+    "purpose": purpose,
+  }
   last_exc: BaseException | None = None
   for _ in range(40):
     try:
@@ -604,7 +611,9 @@ def startPhotoboothStream(sdp: str) -> dict[str, str]:
 
 @dispatcher.add_method
 def stopPhotoboothStream() -> dict[str, bool]:
-  Params().put_bool("PhotoboothStreamActive", False)
+  p = Params()
+  p.put_bool("PhotoboothStreamActive", False)
+  p.put_bool("PhotoboothSessionActive", False)
   return {"success": True}
 
 
