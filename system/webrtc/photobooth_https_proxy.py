@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import asyncio
 import logging
 import os
 import ssl
@@ -11,9 +10,12 @@ from aiohttp import web, ClientSession, ClientTimeout
 WEBRTCD_STREAM_URL = os.getenv("WEBRTCD_STREAM_URL", "http://127.0.0.1:5001/stream")
 PHOTOBOOTH_PROXY_HOST = os.getenv("PHOTOBOOTH_PROXY_HOST", "0.0.0.0")
 PHOTOBOOTH_PROXY_PORT = int(os.getenv("PHOTOBOOTH_PROXY_PORT", "5000"))
-PHOTOBOOTH_CERT_DIR = os.getenv("PHOTOBOOTH_CERT_DIR", "/persist/comma/photobooth_proxy")
-PHOTOBOOTH_CERT_FILE = os.path.join(PHOTOBOOTH_CERT_DIR, "cert.pem")
-PHOTOBOOTH_KEY_FILE = os.path.join(PHOTOBOOTH_CERT_DIR, "key.pem")
+PHOTOBOOTH_PROXY_TLS = (os.getenv("PHOTOBOOTH_PROXY_TLS", "0").strip().lower() in ("1", "true", "yes"))
+PHOTOBOOTH_CERT_DIR_ENV = os.getenv("PHOTOBOOTH_CERT_DIR", "").strip()
+DEFAULT_CERT_DIR_CANDIDATES = [
+  "/data/tmp/photobooth_proxy",
+  "/tmp/photobooth_proxy",
+]
 
 CORS_ALLOW_ORIGIN = "*"
 CORS_ALLOW_METHODS = "POST, OPTIONS"
@@ -65,10 +67,26 @@ def ensure_ssl_cert(cert_path: str, key_path: str) -> None:
 
 
 def create_ssl_context() -> ssl.SSLContext:
-  ensure_ssl_cert(PHOTOBOOTH_CERT_FILE, PHOTOBOOTH_KEY_FILE)
-  ctx = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
-  ctx.load_cert_chain(PHOTOBOOTH_CERT_FILE, PHOTOBOOTH_KEY_FILE)
-  return ctx
+  cert_dir_candidates = []
+  if PHOTOBOOTH_CERT_DIR_ENV:
+    cert_dir_candidates.append(PHOTOBOOTH_CERT_DIR_ENV)
+  cert_dir_candidates.extend(DEFAULT_CERT_DIR_CANDIDATES)
+
+  last_exc: Exception | None = None
+  for cert_dir in cert_dir_candidates:
+    cert_file = os.path.join(cert_dir, "cert.pem")
+    key_file = os.path.join(cert_dir, "key.pem")
+    try:
+      ensure_ssl_cert(cert_file, key_file)
+      ctx = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
+      ctx.load_cert_chain(cert_file, key_file)
+      logger.info("Using photobooth TLS cert dir: %s", cert_dir)
+      return ctx
+    except Exception as e:
+      last_exc = e
+      logger.warning("Failed to init TLS cert dir %s: %s", cert_dir, e)
+
+  raise RuntimeError("Failed to initialize any photobooth TLS cert dir") from last_exc
 
 
 async def ping(_request: web.Request):
@@ -104,13 +122,14 @@ async def offer(request: web.Request):
 
 
 async def on_startup(_app: web.Application):
-  logger.info("Photobooth HTTPS proxy running on https://%s:%s", PHOTOBOOTH_PROXY_HOST, PHOTOBOOTH_PROXY_PORT)
+  scheme = "https" if PHOTOBOOTH_PROXY_TLS else "http"
+  logger.info("Photobooth proxy running on %s://%s:%s", scheme, PHOTOBOOTH_PROXY_HOST, PHOTOBOOTH_PROXY_PORT)
   logger.info("Proxying offers to %s", WEBRTCD_STREAM_URL)
 
 
 def main():
   logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler()])
-  parser = argparse.ArgumentParser(description="Photobooth HTTPS offer proxy")
+  parser = argparse.ArgumentParser(description="Photobooth offer proxy")
   parser.add_argument("--host", default=PHOTOBOOTH_PROXY_HOST)
   parser.add_argument("--port", type=int, default=PHOTOBOOTH_PROXY_PORT)
   args = parser.parse_args()
@@ -121,7 +140,7 @@ def main():
   app.router.add_post("/offer", offer)
   app.router.add_options("/offer", lambda _req: web.Response(status=204))
 
-  ssl_context = create_ssl_context()
+  ssl_context = create_ssl_context() if PHOTOBOOTH_PROXY_TLS else None
   web.run_app(app, host=args.host, port=args.port, access_log=None, ssl_context=ssl_context)
 
 
