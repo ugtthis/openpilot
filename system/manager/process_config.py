@@ -121,6 +121,7 @@ procs = [
   # debug procs
   NativeProcess("bridge", "cereal/messaging", ["./bridge"], notcar),
   PythonProcess("webrtcd", "system.webrtc.webrtcd", or_(notcar, photobooth_streaming)),
+  PythonProcess("photobooth_https_proxy", "system.webrtc.photobooth_https_proxy", photobooth_streaming, enabled=not PC),
   PythonProcess("webjoystick", "tools.bodyteleop.web", notcar),
   PythonProcess("joystick", "tools.joystick.joystick_control", and_(joystick, iscar)),
 ]
