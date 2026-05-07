@@ -1,9 +1,9 @@
-"""Connect web app origin for Photobooth QR deep links (dev Connect on your LAN).
+"""Connect web app origin for Photobooth QR deep links.
 
 Resolution order:
-  1. Param ``PhotoboothConnectHost`` (e.g. ``http://192.168.4.22:3000``)
+  1. Param ``PhotoboothConnectHost`` (e.g. ``https://op-photo-booth-site.pages.dev``)
   2. Env ``CONNECT_HOST``
-  3. Built-in POC default (change for your network or use param / env)
+  3. Built-in default (override with param / env if needed)
 """
 
 import os
@@ -11,7 +11,7 @@ import os
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 
-_DEFAULT_ORIGIN = "http://192.168.4.22:3000"
+_DEFAULT_ORIGIN = "https://op-photo-booth-site.pages.dev"
 
 
 def photobooth_connect_origin() -> str:
