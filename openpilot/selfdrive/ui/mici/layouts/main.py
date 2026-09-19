@@ -71,8 +71,7 @@ class MiciMainLayout(Scroller):
       alert_count_callback=self._alerts_layout.active_alerts,
       alert_icon_callback=self._alerts_layout.highest_severity_icon,
     )
-    for layout in (self._camcorder_view, self._body_onroad_layout):
-      layout.set_click_callback(lambda: self._scroll_to(self._home_layout))
+    self._body_onroad_layout.set_click_callback(lambda: self._scroll_to(self._home_layout))
 
     device.add_interactive_timeout_callback(self._on_interactive_timeout)
     ui_state.add_on_body_changed_callbacks(self._on_body_changed)
