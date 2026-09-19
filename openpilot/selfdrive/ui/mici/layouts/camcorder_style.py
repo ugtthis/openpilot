@@ -22,49 +22,96 @@ BUTTON_FACE_PRESSED_COLOR = rl.Color(28, 28, 28, 255)
 BUTTON_OUTLINE_COLOR = rl.Color(32, 32, 32, 255)
 BUTTON_OUTLINE_PRESSED_COLOR = rl.Color(20, 20, 20, 255)
 
+FEED_ASPECT = 4 / 3
+VIEWFINDER_MARGIN = 18
+VIEWFINDER_OUTER_BEZEL_WIDTH = 12
+VIEWFINDER_INNER_BEZEL_WIDTH = 7
+VIEWFINDER_SCREEN_LIP = 2
 
-def inset(rec: rl.Rectangle, amount: float) -> rl.Rectangle:
+TRASH_ICON = "icons_mici/settings/network/new/trash.png"
+
+
+def _inset(rec: rl.Rectangle, amount: float) -> rl.Rectangle:
   return rl.Rectangle(rec.x + amount, rec.y + amount,
                       rec.width - amount * 2, rec.height - amount * 2)
 
 
-def expand(rec: rl.Rectangle, amount: float) -> rl.Rectangle:
-  return inset(rec, -amount)
+def _expand(rec: rl.Rectangle, amount: float) -> rl.Rectangle:
+  return _inset(rec, -amount)
 
 
-def offset(rec: rl.Rectangle, x: float, y: float) -> rl.Rectangle:
+def _offset(rec: rl.Rectangle, x: float, y: float) -> rl.Rectangle:
   return rl.Rectangle(rec.x + x, rec.y + y, rec.width, rec.height)
 
 
 def _draw_directional_bevel(rim: rl.Rectangle, fill_color: rl.Color, pressed: bool):
   if pressed:
-    fill = rl.Rectangle(rim.x, rim.y,
-                        rim.width - BEVEL_WIDTH, rim.height - BEVEL_WIDTH)
+    fill = rl.Rectangle(rim.x, rim.y, rim.width - BEVEL_WIDTH, rim.height - BEVEL_WIDTH)
   else:
     fill = rl.Rectangle(rim.x + BEVEL_WIDTH, rim.y + BEVEL_WIDTH,
                         rim.width - BEVEL_WIDTH, rim.height - BEVEL_WIDTH)
-
   rl.draw_rectangle_rounded(rim, 0.15, 8, BUTTON_EDGE_LIGHT_COLOR)
   rl.draw_rectangle_rounded(fill, 0.15, 8, fill_color)
 
 
+def camera_body(rect: rl.Rectangle) -> tuple[rl.Rectangle, rl.Rectangle, rl.Rectangle]:
+  pane_w = min(rect.width, rect.height * FEED_ASPECT)
+  pane = rl.Rectangle(rect.x + rect.width - pane_w, rect.y, pane_w, rect.height)
+  rail = rl.Rectangle(rect.x, rect.y, pane.x - rect.x, rect.height)
+  well = _inset(pane, VIEWFINDER_MARGIN)
+  if well.width / well.height > FEED_ASPECT:
+    w, h = well.height * FEED_ASPECT, well.height
+  else:
+    w, h = well.width, well.width / FEED_ASPECT
+  feed = rl.Rectangle(well.x + (well.width - w) / 2, well.y + (well.height - h) / 2, w, h)
+  return rail, pane, feed
+
+
+def split_rail(rail: rl.Rectangle, count: int) -> list[rl.Rectangle]:
+  h = rail.height / count
+  return [rl.Rectangle(rail.x, rail.y + i * h, rail.width, h) for i in range(count)]
+
+
+def draw_rail(rail: rl.Rectangle, slots: list[rl.Rectangle]):
+  rl.draw_rectangle_rec(rail, BODY_COLOR)
+  for slot in slots[1:]:
+    rl.draw_line_ex(rl.Vector2(rail.x, slot.y), rl.Vector2(rail.x + rail.width, slot.y), 2, DIVIDER_COLOR)
+
+
+def draw_recessed_viewfinder(pane: rl.Rectangle, feed: rl.Rectangle):
+  rl.draw_rectangle_rec(pane, VIEWFINDER_PANEL_COLOR)
+  outer_bezel = _expand(feed, VIEWFINDER_OUTER_BEZEL_WIDTH)
+  inner_bezel = _expand(feed, VIEWFINDER_INNER_BEZEL_WIDTH)
+  rl.draw_rectangle_rounded(_offset(outer_bezel, BEVEL_WIDTH, BEVEL_WIDTH),
+                           0.04, 6, VIEWFINDER_EDGE_LIGHT_COLOR)
+  rl.draw_rectangle_rounded(_offset(outer_bezel, -BEVEL_WIDTH, -BEVEL_WIDTH),
+                           0.04, 6, VIEWFINDER_UPPER_EDGE_COLOR)
+  rl.draw_rectangle_rounded(outer_bezel, 0.04, 6, VIEWFINDER_OUTER_BEZEL_COLOR)
+  rl.draw_rectangle_rounded(inner_bezel, 0.04, 6, VIEWFINDER_INNER_BEZEL_COLOR)
+  rl.draw_rectangle_rounded(_expand(feed, VIEWFINDER_SCREEN_LIP), 0.02, 6, VIEWFINDER_SCREEN_WELL_COLOR)
+
+
 def draw_physical_button(slot: rl.Rectangle, pressed: bool) -> rl.Rectangle:
-  """Draw a raised (upper-left lit) or recessed (lower-right lit) button, returning its icon face."""
   size = min(slot.width, slot.height)
-  margin = max(4, round(size * 0.10))
-  rim_inset = max(BEVEL_WIDTH, round(size * 0.025))
-  face_inset = max(3, round(size * (0.067 if pressed else 0.05)))
-
-  well = inset(slot, margin)
+  well = _inset(slot, max(4, round(size * 0.10)))
   rl.draw_rectangle_rounded(well, 0.16, 8, BUTTON_WELL_COLOR)
-
-  rim = inset(well, rim_inset)
-  rim_color = BUTTON_WELL_COLOR if pressed else BUTTON_FACE_COLOR
-  _draw_directional_bevel(rim, rim_color, pressed)
-
-  face = inset(well, face_inset)
-  face_color = BUTTON_FACE_PRESSED_COLOR if pressed else BUTTON_FACE_COLOR
-  outline_color = BUTTON_OUTLINE_PRESSED_COLOR if pressed else BUTTON_OUTLINE_COLOR
-  rl.draw_rectangle_rounded(face, 0.14, 8, face_color)
-  rl.draw_rectangle_rounded_lines_ex(face, 0.14, 8, 1, outline_color)
+  _draw_directional_bevel(_inset(well, max(BEVEL_WIDTH, round(size * 0.025))),
+                          BUTTON_WELL_COLOR if pressed else BUTTON_FACE_COLOR, pressed)
+  face = _inset(well, max(3, round(size * (0.067 if pressed else 0.05))))
+  rl.draw_rectangle_rounded(face, 0.14, 8, BUTTON_FACE_PRESSED_COLOR if pressed else BUTTON_FACE_COLOR)
+  rl.draw_rectangle_rounded_lines_ex(face, 0.14, 8, 1,
+                                    BUTTON_OUTLINE_PRESSED_COLOR if pressed else BUTTON_OUTLINE_COLOR)
   return face
+
+
+def draw_centered_texture(rec: rl.Rectangle, tex: rl.Texture, color: rl.Color = rl.WHITE):
+  x = round(rec.x + (rec.width - tex.width) / 2)
+  y = round(rec.y + (rec.height - tex.height) / 2)
+  rl.draw_texture_ex(tex, (x, y), 0, 1.0, color)
+
+
+def hit_name(pos, named: list[tuple[str, rl.Rectangle]]) -> str | None:
+  for name, rec in named:
+    if rl.check_collision_point_rec(pos, rec):
+      return name
+  return None

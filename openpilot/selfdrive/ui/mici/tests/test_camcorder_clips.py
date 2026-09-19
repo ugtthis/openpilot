@@ -1,0 +1,107 @@
+import numpy as np
+
+from openpilot.common.test import OpenpilotTestCase
+from openpilot.selfdrive.ui.mici.layouts.camcorder_clips import (
+  CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, ClipReader, ClipWriter, center_crop, delete_clip, extract_clip_rgb,
+  format_timecode, list_clips, scale_rgb,
+)
+
+
+def _make_nv12(width: int, height: int, stride: int | None = None, y=128, u=128, v=128) -> tuple[np.ndarray, int, int]:
+  stride = stride or width
+  uv_height = ((height // 2) + 15) // 16 * 16
+  uv_offset = stride * height
+  buf = np.zeros(uv_offset + stride * uv_height, dtype=np.uint8)
+  buf[:uv_offset].reshape(-1, stride)[:height, :width] = y
+  uv = buf[uv_offset:].reshape(-1, stride)
+  uv[:height // 2, 0:width:2] = u
+  uv[:height // 2, 1:width:2] = v
+  return buf, stride, uv_offset
+
+
+class TestCamcorderClips(OpenpilotTestCase):
+  def test_format_timecode(self):
+    assert format_timecode(0) == "0:00"
+    assert format_timecode(12.9) == "0:12"
+    assert format_timecode(75) == "1:15"
+    assert format_timecode(3661) == "1:01:01"
+
+  def test_center_crop_matches_clip_aspect(self):
+    x, y, w, h = center_crop(1920, 1080)
+    assert abs(w / h - CLIP_ASPECT) < 1e-6
+    assert x > 0 and y == 0
+    assert abs(x * 2 + w - 1920) < 1e-6
+    x, y, w, h = center_crop(480, 640)
+    assert abs(w / h - CLIP_ASPECT) < 1e-6
+    assert x == 0 and y > 0
+    assert abs(y * 2 + h - 640) < 1e-6
+    assert center_crop(0, 10) == (0.0, 0.0, 0.0, 0.0)
+
+  def test_extract_neutral_gray(self):
+    buf, stride, uv_offset = _make_nv12(64, 48)
+    rgb = extract_clip_rgb(buf, 64, 48, stride, uv_offset, out_w=16, out_h=12)
+    assert rgb.shape == (12, 16, 3)
+    assert np.abs(rgb.astype(np.int16) - 128).max() <= 2
+
+  def test_extract_flip_swaps_left_right(self):
+    buf, stride, uv_offset = _make_nv12(64, 48, y=16)
+    y = buf[:uv_offset].reshape(-1, stride)
+    y[:48, 48:] = 220
+    left = extract_clip_rgb(buf, 64, 48, stride, uv_offset, out_w=16, out_h=12, flip_h=False)
+    right = extract_clip_rgb(buf, 64, 48, stride, uv_offset, out_w=16, out_h=12, flip_h=True)
+    assert left[6, 2, 0] < left[6, 13, 0]
+    assert right[6, 2, 0] > right[6, 13, 0]
+
+  def test_scale_rgb(self):
+    src = np.zeros((20, 40, 3), dtype=np.uint8)
+    src[:, :20] = (255, 0, 0)
+    out = scale_rgb(src, 8, 4)
+    assert out.shape == (4, 8, 3)
+    assert out[0, 0, 0] == 255
+    assert out[0, 7, 0] == 0
+
+  def test_write_list_and_read_clip(self):
+    frames = [np.full((CLIP_HEIGHT, CLIP_WIDTH, 3), i * 20, dtype=np.uint8) for i in range(1, 4)]
+    writer = ClipWriter("wide")
+    for i, frame in enumerate(frames):
+      writer.add_frame(frame, i * 50)
+    clip = writer.finish()
+    assert clip is not None
+    assert clip.camera == "wide"
+    assert clip.frame_count == 3
+    assert clip.duration_s == 0.15
+
+    listed = list_clips()
+    assert [item.clip_id for item in listed] == [clip.clip_id]
+
+    with ClipReader(clip) as reader:
+      assert reader.timestamps_ms() == [0, 50, 100]
+      assert reader.frame_index_at_ms(0) == 0
+      assert reader.frame_index_at_ms(49) == 0
+      assert reader.frame_index_at_ms(50) == 1
+      assert reader.frame_index_at_ms(5000) == 2
+      np.testing.assert_array_equal(reader.frame(1), frames[1])
+      np.testing.assert_array_equal(reader.frame(99), frames[2])
+
+  def test_delete_clip_removes_it_from_the_library(self):
+    writer = ClipWriter("wide")
+    writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+    clip = writer.finish()
+    assert clip is not None
+    assert delete_clip(clip)
+    assert not clip.path.exists()
+    assert list_clips() == []
+
+  def test_empty_writer_is_discarded(self):
+    writer = ClipWriter("cabin")
+    path = writer.path
+    assert writer.finish() is None
+    assert not path.exists()
+    assert list_clips() == []
+
+  def test_in_progress_clip_is_hidden(self):
+    writer = ClipWriter("wide")
+    writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+    assert list_clips() == []
+    writer.abort()
+    assert list_clips() == []
