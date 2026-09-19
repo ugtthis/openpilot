@@ -13,7 +13,7 @@ from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
 from openpilot.selfdrive.ui.mici.layouts.playback_view import PlaybackView
 from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
 from openpilot.selfdrive.ui.ui_state import device
-from openpilot.system.ui.lib.application import FontWeight, MousePos, TextAlignment, TextAlignmentVertical, gui_app
+from openpilot.system.ui.lib.application import GL_VERSION, FontWeight, MousePos, TextAlignment, TextAlignmentVertical, gui_app
 from openpilot.system.ui.widgets.label import UnifiedLabel
 
 WIDE = VisionStreamType.VISION_STREAM_WIDE_ROAD
@@ -21,6 +21,50 @@ CABIN = VisionStreamType.VISION_STREAM_CABIN
 FOLDER_ICON_SIZE = 40
 RECORD_TIMEOUT_S = 3600
 SNAPSHOT_FLASH_S = 0.12
+SNAPSHOT_COUNTDOWN_S = 3.0
+SNAPSHOT_COUNTDOWN_POP_S = 0.18
+SNAPSHOT_COUNTDOWN_POP = 0.12
+SNAPSHOT_COUNTDOWN_FONT = 0.46
+SNAPSHOT_COUNTDOWN_RING_WIDTH = 9
+
+SNAPSHOT_COUNTDOWN_VERTEX_SHADER = GL_VERSION + """
+in vec3 vertexPosition;
+in vec2 vertexTexCoord;
+uniform mat4 mvp;
+out vec2 fragTexCoord;
+void main() {
+  fragTexCoord = vertexTexCoord;
+  gl_Position = mvp * vec4(vertexPosition, 1.0);
+}
+"""
+
+SNAPSHOT_COUNTDOWN_FRAGMENT_SHADER = GL_VERSION + """
+in vec2 fragTexCoord;
+out vec4 finalColor;
+
+uniform float progress;
+uniform float innerRadius;
+uniform float outerRadius;
+
+void main() {
+  const float PI = 3.14159265359;
+  const float TWO_PI = 6.28318530718;
+  vec2 p = fragTexCoord * 2.0 - 1.0;
+  float distanceFromCenter = length(p);
+  float edge = max(fwidth(distanceFromCenter) * 1.25, 0.001);
+
+  float disc = 1.0 - smoothstep(outerRadius - edge, outerRadius + edge, distanceFromCenter);
+  float ring = smoothstep(innerRadius - edge, innerRadius + edge, distanceFromCenter) * disc;
+
+  float angleFromTop = mod(atan(p.y, p.x) + PI * 0.5 + TWO_PI, TWO_PI);
+  float sweepEnd = progress * TWO_PI;
+  float arcEdge = max(fwidth(angleFromTop), 0.002);
+  float arc = 1.0 - smoothstep(sweepEnd - arcEdge, sweepEnd + arcEdge, angleFromTop);
+
+  vec4 background = vec4(0.031, 0.031, 0.031, 0.686 * disc);
+  finalColor = mix(background, vec4(1.0, 1.0, 1.0, 0.92), ring * arc);
+}
+"""
 
 MODE_PULL_RESISTANCE = 0.45
 MODE_PULL_START_PX = 20
@@ -97,6 +141,113 @@ class ModePullGesture:
     return toggled
 
 
+class SnapshotCountdown:
+  """3-2-1 timer used before a cabin-camera still."""
+
+  def __init__(self, duration_s: float = SNAPSHOT_COUNTDOWN_S):
+    self.duration_s = duration_s
+    self._until = 0.0
+
+  def start(self, now: float):
+    self._until = now + self.duration_s
+
+  def cancel(self):
+    self._until = 0.0
+
+  def active(self, now: float) -> bool:
+    return self._until > now
+
+  def remaining(self, now: float) -> float:
+    return max(0.0, self._until - now) if self._until > 0.0 else 0.0
+
+  def digit(self, now: float) -> int | None:
+    remaining = self.remaining(now)
+    if remaining <= 0.0:
+      return None
+    return max(1, math.ceil(remaining))
+
+  def tick(self, now: float) -> bool:
+    if self._until <= 0.0 or now < self._until:
+      return False
+    self._until = 0.0
+    return True
+
+
+class _SnapshotCountdownRing:
+  """Draws a smooth countdown ring without risking UI startup."""
+
+  def __init__(self):
+    self._shader = None
+    self._unavailable = False
+    self._progress = rl.ffi.new("float[1]")
+    self._inner_radius = rl.ffi.new("float[1]")
+    self._outer_radius = rl.ffi.new("float[1]")
+
+  def _initialize(self) -> bool:
+    if self._shader is not None:
+      return True
+    if self._unavailable:
+      return False
+
+    shader = None
+    try:
+      shader = rl.load_shader_from_memory(SNAPSHOT_COUNTDOWN_VERTEX_SHADER, SNAPSHOT_COUNTDOWN_FRAGMENT_SHADER)
+      locations = (
+        rl.get_shader_location(shader, "progress"),
+        rl.get_shader_location(shader, "innerRadius"),
+        rl.get_shader_location(shader, "outerRadius"),
+      )
+      if not shader.id or any(location < 0 for location in locations):
+        raise RuntimeError("countdown shader failed to compile or link")
+
+      texture = rl.get_shapes_texture()
+      source = rl.Rectangle(0, 0, texture.width, texture.height)
+      self._shader = shader
+      self._progress_loc, self._inner_radius_loc, self._outer_radius_loc = locations
+      self._texture = texture
+      self._source = source
+      return True
+    except Exception:
+      if shader is not None and shader.id:
+        rl.unload_shader(shader)
+      self._unavailable = True
+      cloudlog.exception("countdown ring unavailable")
+      return False
+
+  def draw(self, center: rl.Vector2, radius: float, width: float, progress: float):
+    if not self._initialize():
+      return
+
+    try:
+      padding = 2.0
+      half_size = radius + padding
+      destination = rl.Rectangle(center.x - half_size, center.y - half_size, half_size * 2, half_size * 2)
+      self._progress[0] = _clamp01(progress)
+      self._inner_radius[0] = (radius - width) / half_size
+      self._outer_radius[0] = radius / half_size
+      rl.set_shader_value(self._shader, self._progress_loc, self._progress,
+                          rl.ShaderUniformDataType.SHADER_UNIFORM_FLOAT)
+      rl.set_shader_value(self._shader, self._inner_radius_loc, self._inner_radius,
+                          rl.ShaderUniformDataType.SHADER_UNIFORM_FLOAT)
+      rl.set_shader_value(self._shader, self._outer_radius_loc, self._outer_radius,
+                          rl.ShaderUniformDataType.SHADER_UNIFORM_FLOAT)
+      rl.begin_shader_mode(self._shader)
+      try:
+        rl.draw_texture_pro(self._texture, self._source, destination, rl.Vector2(), 0.0, rl.WHITE)
+      finally:
+        rl.end_shader_mode()
+    except Exception:
+      self.close()
+      self._unavailable = True
+      cloudlog.exception("countdown ring draw failed")
+
+  def close(self):
+    if self._shader is not None and self._shader.id:
+      rl.unload_shader(self._shader)
+      self._shader.id = 0
+    self._shader = None
+
+
 def _icon_center(rec: rl.Rectangle) -> tuple[float, float, float]:
   return rec.x + rec.width / 2, rec.y + rec.height / 2, min(rec.width, rec.height) * 0.18
 
@@ -147,12 +298,14 @@ class CamcorderView(CameraView):
     self._photo_mode = False
     self._mode_pull = ModePullGesture()
     self._mode_pull_target_photo = True
+    self._snapshot_countdown = SnapshotCountdown()
     self._snapshot_flash_until = 0.0
     self._pressed: str | None = None
     self._playback = PlaybackView()
     self._folder_icon = gui_app.texture("icons/folder.png", FOLDER_ICON_SIZE, FOLDER_ICON_SIZE)
     self._camera_icon = gui_app.texture("icons/camera.png", 64, 64)
     self._video_icon = gui_app.texture("icons/video_camera.png", 64, 64)
+    self._countdown_ring = _SnapshotCountdownRing()
     self._rail = rl.Rectangle()
     self._camera_pane = rl.Rectangle()
     self._feed = rl.Rectangle()
@@ -166,17 +319,30 @@ class CamcorderView(CameraView):
                                  text_color=OSD_COLOR,
                                  alignment=TextAlignment.LEFT,
                                  alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._countdown_label = UnifiedLabel("", 96, FontWeight.DISPLAY,
+                                         text_color=rl.WHITE,
+                                         alignment=TextAlignment.CENTER,
+                                         alignment_vertical=TextAlignmentVertical.MIDDLE,
+                                         wrap_text=False)
+
+  def close(self) -> None:
+    if getattr(self, "_countdown_ring", None):
+      self._countdown_ring.close()
+    super().close()
 
   def _showing_cabin(self) -> bool:
     return self.stream_type == CABIN
 
+  def _countdown_active(self) -> bool:
+    return self._snapshot_countdown.active(rl.get_time())
+
   def _switch_camera(self):
-    if self._recorder.recording:
+    if self._recorder.recording or self._countdown_active():
       return
     self.switch_stream(WIDE if self._showing_cabin() else CABIN)
 
   def update_mode_pull(self, overscroll: float, dragging: bool):
-    if self._recorder.recording:
+    if self._recorder.recording or self._countdown_active():
       self._mode_pull.reset()
       return
 
@@ -186,6 +352,15 @@ class CamcorderView(CameraView):
       self._mode_pull_target_photo = not self._photo_mode
     if toggled:
       self._photo_mode = self._mode_pull_target_photo
+
+  def _on_shutter(self):
+    if self._showing_cabin():
+      if self._countdown_active():
+        self._snapshot_countdown.cancel()
+      else:
+        self._snapshot_countdown.start(rl.get_time())
+      return
+    self._take_photo()
 
   def _take_photo(self):
     if self.frame is None:
@@ -243,10 +418,11 @@ class CamcorderView(CameraView):
     if pressed == "feed":
       self._switch_camera()
     elif pressed == "playback":
+      self._snapshot_countdown.cancel()
       gui_app.push_widget(self._playback)
     elif pressed == "record":
       if self._photo_mode:
-        self._take_photo()
+        self._on_shutter()
       else:
         self._toggle_record()
 
@@ -302,15 +478,38 @@ class CamcorderView(CameraView):
       icon_pos = rl.Vector2(cx - icon.width * icon_scale / 2, cy - icon.height * icon_scale / 2)
       rl.draw_texture_ex(icon, icon_pos, 0.0, icon_scale, color)
 
+  def _draw_snapshot_countdown(self, now: float):
+    digit = self._snapshot_countdown.digit(now)
+    if digit is None:
+      return
+    remaining = self._snapshot_countdown.remaining(now)
+    age = digit - remaining
+    pop = 1.0 + SNAPSHOT_COUNTDOWN_POP * (1.0 - _smoothstep(min(1.0, age / SNAPSHOT_COUNTDOWN_POP_S)))
+    size = min(self._feed.width, self._feed.height)
+    cx = self._feed.x + self._feed.width / 2
+    cy = self._feed.y + self._feed.height / 2
+    radius = size * 0.38
+    self._countdown_ring.draw(rl.Vector2(cx, cy), radius, SNAPSHOT_COUNTDOWN_RING_WIDTH,
+                              remaining / SNAPSHOT_COUNTDOWN_S)
+    self._countdown_label.set_text(str(digit))
+    self._countdown_label.set_font_size(max(40, round(size * SNAPSHOT_COUNTDOWN_FONT * pop)))
+    self._countdown_label.render(self._feed)
+
   def _render(self, rect: rl.Rectangle):
     recording = self._recorder.recording
+    now = rl.get_time()
+    if self._snapshot_countdown.active(now) and (not self._photo_mode or not self._showing_cabin()):
+      self._snapshot_countdown.cancel()
+    counting_down = self._snapshot_countdown.active(now)
+
     rl.draw_rectangle_rec(rect, rl.BLACK)
     draw_recessed_viewfinder(self._camera_pane, self._feed)
     super()._render(self._feed)
     draw_rail(self._rail, [self._playback_slot, self._record_slot])
 
     playback_face = draw_physical_button(self._playback_slot, self.is_pressed and self._pressed == "playback")
-    record_face = draw_physical_button(self._record_slot, recording or (self.is_pressed and self._pressed == "record"))
+    record_face = draw_physical_button(self._record_slot, recording or counting_down or
+                                      (self.is_pressed and self._pressed == "record"))
     folder_color = rl.Color(255, 255, 255, 70) if recording else rl.WHITE
     draw_centered_texture(playback_face, self._folder_icon, folder_color)
     if recording:
@@ -322,6 +521,10 @@ class CamcorderView(CameraView):
       _draw_record_icon(record_face)
     if self.frame is None:
       self._waiting.render(self._feed)
-    if self._snapshot_flash_until > rl.get_time():
-      remaining = (self._snapshot_flash_until - rl.get_time()) / SNAPSHOT_FLASH_S
+    if counting_down:
+      self._draw_snapshot_countdown(now)
+    elif self._snapshot_countdown.tick(now):
+      self._take_photo()
+    if self._snapshot_flash_until > now:
+      remaining = (self._snapshot_flash_until - now) / SNAPSHOT_FLASH_S
       rl.draw_rectangle_rec(self._feed, rl.Color(255, 255, 255, round(150 * remaining)))
