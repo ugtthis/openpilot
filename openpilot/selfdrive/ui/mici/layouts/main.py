@@ -1,11 +1,10 @@
 import pyray as rl
-import openpilot.cereal.messaging as messaging
 from openpilot.selfdrive.ui.mici.layouts.home import MiciHomeLayout
 from openpilot.selfdrive.ui.mici.layouts.settings.settings import SettingsLayout
 from openpilot.selfdrive.ui.mici.layouts.offroad_alerts import MiciOffroadAlerts
-from openpilot.selfdrive.ui.mici.onroad.augmented_road_view import AugmentedRoadView
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.selfdrive.ui.mici.layouts.onboarding import OnboardingWindow
+from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView
 from openpilot.selfdrive.ui.body.layouts.onroad import BodyLayout
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.scroller import Scroller
@@ -19,8 +18,6 @@ class MiciMainLayout(Scroller):
   def __init__(self):
     super().__init__(snap_items=True, spacing=0, pad=0, scroll_indicator=False, edge_shadows=False)
 
-    self._pm = messaging.PubMaster(['bookmarkButton', 'userBookmark'])
-
     self._prev_onroad = False
     self._prev_standstill = False
     self._onroad_time_delay: float | None = None
@@ -30,25 +27,22 @@ class MiciMainLayout(Scroller):
     self._home_layout = MiciHomeLayout()
     self._alerts_layout = MiciOffroadAlerts()
     self._settings_layout = SettingsLayout()
-    self._car_onroad_layout = AugmentedRoadView(bookmark_callback=self._on_bookmark_clicked)
+    self._camcorder_view = CamcorderView()
     self._body_onroad_layout = BodyLayout()
 
     # Initialize widget rects
     for widget in (self._home_layout, self._alerts_layout, self._settings_layout,
-                   self._car_onroad_layout, self._body_onroad_layout):
+                   self._camcorder_view, self._body_onroad_layout):
       # TODO: set parent rect and use it if never passed rect from render (like in Scroller)
       widget.set_rect(rl.Rectangle(0, 0, gui_app.width, gui_app.height))
 
     self._scroller.add_widgets([
       self._alerts_layout,
       self._home_layout,
-      self._car_onroad_layout,
+      self._camcorder_view,
       self._body_onroad_layout,
     ])
     self._scroller.set_reset_scroll_at_show(False)
-
-    # Disable scrolling when onroad is interacting with bookmark
-    self._scroller.set_scrolling_enabled(lambda: not self._car_onroad_layout.is_swiping_left())
 
     # Set callbacks
     self._setup_callbacks()
@@ -61,13 +55,12 @@ class MiciMainLayout(Scroller):
     if not self._onboarding_window.completed:
       gui_app.push_widget(self._onboarding_window)
 
-    # initialize correct onroad layout
     self._on_body_changed()
 
   @property
-  def _onroad_layout(self) -> Widget:
-    # For scroll_to
-    return self._body_onroad_layout if ui_state.is_body else self._car_onroad_layout
+  def _left_page(self) -> Widget:
+    # Swipe left of home: camcorder, or body if this is a comma body.
+    return self._body_onroad_layout if ui_state.is_body else self._camcorder_view
 
   def _setup_callbacks(self):
     self._alerts_layout.set_enabled(lambda: self.enabled)
@@ -78,7 +71,7 @@ class MiciMainLayout(Scroller):
       alert_count_callback=self._alerts_layout.active_alerts,
       alert_icon_callback=self._alerts_layout.highest_severity_icon,
     )
-    for layout in (self._car_onroad_layout, self._body_onroad_layout):
+    for layout in (self._camcorder_view, self._body_onroad_layout):
       layout.set_click_callback(lambda: self._scroll_to(self._home_layout))
 
     device.add_interactive_timeout_callback(self._on_interactive_timeout)
@@ -112,8 +105,8 @@ class MiciMainLayout(Scroller):
     if ui_state.started != self._prev_onroad:
       self._prev_onroad = ui_state.started
 
-      # onroad: after delay, pop nav stack and scroll to onroad
-      # offroad: immediately scroll to home, but don't pop nav stack (can stay in settings)
+      # ignition on: after delay, leave settings and show swipe-left page
+      # ignition off: go home (keep settings on the stack)
       if ui_state.started:
         self._onroad_time_delay = rl.get_time()
       else:
@@ -121,13 +114,13 @@ class MiciMainLayout(Scroller):
 
     # FIXME: these two pops can interrupt user interacting in the settings
     if self._onroad_time_delay is not None and rl.get_time() - self._onroad_time_delay >= ONROAD_DELAY:
-      gui_app.pop_widgets_to(self, lambda: self._scroll_to(self._onroad_layout))
+      gui_app.pop_widgets_to(self, lambda: self._scroll_to(self._left_page))
       self._onroad_time_delay = None
 
-    # When car leaves standstill, pop nav stack and scroll to onroad
+    # When the car starts moving, leave settings and show swipe-left page
     CS = ui_state.sm["carState"]
     if not CS.standstill and self._prev_standstill:
-      gui_app.pop_widgets_to(self, lambda: self._scroll_to(self._onroad_layout))
+      gui_app.pop_widgets_to(self, lambda: self._scroll_to(self._left_page))
     self._prev_standstill = CS.standstill
 
   def _on_interactive_timeout(self):
@@ -138,17 +131,12 @@ class MiciMainLayout(Scroller):
     if ui_state.started:
       # Don't pop if at standstill
       if not ui_state.sm["carState"].standstill:
-        gui_app.pop_widgets_to(self, lambda: self._scroll_to(self._onroad_layout))
+        gui_app.pop_widgets_to(self, lambda: self._scroll_to(self._left_page))
     else:
       # Screen turns off on timeout offroad, so pop immediately without animation
       gui_app.pop_widgets_to(self, instant=True)
       self._scroll_to(self._home_layout)
 
-  def _on_bookmark_clicked(self):
-    for service in ('bookmarkButton', 'userBookmark'):
-      msg = messaging.new_message(service, valid=True)
-      self._pm.send(service, msg)
-
   def _on_body_changed(self):
-    self._car_onroad_layout.set_visible(not ui_state.is_body)
+    self._camcorder_view.set_visible(not ui_state.is_body)
     self._body_onroad_layout.set_visible(bool(ui_state.is_body))
