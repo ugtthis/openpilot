@@ -6,6 +6,7 @@ from opendbc.car.structs import car
 from openpilot.common.params import Params
 from openpilot.common.hardware import PC, COMMA_HARDWARE
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
+from openpilot.system.loggerd.encoder_lease import encoder_requested
 
 WEBCAM = os.getenv("USE_WEBCAM") is not None
 
@@ -55,6 +56,9 @@ def always_run(started: bool, params: Params, CP: car.CarParams) -> bool:
 def only_onroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started
 
+def camera_encoding(started: bool, params: Params, CP: car.CarParams) -> bool:
+  return started or encoder_requested()
+
 def only_offroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return not started
 
@@ -71,7 +75,7 @@ procs = [
   DaemonProcess("manage_athenad", "openpilot.system.athena.manage_athenad", "AthenadPid"),
 
   NativeProcess("loggerd", "openpilot/system/loggerd", ["./loggerd"], logging),
-  NativeProcess("encoderd", "openpilot/system/loggerd", ["./encoderd"], only_onroad),
+  NativeProcess("encoderd", "openpilot/system/loggerd", ["./encoderd"], camera_encoding),
   NativeProcess("stream_encoderd", "openpilot/system/loggerd", ["./encoderd", "--stream"], or_(livestream, notcar)),
   PythonProcess("logmessaged", "openpilot.system.logmessaged", always_run),
 

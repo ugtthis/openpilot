@@ -1,8 +1,9 @@
-"""Viewfinder-quality takes, not loggerd HEVC. The UI plays these without ffmpeg.
+"""On-device clip format: RGB preview frames plus clip.json metadata.
 
   clip.json     status must be "ready" to appear in the list
   frames.bin    [uint32 size][zlib rgb8]...
   index.bin     [uint64 offset][uint32 t_ms]...
+  video.hevc    native hardware-encoded master, written by HevcWriter
 """
 
 import bisect
@@ -10,8 +11,6 @@ import json
 import os
 import shutil
 import struct
-import threading
-import time
 import zlib
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,10 +18,9 @@ from pathlib import Path
 
 import numpy as np
 
-from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.hardware import PC
 from openpilot.common.hardware.hw import Paths
-from openpilot.common.swaglog import cloudlog
+from openpilot.selfdrive.ui.mici.layouts.hevc_writer import MasterInfo
 
 # Must match camcorder_style.FEED_ASPECT so the take matches the live crop.
 CLIP_WIDTH = 480
@@ -36,11 +34,6 @@ _SIZE = struct.Struct("<I")
 _CLIP_JSON = "clip.json"
 _FRAMES_BIN = "frames.bin"
 _INDEX_BIN = "index.bin"
-
-_STREAM_NAMES = {
-  VisionStreamType.VISION_STREAM_WIDE_ROAD: "wide",
-  VisionStreamType.VISION_STREAM_CABIN: "cabin",
-}
 
 
 def clips_root() -> Path:
@@ -71,6 +64,13 @@ def center_crop(width: float, height: float, aspect: float = CLIP_ASPECT) -> tup
   return 0.0, (height - h) / 2, width, h
 
 
+def preview_size(width: int, height: int, preview_height: int = CLIP_HEIGHT) -> tuple[int, int]:
+  if width <= 0 or height <= 0:
+    return CLIP_WIDTH, CLIP_HEIGHT
+  preview_width = max(2, round(preview_height * width / height / 2) * 2)
+  return preview_width, preview_height
+
+
 @dataclass(frozen=True)
 class Clip:
   clip_id: str
@@ -82,6 +82,10 @@ class Clip:
   fps: int
   frame_count: int
   duration_s: float
+  preview_contains_full_frame: bool = False
+  master: str | None = None
+  native_width: int = 0
+  native_height: int = 0
 
   @property
   def time_label(self) -> str:
@@ -90,6 +94,10 @@ class Clip:
   @property
   def duration_label(self) -> str:
     return format_timecode(self.duration_s)
+
+  @property
+  def has_full_frame_preview(self) -> bool:
+    return self.preview_contains_full_frame and self.height > 0 and abs(self.width / self.height - CLIP_ASPECT) > 0.01
 
 
 def _new_clip_id(root: Path, when: datetime) -> str:
@@ -110,14 +118,15 @@ def _as_u8(data) -> np.ndarray:
 
 def extract_clip_rgb(data, width: int, height: int, stride: int, uv_offset: int,
                      out_w: int = CLIP_WIDTH, out_h: int = CLIP_HEIGHT,
-                     flip_h: bool = False, enhance: bool = False) -> np.ndarray:
+                     flip_h: bool = False, enhance: bool = False,
+                     crop_aspect: float | None = CLIP_ASPECT) -> np.ndarray:
   """Copy out of the VisionIPC buffer; camerad reuses it."""
   raw = _as_u8(data)
   y_plane = raw[:uv_offset].reshape(-1, stride)
   uv_height = max(1, (len(raw) - uv_offset) // stride)
   uv_plane = raw[uv_offset:uv_offset + stride * uv_height].reshape(-1, stride)
 
-  x0, y0, crop_w, crop_h = center_crop(width, height)
+  x0, y0, crop_w, crop_h = center_crop(width, height, crop_aspect) if crop_aspect else (0.0, 0.0, width, height)
   x0, y0 = int(x0) & ~1, int(y0) & ~1
   crop_w, crop_h = int(crop_w) & ~1, int(crop_h) & ~1
 
@@ -149,12 +158,14 @@ def scale_rgb(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
 
 class ClipWriter:
   def __init__(self, camera: str, width: int = CLIP_WIDTH, height: int = CLIP_HEIGHT,
-               fps: int = CLIP_FPS, started_at: datetime | None = None):
+               fps: int = CLIP_FPS, started_at: datetime | None = None,
+               preview_contains_full_frame: bool = False):
     self.camera = camera
     self.width = width
     self.height = height
     self.fps = fps
     self.started_at = started_at or datetime.now()
+    self.preview_contains_full_frame = preview_contains_full_frame
     self.frame_count = 0
     self._last_t_ms = 0
     self._frames = None
@@ -186,12 +197,12 @@ class ClipWriter:
     self.frame_count += 1
     self._last_t_ms = t_ms
 
-  def finish(self) -> Clip | None:
+  def finalize(self, master: MasterInfo | None = None) -> Clip | None:
     self._close_files()
     if self.frame_count <= 0:
       self.abort()
       return None
-    self._write_meta("ready")
+    self._write_meta("ready", master)
     return load_clip(self.path)
 
   def abort(self):
@@ -206,21 +217,32 @@ class ClipWriter:
       self._index.close()
       self._index = None
 
-  def _write_meta(self, status: str):
+  def _write_meta(self, status: str, master: MasterInfo | None = None):
     duration = 0.0
     if self.frame_count:
       duration = max(self._last_t_ms / 1000.0, self.frame_count / float(self.fps))
     payload = {
+      "format_version": 2 if self.preview_contains_full_frame else 1,
       "id": self.clip_id,
       "status": status,
       "camera": self.camera,
+      "flip_h": self.camera == "cabin",
       "started_at": self.started_at.isoformat(timespec="seconds"),
       "width": self.width,
       "height": self.height,
       "fps": self.fps,
       "frame_count": self.frame_count,
       "duration_s": duration,
+      "preview_contains_full_frame": self.preview_contains_full_frame,
     }
+    if master is not None:
+      payload.update({
+        "codec": "hevc",
+        "master": master.filename,
+        "native_width": master.width,
+        "native_height": master.height,
+        "native_frame_count": master.frame_count,
+      })
     (self.path / _CLIP_JSON).write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -246,6 +268,11 @@ def load_clip(path: Path) -> Clip | None:
       fps=int(meta.get("fps", CLIP_FPS)),
       frame_count=int(meta["frame_count"]),
       duration_s=float(meta.get("duration_s") or 0.0),
+      preview_contains_full_frame=bool(meta.get("preview_contains_full_frame",
+                                                meta.get("preview_uncropped", False))),
+      master=str(meta["master"]) if meta.get("master") else None,
+      native_width=int(meta.get("native_width", 0)),
+      native_height=int(meta.get("native_height", 0)),
     )
   except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError):
     return None
@@ -319,88 +346,3 @@ class ClipReader:
       raise ValueError("truncated clip")
     rgb = np.frombuffer(zlib.decompress(blob), dtype=np.uint8)
     return rgb.reshape(self.clip.height, self.clip.width, 3).copy()
-
-
-class ClipRecorder:
-  def __init__(self):
-    self._thread: threading.Thread | None = None
-    self._stop = threading.Event()
-    self._started_mono = 0.0
-    self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
-    self._writer: ClipWriter | None = None
-    self._lock = threading.Lock()
-
-  @property
-  def recording(self) -> bool:
-    return self._thread is not None and self._thread.is_alive()
-
-  @property
-  def elapsed_s(self) -> float:
-    if not self.recording:
-      return 0.0
-    return max(0.0, time.monotonic() - self._started_mono)
-
-  def start(self, stream_type: VisionStreamType) -> bool:
-    if self.recording:
-      return False
-    self._discard_stale()
-    self._stop.clear()
-    self._stream_type = stream_type
-    self._started_mono = time.monotonic()
-    try:
-      self._writer = ClipWriter(_STREAM_NAMES.get(stream_type, "wide"))
-    except OSError:
-      cloudlog.exception("camcorder could not create clip")
-      return False
-    self._thread = threading.Thread(target=self._run, name="camcorder-record", daemon=True)
-    self._thread.start()
-    return True
-
-  def stop(self) -> Clip | None:
-    self._stop.set()
-    if self._thread is not None:
-      self._thread.join(timeout=2.0)
-      if self._thread.is_alive():
-        cloudlog.error("camcorder recorder did not stop")
-        return None
-      self._thread = None
-    with self._lock:
-      writer = self._writer
-      self._writer = None
-    return writer.finish() if writer is not None else None
-
-  def _discard_stale(self):
-    if self._thread is not None:
-      self._thread.join(timeout=0.1)
-      self._thread = None
-    if self._writer is not None:
-      self._writer.abort()
-      self._writer = None
-
-  def _run(self):
-    from msgq.visionipc import VisionIpcClient
-
-    client = VisionIpcClient("camerad", self._stream_type, conflate=True)
-    writer = self._writer
-    if writer is None:
-      return
-    cabin = self._stream_type == VisionStreamType.VISION_STREAM_CABIN
-    try:
-      while not self._stop.is_set() and not (client.is_connected() and client.num_buffers):
-        client.connect(False)
-        if not (client.is_connected() and client.num_buffers):
-          self._stop.wait(0.2)
-
-      while not self._stop.is_set():
-        buf = client.recv(timeout_ms=100)
-        if buf is None:
-          continue
-        rgb = extract_clip_rgb(buf.data, buf.width, buf.height, buf.stride, buf.uv_offset,
-                               flip_h=cabin, enhance=cabin)
-        t_ms = int((time.monotonic() - self._started_mono) * 1000)
-        with self._lock:
-          writer.add_frame(rgb, t_ms)
-    except Exception:
-      cloudlog.exception("camcorder recorder failed")
-    finally:
-      del client

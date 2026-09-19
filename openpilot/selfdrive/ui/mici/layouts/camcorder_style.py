@@ -54,16 +54,20 @@ def _draw_directional_bevel(rim: rl.Rectangle, fill_color: rl.Color, pressed: bo
   rl.draw_rectangle_rounded(fill, 0.15, 8, fill_color)
 
 
-def camera_body(rect: rl.Rectangle) -> tuple[rl.Rectangle, rl.Rectangle, rl.Rectangle]:
-  pane_w = min(rect.width, rect.height * FEED_ASPECT)
+def fit_inside(rect: rl.Rectangle, aspect: float) -> rl.Rectangle:
+  if rect.width / rect.height > aspect:
+    width, height = rect.height * aspect, rect.height
+  else:
+    width, height = rect.width, rect.width / aspect
+  return rl.Rectangle(rect.x + (rect.width - width) / 2,
+                      rect.y + (rect.height - height) / 2, width, height)
+
+
+def camera_body(rect: rl.Rectangle, aspect: float = FEED_ASPECT) -> tuple[rl.Rectangle, rl.Rectangle, rl.Rectangle]:
+  pane_w = min(rect.width, rect.height * aspect)
   pane = rl.Rectangle(rect.x + rect.width - pane_w, rect.y, pane_w, rect.height)
   rail = rl.Rectangle(rect.x, rect.y, pane.x - rect.x, rect.height)
-  well = _inset(pane, VIEWFINDER_MARGIN)
-  if well.width / well.height > FEED_ASPECT:
-    w, h = well.height * FEED_ASPECT, well.height
-  else:
-    w, h = well.width, well.width / FEED_ASPECT
-  feed = rl.Rectangle(well.x + (well.width - w) / 2, well.y + (well.height - h) / 2, w, h)
+  feed = fit_inside(_inset(pane, VIEWFINDER_MARGIN), aspect)
   return rail, pane, feed
 
 

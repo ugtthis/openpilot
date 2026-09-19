@@ -1,10 +1,14 @@
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 import numpy as np
 
 from openpilot.common.test import OpenpilotTestCase
-from openpilot.selfdrive.ui.mici.layouts.camcorder_clips import (
-  CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, ClipReader, ClipWriter, center_crop, delete_clip, extract_clip_rgb,
-  format_timecode, list_clips, scale_rgb,
+from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
+  CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, ClipReader, ClipWriter, center_crop, delete_clip,
+  extract_clip_rgb, format_timecode, list_clips, preview_size, scale_rgb,
 )
+from openpilot.selfdrive.ui.mici.layouts.hevc_writer import HevcWriter
 
 
 def _make_nv12(width: int, height: int, stride: int | None = None, y=128, u=128, v=128) -> tuple[np.ndarray, int, int]:
@@ -52,6 +56,19 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert left[6, 2, 0] < left[6, 13, 0]
     assert right[6, 2, 0] > right[6, 13, 0]
 
+  def test_uncropped_preview_keeps_full_width(self):
+    buf, stride, uv_offset = _make_nv12(64, 40, y=16)
+    y = buf[:uv_offset].reshape(-1, stride)
+    y[:40, :8] = 220
+    out = extract_clip_rgb(buf, 64, 40, stride, uv_offset,
+                           out_w=32, out_h=20, crop_aspect=None)
+    assert out.shape == (20, 32, 3)
+    assert out[10, 1, 0] > out[10, 16, 0]
+
+  def test_preview_size_preserves_processed_camera_aspect(self):
+    assert preview_size(1344, 760) == (636, 360)
+    assert preview_size(0, 0) == (CLIP_WIDTH, CLIP_HEIGHT)
+
   def test_scale_rgb(self):
     src = np.zeros((20, 40, 3), dtype=np.uint8)
     src[:, :20] = (255, 0, 0)
@@ -65,7 +82,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     writer = ClipWriter("wide")
     for i, frame in enumerate(frames):
       writer.add_frame(frame, i * 50)
-    clip = writer.finish()
+    clip = writer.finalize()
     assert clip is not None
     assert clip.camera == "wide"
     assert clip.frame_count == 3
@@ -86,7 +103,7 @@ class TestCamcorderClips(OpenpilotTestCase):
   def test_delete_clip_removes_it_from_the_library(self):
     writer = ClipWriter("wide")
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
-    clip = writer.finish()
+    clip = writer.finalize()
     assert clip is not None
     assert delete_clip(clip)
     assert not clip.path.exists()
@@ -95,7 +112,7 @@ class TestCamcorderClips(OpenpilotTestCase):
   def test_empty_writer_is_discarded(self):
     writer = ClipWriter("cabin")
     path = writer.path
-    assert writer.finish() is None
+    assert writer.finalize() is None
     assert not path.exists()
     assert list_clips() == []
 
@@ -105,3 +122,24 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert list_clips() == []
     writer.abort()
     assert list_clips() == []
+
+  def test_full_frame_preview_metadata_round_trip(self):
+    writer = ClipWriter("wide", 636, 360, preview_contains_full_frame=True)
+    writer.add_frame(np.zeros((360, 636, 3), dtype=np.uint8), 0)
+    clip = writer.finalize()
+    assert clip is not None
+    assert clip.has_full_frame_preview
+    assert (clip.width, clip.height) == (636, 360)
+
+  def test_hevc_writer_starts_at_keyframe_and_publishes_atomically(self):
+    with TemporaryDirectory() as directory:
+      path = Path(directory)
+      writer = HevcWriter(path)
+      writer.add_packet(b"", b"drop", False, 1344, 760)
+      writer.add_packet(b"header", b"key", True, 1344, 760)
+      writer.add_packet(b"", b"delta", False, 1344, 760)
+      assert not (path / "video.hevc").exists()
+      master = writer.finalize()
+      assert master is not None
+      assert (master.width, master.height, master.frame_count) == (1344, 760, 2)
+      assert (path / "video.hevc").read_bytes() == b"headerkeydelta"

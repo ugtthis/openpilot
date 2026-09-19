@@ -4,10 +4,13 @@ import numpy as np
 import pyray as rl
 
 from openpilot.common.swaglog import cloudlog
-from openpilot.selfdrive.ui.mici.layouts.camcorder_clips import Clip, ClipReader, delete_clip, format_timecode, list_clips, scale_rgb
+from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
+  Clip, ClipReader, center_crop, delete_clip, format_timecode, list_clips, scale_rgb,
+)
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   BODY_COLOR, OSD_BACKGROUND, OSD_COLOR, TEXT_COLOR, TRASH_ICON,
-  camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, hit_name, split_rail,
+  camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, fit_inside, hit_name,
+  split_rail,
 )
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog
 from openpilot.selfdrive.ui.ui_state import device
@@ -23,6 +26,7 @@ THUMB_W = 96
 THUMB_H = 72
 SCRUB_H = 16
 ROW_TRASH_W = 72
+OVERLAY_BUTTON_SIZE = 48
 
 
 def _rgba(rgb: np.ndarray) -> np.ndarray:
@@ -70,6 +74,34 @@ def _draw_pause_icon(rec: rl.Rectangle):
   rl.draw_rectangle(int(cx + gap), int(cy - s), int(s * 0.45), int(2 * s), TEXT_COLOR)
 
 
+def _crop_rgb_4x3(rgb: np.ndarray) -> np.ndarray:
+  x, y, width, height = center_crop(rgb.shape[1], rgb.shape[0])
+  x, y, width, height = round(x), round(y), round(width), round(height)
+  return np.ascontiguousarray(rgb[y:y + height, x:x + width])
+
+
+def _draw_expand_icon(rec: rl.Rectangle):
+  inset = min(rec.width, rec.height) * 0.27
+  arm = min(rec.width, rec.height) * 0.16
+  left, top = rec.x + inset, rec.y + inset
+  right, bottom = rec.x + rec.width - inset, rec.y + rec.height - inset
+  for x1, y1, x2, y2 in (
+    (left, top + arm, left, top), (left, top, left + arm, top),
+    (right - arm, top, right, top), (right, top, right, top + arm),
+    (left, bottom - arm, left, bottom), (left, bottom, left + arm, bottom),
+    (right - arm, bottom, right, bottom), (right, bottom - arm, right, bottom),
+  ):
+    rl.draw_line_ex(rl.Vector2(x1, y1), rl.Vector2(x2, y2), 2, TEXT_COLOR)
+
+
+def _draw_back_icon(rec: rl.Rectangle):
+  cx, cy = rec.x + rec.width / 2, rec.y + rec.height / 2
+  size = min(rec.width, rec.height) * 0.22
+  rl.draw_triangle(rl.Vector2(cx - size, cy),
+                   rl.Vector2(cx + size * 0.55, cy - size),
+                   rl.Vector2(cx + size * 0.55, cy + size), TEXT_COLOR)
+
+
 class ClipRow(Widget):
   def __init__(self, clip: Clip, on_open, on_delete):
     super().__init__()
@@ -98,7 +130,7 @@ class ClipRow(Widget):
       return
     try:
       with ClipReader(self.clip) as reader:
-        self._thumb.show(scale_rgb(reader.frame(0), THUMB_W, THUMB_H))
+        self._thumb.show(scale_rgb(_crop_rgb_4x3(reader.frame(0)), THUMB_W, THUMB_H))
     except Exception:
       self._thumb.unload()
 
@@ -146,6 +178,7 @@ class ClipPlayerView(Widget):
     self._frame = _FrameTexture()
     self._shown_index = -1
     self._playing = False
+    self._fullscreen = False
     self._play_origin = 0.0
     self._playhead = 0.0
     self._pressed: str | None = None
@@ -153,6 +186,8 @@ class ClipPlayerView(Widget):
     self._back_rect = rl.Rectangle()
     self._play_slot = rl.Rectangle()
     self._delete_slot = rl.Rectangle()
+    self._expand_rect = rl.Rectangle()
+    self._fullscreen_back_rect = rl.Rectangle()
     self._camera_pane = rl.Rectangle()
     self._feed = rl.Rectangle()
     self._scrub = rl.Rectangle()
@@ -179,6 +214,7 @@ class ClipPlayerView(Widget):
   def open(self, clip: Clip):
     self.release_files()
     self._clip = clip
+    self._fullscreen = False
 
   def show_event(self):
     super().show_event()
@@ -230,17 +266,34 @@ class ClipPlayerView(Widget):
     self._set_playhead(self._playhead, playing=not self._playing)
 
   def _controls(self) -> list[tuple[str, rl.Rectangle]]:
-    return [
+    if self._fullscreen:
+      return [
+        ("fullscreen_back", self._fullscreen_back_rect),
+        ("scrub", self._scrub),
+        ("feed", self._feed),
+      ]
+    controls = [
       ("back", self._back_rect),
       ("play", self._play_slot),
       ("delete", self._delete_slot),
       ("scrub", self._scrub),
-      ("feed", self._feed),
     ]
+    if self._clip is not None and self._clip.has_full_frame_preview:
+      controls.append(("expand", self._expand_rect))
+    controls.append(("feed", self._feed))
+    return controls
 
   def _layout(self):
     self._rail, self._camera_pane, self._feed = camera_body(self.rect)
     self._back_rect, self._play_slot, self._delete_slot = split_rail(self._rail, 3)
+    self._expand_rect = rl.Rectangle(self._feed.x + self._feed.width - OVERLAY_BUTTON_SIZE - 6,
+                                     self._feed.y + 6, OVERLAY_BUTTON_SIZE, OVERLAY_BUTTON_SIZE)
+    if self._fullscreen and self._clip is not None:
+      self._camera_pane = self.rect
+      self._rail = rl.Rectangle()
+      self._feed = fit_inside(self.rect, self._clip.width / self._clip.height)
+      self._fullscreen_back_rect = rl.Rectangle(self.rect.x + 4, self.rect.y + 4,
+                                                OVERLAY_BUTTON_SIZE, OVERLAY_BUTTON_SIZE)
     self._scrub = rl.Rectangle(self._feed.x, self._feed.y + self._feed.height - SCRUB_H,
                                self._feed.width, SCRUB_H)
 
@@ -252,10 +305,14 @@ class ClipPlayerView(Widget):
     self._pressed = None
     if pressed is None or hit_name(mouse_pos, self._controls()) != pressed:
       return
-    if pressed == "back":
+    if pressed == "fullscreen_back":
+      self._fullscreen = False
+    elif pressed == "back":
       gui_app.pop_widget()
     elif pressed in ("play", "feed"):
       self._toggle_play()
+    elif pressed == "expand":
+      self._fullscreen = True
     elif pressed == "delete" and self._clip is not None:
       self._playing = False
       self._on_delete(self._clip)
@@ -282,25 +339,42 @@ class ClipPlayerView(Widget):
         self._playing = False
     self._show_frame(self._reader.frame_index_at_ms(int(self._playhead * 1000)))
 
+  def _source_rect(self) -> rl.Rectangle:
+    if self._frame.texture is None:
+      return rl.Rectangle()
+    width, height = float(self._frame.texture.width), float(self._frame.texture.height)
+    if self._fullscreen or self._clip is None or not self._clip.has_full_frame_preview:
+      return rl.Rectangle(0, 0, width, height)
+    x, y, crop_width, crop_height = center_crop(width, height)
+    return rl.Rectangle(x, y, crop_width, crop_height)
+
   def _render(self, rect: rl.Rectangle):
     rl.draw_rectangle_rec(rect, rl.BLACK)
-    draw_recessed_viewfinder(self._camera_pane, self._feed)
+    if not self._fullscreen:
+      draw_recessed_viewfinder(self._camera_pane, self._feed)
     if self._frame.texture is not None:
-      src = rl.Rectangle(0, 0, float(self._frame.texture.width), float(self._frame.texture.height))
-      rl.draw_texture_pro(self._frame.texture, src, self._feed, rl.Vector2(0, 0), 0.0, rl.WHITE)
+      rl.draw_texture_pro(self._frame.texture, self._source_rect(), self._feed, rl.Vector2(0, 0), 0.0, rl.WHITE)
     else:
       rl.draw_rectangle_rec(self._feed, rl.BLACK)
 
-    draw_rail(self._rail, [self._back_rect, self._play_slot, self._delete_slot])
-    back_face = draw_physical_button(self._back_rect, self.is_pressed and self._pressed == "back")
-    play_face = draw_physical_button(self._play_slot, self.is_pressed and self._pressed == "play")
-    delete_face = draw_physical_button(self._delete_slot, self.is_pressed and self._pressed == "delete")
-    self._back_label.render(back_face)
-    if self._playing:
-      _draw_pause_icon(play_face)
+    if self._fullscreen:
+      back_face = draw_physical_button(self._fullscreen_back_rect,
+                                       self.is_pressed and self._pressed == "fullscreen_back")
+      _draw_back_icon(back_face)
     else:
-      _draw_play_icon(play_face)
-    draw_centered_texture(delete_face, self._trash_icon)
+      draw_rail(self._rail, [self._back_rect, self._play_slot, self._delete_slot])
+      back_face = draw_physical_button(self._back_rect, self.is_pressed and self._pressed == "back")
+      play_face = draw_physical_button(self._play_slot, self.is_pressed and self._pressed == "play")
+      delete_face = draw_physical_button(self._delete_slot, self.is_pressed and self._pressed == "delete")
+      self._back_label.render(back_face)
+      if self._playing:
+        _draw_pause_icon(play_face)
+      else:
+        _draw_play_icon(play_face)
+      draw_centered_texture(delete_face, self._trash_icon)
+      if self._clip is not None and self._clip.has_full_frame_preview:
+        expand_face = draw_physical_button(self._expand_rect, self.is_pressed and self._pressed == "expand")
+        _draw_expand_icon(expand_face)
 
     duration = self._duration()
     progress = 0.0 if duration <= 0 else min(1.0, self._playhead / duration)
