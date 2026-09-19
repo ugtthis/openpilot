@@ -1,7 +1,8 @@
 import pyray as rl
 
 from openpilot.cereal.visionipc import VisionStreamType
-from openpilot.selfdrive.ui.mici.layouts.camcorder_clips import ClipRecorder, center_crop, format_timecode
+from openpilot.selfdrive.ui.mici.layouts.camcorder_recorder import ClipRecorder
+from openpilot.selfdrive.ui.mici.layouts.clip_storage import center_crop, format_timecode
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   OSD_BACKGROUND, OSD_COLOR, RECORD_COLOR,
   camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, hit_name, split_rail,
