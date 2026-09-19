@@ -112,13 +112,31 @@ def _draw_stop_icon(rec: rl.Rectangle):
 
 
 def _draw_snapshot_shutter(rec: rl.Rectangle):
-  inset = min(rec.width, rec.height) * 0.18
-  inner = rl.Rectangle(rec.x + inset, rec.y + inset, rec.width - 2 * inset, rec.height - 2 * inset)
-  rl.draw_rectangle_rounded_lines_ex(inner, 0.2, 8, 3, OSD_COLOR)
-  inner_inset = 5
-  inner2 = rl.Rectangle(inner.x + inner_inset, inner.y + inner_inset,
-                        inner.width - 2 * inner_inset, inner.height - 2 * inner_inset)
-  rl.draw_rectangle_rounded_lines_ex(inner2, 0.18, 8, 1, OSD_COLOR)
+  size = min(rec.width, rec.height)
+  inset = size * 0.16
+  lip = max(2, round(size * 0.025))
+  groove = max(3, round(size * 0.035))
+
+  # outer lip: light catches the top-left edge, shadow falls bottom-right
+  rim = rl.Rectangle(rec.x + inset, rec.y + inset, rec.width - 2 * inset, rec.height - 2 * inset)
+  rim_shadow = rl.Rectangle(rim.x + 2, rim.y + 2, rim.width, rim.height)
+  rim_highlight = rl.Rectangle(rim.x - 1, rim.y - 1, rim.width, rim.height)
+  rl.draw_rectangle_rounded(rim_shadow, 0.22, 12, rl.Color(6, 6, 6, 200))
+  rl.draw_rectangle_rounded(rim_highlight, 0.22, 12, rl.Color(168, 164, 152, 255))
+  rl.draw_rectangle_rounded(rim, 0.22, 12, rl.Color(126, 123, 114, 255))
+
+  # dark recessed groove between lip and center
+  channel = rl.Rectangle(rim.x + lip, rim.y + lip, rim.width - 2 * lip, rim.height - 2 * lip)
+  rl.draw_rectangle_rounded(channel, 0.2, 12, rl.Color(10, 10, 10, 255))
+
+  # raised center: bright top edge, dimmer body, dark seat underneath
+  center_inset = lip + groove
+  center = rl.Rectangle(rim.x + center_inset, rim.y + center_inset,
+                        rim.width - 2 * center_inset, rim.height - 2 * center_inset)
+  center_highlight = rl.Rectangle(center.x - 1, center.y - 1, center.width, center.height)
+  rl.draw_rectangle_rounded(center_highlight, 0.18, 12, rl.Color(150, 146, 135, 255))
+  rl.draw_rectangle_rounded(center, 0.18, 12, rl.Color(46, 46, 43, 255))
+  rl.draw_rectangle_rounded_lines_ex(center, 0.18, 12, 2, rl.Color(118, 115, 106, 255))
 
 
 class CamcorderView(CameraView):
