@@ -5,7 +5,8 @@ import pyray as rl
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   BODY_COLOR, DIVIDER_COLOR, OSD_COLOR, RECORD_COLOR,
-  VIEWFINDER_EDGE_DARK, VIEWFINDER_EDGE_LIGHT, VIEWFINDER_PANEL_COLOR,
+  VIEWFINDER_INNER_BEZEL_COLOR, VIEWFINDER_LOWER_EDGE_COLOR,
+  VIEWFINDER_OUTER_BEZEL_COLOR, VIEWFINDER_PANEL_COLOR, VIEWFINDER_UPPER_EDGE_COLOR,
   draw_physical_button, expand, inset, offset,
 )
 from openpilot.selfdrive.ui.mici.layouts.playback_view import PlaybackView
@@ -19,9 +20,11 @@ CABIN = VisionStreamType.VISION_STREAM_CABIN
 FEED_ASPECT = 4 / 3
 PLAYBACK_SLOT_SHARE = 0.5
 FOLDER_ICON_SIZE = 40
-VIEWFINDER_MARGIN = 12
-VIEWFINDER_BEZEL_WIDTH = 7
+VIEWFINDER_MARGIN = 18
+VIEWFINDER_OUTER_BEZEL_WIDTH = 12
+VIEWFINDER_INNER_BEZEL_WIDTH = 7
 VIEWFINDER_SCREEN_LIP = 2
+VIEWFINDER_LIGHT_OFFSET = 2
 
 Control = Literal["playback", "record", "feed"]
 
@@ -58,10 +61,15 @@ def _icon_center(rec: rl.Rectangle) -> tuple[float, float, float]:
 
 def _draw_recessed_viewfinder(pane: rl.Rectangle, feed: rl.Rectangle):
   rl.draw_rectangle_rec(pane, VIEWFINDER_PANEL_COLOR)
-  bezel = expand(feed, VIEWFINDER_BEZEL_WIDTH)
+  outer_bezel = expand(feed, VIEWFINDER_OUTER_BEZEL_WIDTH)
+  inner_bezel = expand(feed, VIEWFINDER_INNER_BEZEL_WIDTH)
   screen_well = rl.Color(3, 3, 3, 255)
-  rl.draw_rectangle_rounded(offset(bezel, 1, 1), 0.04, 6, VIEWFINDER_EDGE_LIGHT)
-  rl.draw_rectangle_rounded(offset(bezel, -1, -1), 0.04, 6, VIEWFINDER_EDGE_DARK)
+  rl.draw_rectangle_rounded(offset(outer_bezel, VIEWFINDER_LIGHT_OFFSET, VIEWFINDER_LIGHT_OFFSET),
+                           0.04, 6, VIEWFINDER_LOWER_EDGE_COLOR)
+  rl.draw_rectangle_rounded(offset(outer_bezel, -VIEWFINDER_LIGHT_OFFSET, -VIEWFINDER_LIGHT_OFFSET),
+                           0.04, 6, VIEWFINDER_UPPER_EDGE_COLOR)
+  rl.draw_rectangle_rounded(outer_bezel, 0.04, 6, VIEWFINDER_OUTER_BEZEL_COLOR)
+  rl.draw_rectangle_rounded(inner_bezel, 0.04, 6, VIEWFINDER_INNER_BEZEL_COLOR)
   rl.draw_rectangle_rounded(expand(feed, VIEWFINDER_SCREEN_LIP), 0.02, 6, screen_well)
 
 
