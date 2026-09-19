@@ -202,13 +202,20 @@ class CameraView(Widget):
   def __del__(self):
     self.close()
 
+  def _source_rect(self) -> rl.Rectangle:
+    # Texture window. Fit math below uses this aspect so src and dest cannot drift.
+    src_rect = rl.Rectangle(0, 0, float(self.frame.width), float(self.frame.height))
+    if self._stream_type == VisionStreamType.VISION_STREAM_CABIN:
+      src_rect.width = -src_rect.width
+    return src_rect
+
   def _calc_frame_matrix(self, rect: rl.Rectangle) -> np.ndarray:
     if not self.frame:
       return np.eye(3)
 
-    # Calculate aspect ratios
+    src = self._source_rect()
     widget_aspect_ratio = rect.width / rect.height
-    frame_aspect_ratio = self.frame.width / self.frame.height
+    frame_aspect_ratio = abs(src.width) / abs(src.height)
 
     # Calculate scaling factors to maintain aspect ratio
     zx = min(frame_aspect_ratio / widget_aspect_ratio, 1.0)
@@ -242,10 +249,7 @@ class CameraView(Widget):
       return
 
     transform = self._calc_frame_matrix(rect)
-    src_rect = rl.Rectangle(0, 0, float(self.frame.width), float(self.frame.height))
-    # Flip cabin camera horizontally
-    if self._stream_type == VisionStreamType.VISION_STREAM_CABIN:
-      src_rect.width = -src_rect.width
+    src_rect = self._source_rect()
 
     # Calculate scale
     scale_x = rect.width * transform[0, 0]  # zx
