@@ -54,9 +54,13 @@ class GuiScrollPanel2:
     self._velocity = 0.0  # pixels per second
     self._velocity_buffer: deque[float] = deque(maxlen=12 if COMMA_HARDWARE else 6)
     self._enabled: bool | Callable[[], bool] = True
+    self._overscroll_resistance = 0.25
 
   def set_enabled(self, enabled: bool | Callable[[], bool]) -> None:
     self._enabled = enabled
+
+  def set_overscroll_resistance(self, resistance: float) -> None:
+    self._overscroll_resistance = max(0.0, min(1.0, resistance))
 
   @property
   def enabled(self) -> bool:
@@ -226,7 +230,7 @@ class GuiScrollPanel2:
         # rubber-banding: reduce dragging when out of bounds
         # TODO: this drifts when dragging quickly
         if out_of_bounds:
-          delta_x *= 0.25
+          delta_x *= self._overscroll_resistance
 
         # Update the offset based on the mouse movement
         # Use internal _offset directly to preserve precision (don't round via get_offset())

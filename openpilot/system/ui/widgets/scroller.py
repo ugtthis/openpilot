@@ -95,6 +95,7 @@ class _Scroller(Widget):
 
     self.scroll_panel = GuiScrollPanel2(self._horizontal)
     self._scroll_enabled: bool | Callable[[], bool] = True
+    self._scroll_observer: Callable[[float, float, ScrollState], None] | None = None
 
     self._show_scroll_indicator = scroll_indicator and self._horizontal
     self.scroll_indicator_start_after: Widget | None = None
@@ -158,6 +159,9 @@ class _Scroller(Widget):
   def set_scrolling_enabled(self, enabled: bool | Callable[[], bool]) -> None:
     """Set whether scrolling is enabled (does not affect widget enabled state)."""
     self._scroll_enabled = enabled
+
+  def set_scroll_observer(self, observer: Callable[[float, float, ScrollState], None] | None) -> None:
+    self._scroll_observer = observer
 
   def _update_state(self):
     if DO_ZOOM:
@@ -272,6 +276,9 @@ class _Scroller(Widget):
     self._content_size += self._pad * 2
 
     self._scroll_offset = self._get_scroll(self._visible_items, self._content_size)
+    if self._scroll_observer is not None:
+      min_offset = min(0.0, self._rect.width - self._content_size)
+      self._scroll_observer(self._scroll_offset, min_offset, self.scroll_panel.state)
 
     self._item_pos_filter.update(self._scroll_offset)
 
@@ -408,6 +415,12 @@ class Scroller(Widget):
   def set_touch_valid_callback(self, touch_callback: Callable[[], bool]) -> None:
     super().set_touch_valid_callback(touch_callback)
     self._scroller.set_touch_valid_callback(touch_callback)
+
+  def set_overscroll_resistance(self, resistance: float) -> None:
+    self._scroller.scroll_panel.set_overscroll_resistance(resistance)
+
+  def set_scroll_observer(self, observer: Callable[[float, float, ScrollState], None] | None) -> None:
+    self._scroller.set_scroll_observer(observer)
 
   def _render(self, _, /):
     self._scroller.render(self._rect)

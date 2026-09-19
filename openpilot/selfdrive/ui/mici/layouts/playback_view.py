@@ -110,7 +110,8 @@ class ClipRow(Widget):
                                text_color=TEXT_COLOR,
                                alignment=TextAlignment.LEFT,
                                alignment_vertical=TextAlignmentVertical.BOTTOM)
-    self._meta = UnifiedLabel(f"{clip.duration_label}  {clip.camera}", 22, FontWeight.ROMAN,
+    detail = "photo" if clip.is_photo else clip.duration_label
+    self._meta = UnifiedLabel(f"{detail}  {clip.camera}", 22, FontWeight.ROMAN,
                               text_color=OSD_COLOR,
                               alignment=TextAlignment.LEFT,
                               alignment_vertical=TextAlignmentVertical.TOP)
@@ -221,7 +222,7 @@ class ClipPlayerView(Widget):
       self._reader = None
       return
     self._shown_index = -1
-    self._set_playhead(0.0, playing=True)
+    self._set_playhead(0.0, playing=not self._clip.is_photo)
 
   def hide_event(self):
     super().hide_event()
@@ -251,7 +252,7 @@ class ClipPlayerView(Widget):
     self._shown_index = -1
 
   def _toggle_play(self):
-    if self._reader is None:
+    if self._reader is None or self._clip is None or self._clip.is_photo:
       return
     duration = self._duration()
     if self._playhead >= duration and duration > 0:
@@ -267,22 +268,29 @@ class ClipPlayerView(Widget):
 
   def _controls(self) -> list[tuple[str, rl.Rectangle]]:
     if self._fullscreen:
-      return [
+      controls = [
         ("fullscreen_back", self._fullscreen_back_rect),
-        ("scrub", self._scrub),
-        ("feed", self._feed),
       ]
-    return [
+      if self._clip is not None and not self._clip.is_photo:
+        controls.append(("scrub", self._scrub))
+      controls.append(("feed", self._feed))
+      return controls
+    controls = [
       ("back", self._back_rect),
-      ("play", self._play_slot),
       ("delete", self._delete_slot),
-      ("scrub", self._scrub),
-      ("feed", self._feed),
     ]
+    if self._clip is not None and not self._clip.is_photo:
+      controls.extend((("play", self._play_slot), ("scrub", self._scrub)))
+    controls.append(("feed", self._feed))
+    return controls
 
   def _layout(self):
     self._rail, self._camera_pane, self._feed = camera_body(self.rect)
-    self._back_rect, self._play_slot, self._delete_slot = split_rail(self._rail, 3)
+    if self._clip is not None and self._clip.is_photo:
+      self._back_rect, self._delete_slot = split_rail(self._rail, 2)
+      self._play_slot = rl.Rectangle()
+    else:
+      self._back_rect, self._play_slot, self._delete_slot = split_rail(self._rail, 3)
     if self._fullscreen and self._clip is not None:
       self._camera_pane = self.rect
       self._rail = rl.Rectangle()
@@ -357,29 +365,33 @@ class ClipPlayerView(Widget):
                                        self.is_pressed and self._pressed == "fullscreen_back")
       _draw_back_icon(back_face)
     else:
-      draw_rail(self._rail, [self._back_rect, self._play_slot, self._delete_slot])
+      photo = self._clip is not None and self._clip.is_photo
+      slots = [self._back_rect, self._delete_slot] if photo else [self._back_rect, self._play_slot, self._delete_slot]
+      draw_rail(self._rail, slots)
       back_face = draw_physical_button(self._back_rect, self.is_pressed and self._pressed == "back")
-      play_face = draw_physical_button(self._play_slot, not self._playing or
-                                      (self.is_pressed and self._pressed == "play"))
       delete_face = draw_physical_button(self._delete_slot, self.is_pressed and self._pressed == "delete")
       self._back_label.render(back_face)
-      if self._playing:
-        _draw_pause_icon(play_face)
-      else:
-        _draw_play_icon(play_face)
+      if not photo:
+        play_face = draw_physical_button(self._play_slot, not self._playing or
+                                         (self.is_pressed and self._pressed == "play"))
+        if self._playing:
+          _draw_pause_icon(play_face)
+        else:
+          _draw_play_icon(play_face)
       draw_centered_texture(delete_face, self._trash_icon)
 
-    duration = self._duration()
-    progress = 0.0 if duration <= 0 else min(1.0, self._playhead / duration)
-    rl.draw_rectangle_rec(self._scrub, OSD_BACKGROUND)
-    rl.draw_rectangle_rec(rl.Rectangle(self._scrub.x, self._scrub.y, self._scrub.width * progress, self._scrub.height), OSD_COLOR)
-    self._time_label.set_text(f"{format_timecode(self._playhead)} / {format_timecode(duration)}")
-    if self._fullscreen:
-      time_x = self._fullscreen_back_rect.x + self._fullscreen_back_rect.width
-      self._time_label.render(rl.Rectangle(time_x, self.rect.y + 6,
-                                           max(0, self.rect.width - time_x - 8), OVERLAY_BUTTON_SIZE - 4))
-    else:
-      self._time_label.render(rl.Rectangle(self._feed.x, self._feed.y + 6, self._feed.width, 24))
+    if self._clip is not None and not self._clip.is_photo:
+      duration = self._duration()
+      progress = 0.0 if duration <= 0 else min(1.0, self._playhead / duration)
+      rl.draw_rectangle_rec(self._scrub, OSD_BACKGROUND)
+      rl.draw_rectangle_rec(rl.Rectangle(self._scrub.x, self._scrub.y, self._scrub.width * progress, self._scrub.height), OSD_COLOR)
+      self._time_label.set_text(f"{format_timecode(self._playhead)} / {format_timecode(duration)}")
+      if self._fullscreen:
+        time_x = self._fullscreen_back_rect.x + self._fullscreen_back_rect.width
+        self._time_label.render(rl.Rectangle(time_x, self.rect.y + 6,
+                                             max(0, self.rect.width - time_x - 8), OVERLAY_BUTTON_SIZE - 4))
+      else:
+        self._time_label.render(rl.Rectangle(self._feed.x, self._feed.y + 6, self._feed.width, 24))
 
 
 class PlaybackView(Widget):
