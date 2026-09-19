@@ -131,6 +131,16 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert clip.has_full_frame_preview
     assert (clip.width, clip.height) == (636, 360)
 
+  def test_photo_metadata_round_trip(self):
+    writer = ClipWriter("wide", media_type="photo")
+    writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+    photo = writer.finalize()
+    assert photo is not None
+    assert photo.is_photo
+    assert photo.duration_s == 0.0
+    with ClipReader(photo) as reader:
+      assert reader.frame(0).shape == (CLIP_HEIGHT, CLIP_WIDTH, 3)
+
   def test_hevc_writer_starts_at_keyframe_and_publishes_atomically(self):
     with TemporaryDirectory() as directory:
       path = Path(directory)

@@ -4,10 +4,11 @@ from openpilot.selfdrive.ui.mici.layouts.settings.settings import SettingsLayout
 from openpilot.selfdrive.ui.mici.layouts.offroad_alerts import MiciOffroadAlerts
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.selfdrive.ui.mici.layouts.onboarding import OnboardingWindow
-from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView
+from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView, MODE_PULL_RESISTANCE
 from openpilot.selfdrive.ui.body.layouts.onroad import BodyLayout
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.scroller import Scroller
+from openpilot.system.ui.lib.scroll_panel2 import ScrollState
 from openpilot.system.ui.lib.application import gui_app
 
 
@@ -42,6 +43,8 @@ class MiciMainLayout(Scroller):
       self._camcorder_view,
       self._body_onroad_layout,
     ])
+    self.set_overscroll_resistance(MODE_PULL_RESISTANCE)
+    self.set_scroll_observer(self._handle_mode_pull)
     self._scroller.set_reset_scroll_at_show(False)
 
     # Set callbacks
@@ -80,6 +83,10 @@ class MiciMainLayout(Scroller):
     layout_x = int(layout.rect.x)
     self._scroller.scroll_to(layout_x, smooth=True)
 
+  def _handle_mode_pull(self, offset: float, min_offset: float, state: ScrollState):
+    overscroll = max(0.0, min_offset - offset) if self._camcorder_view.is_visible else 0.0
+    self._camcorder_view.update_mode_pull(overscroll, state == ScrollState.MANUAL_SCROLL)
+
   def _update_state(self):
     super()._update_state()
     # TODO: Hack to run alert updates while not in view. Add a nav stack tick?
@@ -93,7 +100,8 @@ class MiciMainLayout(Scroller):
         self._scroller.scroll_to(self._rect.width)
       self._setup = True
 
-    # Render
+    # The camcorder page reveals and then covers this indicator as it pulls and rebounds.
+    self._camcorder_view.draw_mode_pull_indicator()
     super()._render(self._rect)
 
   def _handle_transitions(self):

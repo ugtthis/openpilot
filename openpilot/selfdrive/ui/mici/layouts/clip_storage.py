@@ -82,6 +82,7 @@ class Clip:
   fps: int
   frame_count: int
   duration_s: float
+  media_type: str = "video"
   preview_contains_full_frame: bool = False
   master: str | None = None
   native_width: int = 0
@@ -98,6 +99,10 @@ class Clip:
   @property
   def has_full_frame_preview(self) -> bool:
     return self.preview_contains_full_frame and self.height > 0 and abs(self.width / self.height - CLIP_ASPECT) > 0.01
+
+  @property
+  def is_photo(self) -> bool:
+    return self.media_type == "photo"
 
 
 def _new_clip_id(root: Path, when: datetime) -> str:
@@ -159,13 +164,14 @@ def scale_rgb(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
 class ClipWriter:
   def __init__(self, camera: str, width: int = CLIP_WIDTH, height: int = CLIP_HEIGHT,
                fps: int = CLIP_FPS, started_at: datetime | None = None,
-               preview_contains_full_frame: bool = False):
+               preview_contains_full_frame: bool = False, media_type: str = "video"):
     self.camera = camera
     self.width = width
     self.height = height
     self.fps = fps
     self.started_at = started_at or datetime.now()
     self.preview_contains_full_frame = preview_contains_full_frame
+    self.media_type = media_type
     self.frame_count = 0
     self._last_t_ms = 0
     self._frames = None
@@ -219,12 +225,13 @@ class ClipWriter:
 
   def _write_meta(self, status: str, master: MasterInfo | None = None):
     duration = 0.0
-    if self.frame_count:
+    if self.frame_count and self.media_type == "video":
       duration = max(self._last_t_ms / 1000.0, self.frame_count / float(self.fps))
     payload = {
-      "format_version": 2 if self.preview_contains_full_frame else 1,
+      "format_version": 2 if self.preview_contains_full_frame or self.media_type != "video" else 1,
       "id": self.clip_id,
       "status": status,
+      "media_type": self.media_type,
       "camera": self.camera,
       "flip_h": self.camera == "cabin",
       "started_at": self.started_at.isoformat(timespec="seconds"),
@@ -268,6 +275,7 @@ def load_clip(path: Path) -> Clip | None:
       fps=int(meta.get("fps", CLIP_FPS)),
       frame_count=int(meta["frame_count"]),
       duration_s=float(meta.get("duration_s") or 0.0),
+      media_type=str(meta.get("media_type", "video")),
       preview_contains_full_frame=bool(meta.get("preview_contains_full_frame",
                                                 meta.get("preview_uncropped", False))),
       master=str(meta["master"]) if meta.get("master") else None,
