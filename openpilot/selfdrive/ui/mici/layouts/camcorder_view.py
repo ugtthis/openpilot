@@ -4,7 +4,7 @@ import pyray as rl
 
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
-  BODY_COLOR, DIVIDER_COLOR, OSD_BACKGROUND, OSD_COLOR, RECORD_COLOR,
+  BODY_COLOR, DIVIDER_COLOR, OSD_COLOR, RECORD_COLOR,
   VIEWFINDER_EDGE_DARK, VIEWFINDER_EDGE_LIGHT, VIEWFINDER_PANEL_COLOR,
   draw_physical_button, expand, inset, offset,
 )
@@ -18,15 +18,12 @@ CABIN = VisionStreamType.VISION_STREAM_CABIN
 
 FEED_ASPECT = 4 / 3
 PLAYBACK_SLOT_SHARE = 0.5
-CAMERA_SWITCH_SIZE = rl.Vector2(128, 52)
-CAMERA_SWITCH_RIGHT_MARGIN = 12
-CAMERA_SWITCH_TOP_MARGIN = 8
 FOLDER_ICON_SIZE = 40
 VIEWFINDER_MARGIN = 12
 VIEWFINDER_BEZEL_WIDTH = 7
 VIEWFINDER_SCREEN_LIP = 2
 
-Control = Literal["playback", "record", "camera_switch"]
+Control = Literal["playback", "record", "feed"]
 
 
 def _aspect(rec: rl.Rectangle) -> float:
@@ -97,15 +94,10 @@ class CamcorderView(CameraView):
     self._feed = rl.Rectangle()
     self._playback_slot = rl.Rectangle()
     self._record_slot = rl.Rectangle()
-    self._camera_switch = rl.Rectangle()
     self._waiting = UnifiedLabel("waiting for camera", 32, FontWeight.ROMAN,
                                  text_color=OSD_COLOR,
                                  alignment=TextAlignment.CENTER,
                                  alignment_vertical=TextAlignmentVertical.MIDDLE)
-    self._camera_switch_label = UnifiedLabel("cabin", 32, FontWeight.DISPLAY,
-                                             text_color=OSD_COLOR,
-                                             alignment=TextAlignment.CENTER,
-                                             alignment_vertical=TextAlignmentVertical.MIDDLE)
 
   def _showing_cabin(self) -> bool:
     return self.stream_type == CABIN
@@ -129,12 +121,6 @@ class CamcorderView(CameraView):
     self._playback_slot = rl.Rectangle(self._rail.x, self._rail.y, self._rail.width, playback_height)
     self._record_slot = rl.Rectangle(self._rail.x, self._rail.y + playback_height,
                                      self._rail.width, self._rail.height - playback_height)
-    self._camera_switch = rl.Rectangle(
-      self._feed.x + self._feed.width - CAMERA_SWITCH_SIZE.x - CAMERA_SWITCH_RIGHT_MARGIN,
-      self._feed.y + CAMERA_SWITCH_TOP_MARGIN,
-      CAMERA_SWITCH_SIZE.x,
-      CAMERA_SWITCH_SIZE.y,
-    )
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
     self._pressed_control = None
@@ -142,13 +128,13 @@ class CamcorderView(CameraView):
       self._pressed_control = "playback"
     elif rl.check_collision_point_rec(mouse_pos, self._record_slot):
       self._pressed_control = "record"
-    elif rl.check_collision_point_rec(mouse_pos, self._camera_switch):
-      self._pressed_control = "camera_switch"
+    elif rl.check_collision_point_rec(mouse_pos, self._feed):
+      self._pressed_control = "feed"
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
     pressed_control = self._pressed_control
     self._pressed_control = None
-    if pressed_control == "camera_switch" and rl.check_collision_point_rec(mouse_pos, self._camera_switch):
+    if pressed_control == "feed" and rl.check_collision_point_rec(mouse_pos, self._feed):
       self._switch_camera()
       return
     if pressed_control == "playback" and rl.check_collision_point_rec(mouse_pos, self._playback_slot):
@@ -156,8 +142,6 @@ class CamcorderView(CameraView):
       return
     if pressed_control == "record" and rl.check_collision_point_rec(mouse_pos, self._record_slot):
       self._record_button_active = not self._record_button_active
-      return
-    super()._handle_mouse_release(mouse_pos)
 
   def _update_texture_color_filtering(self):
     enhance_cabin_ir = self._showing_cabin()
@@ -186,9 +170,5 @@ class CamcorderView(CameraView):
       _draw_stop_icon(record_face)
     else:
       _draw_record_icon(record_face)
-    rl.draw_rectangle_rounded(self._camera_switch, 0.15, 6, OSD_BACKGROUND)
-    rl.draw_rectangle_rounded_lines_ex(self._camera_switch, 0.15, 6, 1, OSD_COLOR)
-    self._camera_switch_label.set_text("wide" if self._showing_cabin() else "cabin")
-    self._camera_switch_label.render(self._camera_switch)
     if self.frame is None:
       self._waiting.render(self._feed)
