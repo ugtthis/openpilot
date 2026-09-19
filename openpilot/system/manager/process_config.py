@@ -75,7 +75,8 @@ procs = [
   NativeProcess("stream_encoderd", "openpilot/system/loggerd", ["./encoderd", "--stream"], or_(livestream, notcar)),
   PythonProcess("logmessaged", "openpilot.system.logmessaged", always_run),
 
-  NativeProcess("camerad", "openpilot/system/camerad", ["./camerad"], or_(driverview, livestream), enabled=not WEBCAM),
+  # Viewfinder is used offroad, so camerad cannot wait for ignition.
+  NativeProcess("camerad", "openpilot/system/camerad", ["./camerad"], always_run, enabled=not WEBCAM),
   PythonProcess("webcamerad", "openpilot.system.camerad.webcam.camerad", driverview, enabled=WEBCAM),
   PythonProcess("proclogd", "openpilot.system.proclogd", only_onroad, enabled=platform.system() != "Darwin"),
   PythonProcess("journald", "openpilot.system.journald", only_onroad, platform.system() != "Darwin"),
