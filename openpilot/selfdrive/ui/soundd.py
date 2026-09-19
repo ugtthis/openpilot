@@ -12,6 +12,7 @@ from openpilot.common.utils import retry
 from openpilot.common.swaglog import cloudlog
 
 from openpilot.system import micd
+from openpilot.system.audio_utils import patch_sounddevice
 from openpilot.common.hardware import HARDWARE
 
 SAMPLE_RATE = 48000
@@ -165,7 +166,7 @@ class Soundd:
   def soundd_thread(self):
     # sounddevice must be imported after forking processes
     import sounddevice as sd
-    micd.patch_sounddevice(sd)
+    patch_sounddevice(sd)
 
     sm = messaging.SubMaster(['selfdriveState', 'soundPressure'])
 

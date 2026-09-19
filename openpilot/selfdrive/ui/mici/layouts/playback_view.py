@@ -4,6 +4,7 @@ import numpy as np
 import pyray as rl
 
 from openpilot.common.swaglog import cloudlog
+from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
 from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
   Clip, ClipReader, center_crop, delete_clip, format_timecode, list_clips, scale_rgb,
 )
@@ -96,6 +97,26 @@ def _draw_back_icon(rec: rl.Rectangle):
                   rl.Vector2(cx + size, cy), 3, TEXT_COLOR)
 
 
+def _draw_speaker_icon(rec: rl.Rectangle, muted: bool):
+  cx, cy = rec.x + rec.width / 2, rec.y + rec.height / 2
+  size = min(rec.width, rec.height) * 0.18
+  rl.draw_rectangle(int(cx - size), int(cy - size * 0.42),
+                    int(size * 0.7), int(size * 0.84), TEXT_COLOR)
+  _draw_triangle(rl.Vector2(cx - size * 0.3, cy - size * 0.42),
+                 rl.Vector2(cx + size * 0.45, cy - size),
+                 rl.Vector2(cx + size * 0.45, cy + size))
+  if muted:
+    rl.draw_line_ex(rl.Vector2(cx + size * 0.65, cy - size * 0.65),
+                    rl.Vector2(cx + size * 1.45, cy + size * 0.65), 3, TEXT_COLOR)
+    rl.draw_line_ex(rl.Vector2(cx + size * 1.45, cy - size * 0.65),
+                    rl.Vector2(cx + size * 0.65, cy + size * 0.65), 3, TEXT_COLOR)
+  else:
+    rl.draw_line_ex(rl.Vector2(cx + size * 0.7, cy - size * 0.45),
+                    rl.Vector2(cx + size * 1.05, cy), 3, TEXT_COLOR)
+    rl.draw_line_ex(rl.Vector2(cx + size * 1.05, cy),
+                    rl.Vector2(cx + size * 0.7, cy + size * 0.45), 3, TEXT_COLOR)
+
+
 class ClipRow(Widget):
   def __init__(self, clip: Clip, on_open, on_delete):
     super().__init__()
@@ -170,18 +191,23 @@ class ClipPlayerView(Widget):
     self._on_delete = on_delete
     self._clip: Clip | None = None
     self._reader: ClipReader | None = None
+    self._audio: ClipAudioPlayer | None = None
     self._frame = _FrameTexture()
     self._shown_index = -1
     self._playing = False
+    self._muted = False
     self._fullscreen = False
     self._play_origin = 0.0
     self._playhead = 0.0
     self._pressed: str | None = None
     self._rail = rl.Rectangle()
+    self._top_slot = rl.Rectangle()
     self._back_rect = rl.Rectangle()
+    self._volume_rect = rl.Rectangle()
     self._play_slot = rl.Rectangle()
     self._delete_slot = rl.Rectangle()
     self._fullscreen_back_rect = rl.Rectangle()
+    self._fullscreen_volume_rect = rl.Rectangle()
     self._camera_pane = rl.Rectangle()
     self._feed = rl.Rectangle()
     self._scrub = rl.Rectangle()
@@ -201,6 +227,7 @@ class ClipPlayerView(Widget):
 
   def release_files(self):
     self._playing = False
+    self._close_audio()
     self._close_reader()
     self._frame.unload()
     self._clip = None
@@ -209,6 +236,7 @@ class ClipPlayerView(Widget):
     self.release_files()
     self._clip = clip
     self._fullscreen = False
+    self._muted = False
 
   def show_event(self):
     super().show_event()
@@ -221,12 +249,18 @@ class ClipPlayerView(Widget):
       cloudlog.exception("camcorder could not open clip")
       self._reader = None
       return
+    if self._clip.has_audio:
+      audio = ClipAudioPlayer(self._clip)
+      if audio.open():
+        audio.set_muted(self._muted)
+        self._audio = audio
     self._shown_index = -1
     self._set_playhead(0.0, playing=not self._clip.is_photo)
 
   def hide_event(self):
     super().hide_event()
     self._playing = False
+    self._close_audio()
     self._close_reader()
     self._frame.unload()
 
@@ -234,6 +268,18 @@ class ClipPlayerView(Widget):
     if self._reader is not None:
       self._reader.close()
       self._reader = None
+
+  def _close_audio(self):
+    if self._audio is not None:
+      self._audio.close()
+      self._audio = None
+
+  def _sync_audio(self):
+    if self._audio is not None:
+      self._audio.sync(self._playhead, self._playing)
+
+  def _has_playable_audio(self) -> bool:
+    return self._audio is not None and self._audio.available
 
   def _duration(self) -> float:
     return self._clip.duration_s if self._clip is not None else 0.0
@@ -246,6 +292,7 @@ class ClipPlayerView(Widget):
       self._playing = playing
     elif duration and self._playhead >= duration:
       self._playing = False
+    self._sync_audio()
 
   def _seek(self, seconds: float):
     self._set_playhead(seconds)
@@ -261,6 +308,11 @@ class ClipPlayerView(Widget):
       return
     self._set_playhead(self._playhead, playing=not self._playing)
 
+  def _toggle_volume(self):
+    self._muted = not self._muted
+    if self._audio is not None:
+      self._audio.set_muted(self._muted)
+
   def _toggle_fullscreen(self):
     if self._clip is None:
       return
@@ -271,6 +323,8 @@ class ClipPlayerView(Widget):
       controls = [
         ("fullscreen_back", self._fullscreen_back_rect),
       ]
+      if self._has_playable_audio():
+        controls.append(("volume", self._fullscreen_volume_rect))
       if self._clip is not None and not self._clip.is_photo:
         controls.append(("scrub", self._scrub))
       controls.append(("feed", self._feed))
@@ -281,6 +335,8 @@ class ClipPlayerView(Widget):
     ]
     if self._clip is not None and not self._clip.is_photo:
       controls.extend((("play", self._play_slot), ("scrub", self._scrub)))
+      if self._has_playable_audio():
+        controls.append(("volume", self._volume_rect))
     controls.append(("feed", self._feed))
     return controls
 
@@ -288,15 +344,30 @@ class ClipPlayerView(Widget):
     self._rail, self._camera_pane, self._feed = camera_body(self.rect)
     if self._clip is not None and self._clip.is_photo:
       self._back_rect, self._delete_slot = split_rail(self._rail, 2)
+      self._top_slot = self._back_rect
+      self._volume_rect = rl.Rectangle()
       self._play_slot = rl.Rectangle()
     else:
-      self._back_rect, self._play_slot, self._delete_slot = split_rail(self._rail, 3)
+      self._top_slot, self._play_slot, self._delete_slot = split_rail(self._rail, 3)
+      if self._has_playable_audio():
+        half_width = self._top_slot.width / 2
+        self._back_rect = rl.Rectangle(self._top_slot.x, self._top_slot.y,
+                                       half_width, self._top_slot.height)
+        self._volume_rect = rl.Rectangle(self._top_slot.x + half_width, self._top_slot.y,
+                                         half_width, self._top_slot.height)
+      else:
+        self._back_rect = self._top_slot
+        self._volume_rect = rl.Rectangle()
     if self._fullscreen and self._clip is not None:
       self._camera_pane = self.rect
       self._rail = rl.Rectangle()
       self._feed = fit_inside(self.rect, self._clip.width / self._clip.height)
       self._fullscreen_back_rect = rl.Rectangle(self.rect.x + 4, self.rect.y + 4,
                                                 OVERLAY_BUTTON_SIZE, OVERLAY_BUTTON_SIZE)
+      self._fullscreen_volume_rect = rl.Rectangle(
+        self._fullscreen_back_rect.x + self._fullscreen_back_rect.width + 4,
+        self._fullscreen_back_rect.y, OVERLAY_BUTTON_SIZE, OVERLAY_BUTTON_SIZE,
+      )
     self._scrub = rl.Rectangle(self._feed.x, self._feed.y + self._feed.height - SCRUB_H,
                                self._feed.width, SCRUB_H)
 
@@ -312,6 +383,8 @@ class ClipPlayerView(Widget):
       self._fullscreen = False
     elif pressed == "back":
       gui_app.pop_widget()
+    elif pressed == "volume":
+      self._toggle_volume()
     elif pressed == "play":
       self._toggle_play()
     elif pressed == "feed":
@@ -340,6 +413,7 @@ class ClipPlayerView(Widget):
       if duration and self._playhead >= duration:
         self._playhead = duration
         self._playing = False
+        self._sync_audio()
     self._show_frame(self._reader.frame_index_at_ms(int(self._playhead * 1000)))
 
   def _source_rect(self) -> rl.Rectangle:
@@ -364,14 +438,22 @@ class ClipPlayerView(Widget):
       back_face = draw_physical_button(self._fullscreen_back_rect,
                                        self.is_pressed and self._pressed == "fullscreen_back")
       _draw_back_icon(back_face)
+      if self._has_playable_audio():
+        volume_face = draw_physical_button(self._fullscreen_volume_rect,
+                                           self.is_pressed and self._pressed == "volume")
+        _draw_speaker_icon(volume_face, self._muted)
     else:
       photo = self._clip is not None and self._clip.is_photo
-      slots = [self._back_rect, self._delete_slot] if photo else [self._back_rect, self._play_slot, self._delete_slot]
+      slots = [self._back_rect, self._delete_slot] if photo else [self._top_slot, self._play_slot, self._delete_slot]
       draw_rail(self._rail, slots)
       back_face = draw_physical_button(self._back_rect, self.is_pressed and self._pressed == "back")
       delete_face = draw_physical_button(self._delete_slot, self.is_pressed and self._pressed == "delete")
       self._back_label.render(back_face)
       if not photo:
+        if self._has_playable_audio():
+          volume_face = draw_physical_button(self._volume_rect,
+                                             self.is_pressed and self._pressed == "volume")
+          _draw_speaker_icon(volume_face, self._muted)
         play_face = draw_physical_button(self._play_slot, not self._playing or
                                          (self.is_pressed and self._pressed == "play"))
         if self._playing:
@@ -387,7 +469,8 @@ class ClipPlayerView(Widget):
       rl.draw_rectangle_rec(rl.Rectangle(self._scrub.x, self._scrub.y, self._scrub.width * progress, self._scrub.height), OSD_COLOR)
       self._time_label.set_text(f"{format_timecode(self._playhead)} / {format_timecode(duration)}")
       if self._fullscreen:
-        time_x = self._fullscreen_back_rect.x + self._fullscreen_back_rect.width
+        overlay_button = self._fullscreen_volume_rect if self._has_playable_audio() else self._fullscreen_back_rect
+        time_x = overlay_button.x + overlay_button.width
         self._time_label.render(rl.Rectangle(time_x, self.rect.y + 6,
                                              max(0, self.rect.width - time_x - 8), OVERLAY_BUTTON_SIZE - 4))
       else:

@@ -7,20 +7,40 @@ from openpilot.cereal import messaging
 from openpilot.common.realtime import Ratekeeper
 from openpilot.common.utils import retry
 from openpilot.common.swaglog import cloudlog
+from openpilot.system.audio_utils import PCM_DTYPE, patch_sounddevice
 
 RATE = 10
-FFT_SAMPLES = 1600 # 100ms
+FFT_SAMPLES = 1600  # 100 ms at SAMPLE_RATE
 REFERENCE_SPL = 2e-5  # newtons/m^2
 SAMPLE_RATE = 16000
-SAMPLE_BUFFER = 800  # 50ms
+CAPTURE_BLOCK_DURATION_S = 0.05
+USB_AUDIO_NAME = "usb audio"
 
 
-def patch_sounddevice(sd):
-  # TODO: remove once sounddevice uses np.reshape internally.
-  def sounddevice_array(buffer, channels, dtype):
-    return np.frombuffer(buffer, dtype=dtype).reshape(-1, channels)
+def preferred_input_device(sd) -> tuple[int | None, int]:
+  """Prefer a USB microphone and otherwise use the configured default input.
 
-  sd._array = sounddevice_array
+  PortAudio does not expose physical USB-port topology. ALSA does identify USB
+  interfaces with "USB Audio" in their PortAudio name, which lets the side-port
+  receiver take priority without hard-coding a product-specific microphone.
+  """
+  for index, device in enumerate(sd.query_devices()):
+    if device["max_input_channels"] > 0 and USB_AUDIO_NAME in device["name"].lower():
+      sample_rate = round(device["default_samplerate"])
+      if sample_rate > 0:
+        return index, sample_rate
+  return None, SAMPLE_RATE
+
+
+def resample_for_spl(samples: np.ndarray, source_rate: int) -> np.ndarray:
+  if source_rate == SAMPLE_RATE:
+    return samples
+  output_count = round(len(samples) * SAMPLE_RATE / source_rate)
+  if output_count <= 0:
+    return np.empty(0, dtype=samples.dtype)
+  source_positions = np.arange(len(samples), dtype=np.float64)
+  output_positions = np.arange(output_count, dtype=np.float64) * source_rate / SAMPLE_RATE
+  return np.interp(output_positions, source_positions, samples).astype(samples.dtype)
 
 
 @cache
@@ -54,6 +74,7 @@ class Mic:
   def __init__(self):
     self.rk = Ratekeeper(RATE)
     self.pm = messaging.PubMaster(['soundPressure', 'rawAudioData'])
+    self.capture_sample_rate = SAMPLE_RATE
 
     self.measurements = np.empty(0)
 
@@ -85,13 +106,14 @@ class Mic:
     Logged A-weighted equivalents are rough approximations of the human-perceived loudness.
     """
     msg = messaging.new_message('rawAudioData', valid=True)
-    audio_data_int_16 = (indata[:, 0] * 32767).astype(np.int16)
+    audio_data_int_16 = (indata[:, 0] * 32767).astype(PCM_DTYPE)
     msg.rawAudioData.data = audio_data_int_16.tobytes()
-    msg.rawAudioData.sampleRate = SAMPLE_RATE
+    msg.rawAudioData.sampleRate = self.capture_sample_rate
     self.pm.send('rawAudioData', msg)
 
     with self.lock:
-      self.measurements = np.concatenate((self.measurements, indata[:, 0]))
+      spl_samples = resample_for_spl(indata[:, 0], self.capture_sample_rate)
+      self.measurements = np.concatenate((self.measurements, spl_samples))
 
       while self.measurements.size >= FFT_SAMPLES:
         measurements = self.measurements[:FFT_SAMPLES]
@@ -107,7 +129,10 @@ class Mic:
     # reload sounddevice to reinitialize portaudio
     sd._terminate()
     sd._initialize()
-    return sd.InputStream(channels=1, samplerate=SAMPLE_RATE, callback=self.callback, blocksize=SAMPLE_BUFFER)
+    device, self.capture_sample_rate = preferred_input_device(sd)
+    blocksize = round(CAPTURE_BLOCK_DURATION_S * self.capture_sample_rate)
+    return sd.InputStream(device=device, channels=1, samplerate=self.capture_sample_rate,
+                          callback=self.callback, blocksize=blocksize)
 
   def micd_thread(self):
     # sounddevice must be imported after forking processes

@@ -7,6 +7,7 @@ from openpilot.common.params import Params
 from openpilot.common.hardware import PC, COMMA_HARDWARE
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
 from openpilot.system.loggerd.encoder_lease import encoder_requested
+from openpilot.system.micd_lease import mic_requested
 
 WEBCAM = os.getenv("USE_WEBCAM") is not None
 
@@ -59,6 +60,9 @@ def only_onroad(started: bool, params: Params, CP: car.CarParams) -> bool:
 def camera_encoding(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started or encoder_requested()
 
+def microphone_capture(started: bool, params: Params, CP: car.CarParams) -> bool:
+  return iscar(started, params, CP) or mic_requested()
+
 def only_offroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return not started
 
@@ -84,7 +88,7 @@ procs = [
   PythonProcess("webcamerad", "openpilot.system.camerad.webcam.camerad", driverview, enabled=WEBCAM),
   PythonProcess("proclogd", "openpilot.system.proclogd", only_onroad, enabled=platform.system() != "Darwin"),
   PythonProcess("journald", "openpilot.system.journald", only_onroad, platform.system() != "Darwin"),
-  PythonProcess("micd", "openpilot.system.micd", iscar),
+  PythonProcess("micd", "openpilot.system.micd", microphone_capture),
   PythonProcess("timed", "openpilot.system.timed", always_run, enabled=not PC),
 
   PythonProcess("modeld", "openpilot.selfdrive.modeld.modeld", only_onroad),
