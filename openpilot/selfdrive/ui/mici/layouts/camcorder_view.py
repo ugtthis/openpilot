@@ -36,6 +36,8 @@ MODE_GLOW_START_PROGRESS = 0.82
 MODE_RING_MIN_RADIUS = 36
 MODE_RING_MAX_RADIUS = 68
 MODE_RING_WIDTH = 6
+MODE_RING_MIN_SEGMENTS = 96
+MODE_RING_SEGMENTS_PER_RADIUS = 2.5
 MODE_ICON_MIN_SIZE = 28
 MODE_ICON_MAX_SIZE = 56
 
@@ -119,18 +121,6 @@ def _draw_snapshot_shutter(rec: rl.Rectangle):
   rl.draw_rectangle_rounded_lines_ex(inner2, 0.18, 8, 1, OSD_COLOR)
 
 
-def _draw_camera_icon(cx: float, cy: float, size: float, color: rl.Color):
-  scale = size / 50.0
-  body = rl.Rectangle(cx - 24 * scale, cy - 16 * scale, 48 * scale, 34 * scale)
-  rl.draw_rectangle_rounded(body, 0.16, 8, color)
-  # Meet the body at its top edge; overlap would compound translucent alpha.
-  bump = rl.Rectangle(cx - 9 * scale, cy - 22 * scale, 18 * scale, 6 * scale)
-  rl.draw_rectangle_rounded(bump, 0.3, 6, color)
-  rl.draw_circle(int(cx), int(cy + scale), 11 * scale, rl.BLACK)
-  rl.draw_circle_lines(int(cx), int(cy + scale), 9 * scale, color)
-  rl.draw_circle(int(cx - 15 * scale), int(cy - 10 * scale), 2 * scale, rl.BLACK)
-
-
 class CamcorderView(CameraView):
   def __init__(self):
     super().__init__("camerad", WIDE)
@@ -138,10 +128,13 @@ class CamcorderView(CameraView):
     self._recorder = ClipRecorder()
     self._photo_mode = False
     self._mode_pull = ModePullGesture()
+    self._mode_pull_target_photo = True
     self._snapshot_flash_until = 0.0
     self._pressed: str | None = None
     self._playback = PlaybackView()
     self._folder_icon = gui_app.texture("icons/folder.png", FOLDER_ICON_SIZE, FOLDER_ICON_SIZE)
+    self._camera_icon = gui_app.texture("icons/camera.png", 64, 64)
+    self._video_icon = gui_app.texture("icons/video_camera.png", 64, 64)
     self._rail = rl.Rectangle()
     self._camera_pane = rl.Rectangle()
     self._feed = rl.Rectangle()
@@ -167,8 +160,14 @@ class CamcorderView(CameraView):
   def update_mode_pull(self, overscroll: float, dragging: bool):
     if self._recorder.recording:
       self._mode_pull.reset()
-    elif self._mode_pull.update(overscroll, dragging, rl.get_time()):
-      self._photo_mode = not self._photo_mode
+      return
+
+    was_hidden = self._mode_pull.progress <= 0.0
+    toggled = self._mode_pull.update(overscroll, dragging, rl.get_time())
+    if was_hidden and self._mode_pull.progress > 0.0:
+      self._mode_pull_target_photo = not self._photo_mode
+    if toggled:
+      self._photo_mode = self._mode_pull_target_photo
 
   def _take_photo(self):
     if self.frame is None:
@@ -268,18 +267,22 @@ class CamcorderView(CameraView):
 
     fill_progress = _smoothstep((progress - MODE_FILL_START_PROGRESS) / (1.0 - MODE_FILL_START_PROGRESS))
     if radius > 4:
+      ring_segments = max(MODE_RING_MIN_SEGMENTS, round(radius * MODE_RING_SEGMENTS_PER_RADIUS))
       fill_alpha = round(105 * fill_progress)
       rl.draw_circle(int(cx), int(cy), radius - MODE_RING_WIDTH, rl.Color(20, 20, 18, fill_alpha))
       rl.draw_ring(rl.Vector2(cx, cy), radius - MODE_RING_WIDTH, radius,
-                   -90.0, -90.0 + 360.0 * progress, 48, color)
+                   -90.0, -90.0 + 360.0 * progress, ring_segments, color)
 
     armed_progress = _smoothstep((progress - MODE_GLOW_START_PROGRESS) / (1.0 - MODE_GLOW_START_PROGRESS))
     if armed_progress > 0.0 and radius > 4:
       rl.draw_ring(rl.Vector2(cx, cy), radius + 3, radius + 6,
-                   0.0, 360.0, 48, rl.Color(207, 202, 187, round(110 * armed_progress)))
+                   0.0, 360.0, ring_segments, rl.Color(207, 202, 187, round(110 * armed_progress)))
 
     if icon_size > 4:
-      _draw_camera_icon(cx, cy, icon_size, color)
+      icon = self._camera_icon if self._mode_pull_target_photo else self._video_icon
+      icon_scale = icon_size / icon.width
+      icon_pos = rl.Vector2(cx - icon.width * icon_scale / 2, cy - icon.height * icon_scale / 2)
+      rl.draw_texture_ex(icon, icon_pos, 0.0, icon_scale, color)
 
   def _render(self, rect: rl.Rectangle):
     recording = self._recorder.recording
