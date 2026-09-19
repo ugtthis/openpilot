@@ -4,8 +4,9 @@ from tempfile import TemporaryDirectory
 import numpy as np
 
 from openpilot.common.test import OpenpilotTestCase
+from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
 from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
-  CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, ClipReader, ClipWriter, center_crop, delete_clip,
+  CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, ClipReader, ClipWriter, center_crop, delete_clip,
   extract_clip_rgb, format_timecode, list_clips, preview_size, scale_rgb,
 )
 from openpilot.selfdrive.ui.mici.layouts.hevc_writer import HevcWriter
@@ -141,15 +142,69 @@ class TestCamcorderClips(OpenpilotTestCase):
     with ClipReader(photo) as reader:
       assert reader.frame(0).shape == (CLIP_HEIGHT, CLIP_WIDTH, 3)
 
+  def test_audio_metadata_round_trip(self):
+    writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
+    writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+    audio_writer = AudioWriter(writer.path)
+    samples = np.arange(20, dtype=np.int16)
+    audio_writer.add_packet(samples.tobytes(), sample_rate=10, log_mono_ns=1_200_000_000)
+    audio = audio_writer.finalize()
+    assert audio is not None
+    clip = writer.finalize(audio=audio)
+    assert clip is not None
+    assert clip.has_audio
+    assert clip.recording_start_mono_ns == 1_000_000_000
+    assert clip.audio_start_mono_ns == 1_200_000_000
+    assert clip.audio_sample_rate == 10
+    assert clip.audio_channels == 1
+    assert clip.audio_frame_count == 20
+    np.testing.assert_array_equal(np.fromfile(clip.path / str(clip.audio), dtype=np.int16), samples)
+
+  def test_audio_writer_abort_removes_partial(self):
+    writer = ClipWriter("wide")
+    audio_writer = AudioWriter(writer.path)
+    audio_writer.add_packet(np.zeros(10, dtype=np.int16).tobytes(), 16000, 1)
+    audio_writer.abort()
+    assert not (writer.path / "audio.s16le").exists()
+    assert not (writer.path / "audio.s16le.partial").exists()
+    writer.abort()
+
+  def test_audio_playback_sync_and_mute(self):
+    writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
+    writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+    audio_writer = AudioWriter(writer.path)
+    samples = np.arange(20, dtype=np.int16)
+    audio_writer.add_packet(samples.tobytes(), sample_rate=10, log_mono_ns=1_200_000_000)
+    audio = audio_writer.finalize()
+    clip = writer.finalize(audio=audio)
+    assert clip is not None
+
+    player = ClipAudioPlayer(clip)
+    player._samples = samples.reshape(-1, 1)
+    player.sync(playhead_s=0.2, playing=True)
+    output = np.zeros((4, 1), dtype=np.int16)
+    player._callback(output, 4, None, None)
+    np.testing.assert_array_equal(output[:, 0], samples[:4])
+
+    player.set_muted(True)
+    output.fill(-1)
+    player._callback(output, 4, None, None)
+    assert not output.any()
+    player.set_muted(False)
+    player._callback(output, 4, None, None)
+    np.testing.assert_array_equal(output[:, 0], samples[8:12])
+    player._samples = None
+
   def test_hevc_writer_starts_at_keyframe_and_publishes_atomically(self):
     with TemporaryDirectory() as directory:
       path = Path(directory)
       writer = HevcWriter(path)
       writer.add_packet(b"", b"drop", False, 1344, 760)
-      writer.add_packet(b"header", b"key", True, 1344, 760)
+      writer.add_packet(b"header", b"key", True, 1344, 760, timestamp_ns=1234)
       writer.add_packet(b"", b"delta", False, 1344, 760)
       assert not (path / "video.hevc").exists()
       master = writer.finalize()
       assert master is not None
       assert (master.width, master.height, master.frame_count) == (1344, 760, 2)
+      assert master.first_timestamp_ns == 1234
       assert (path / "video.hevc").read_bytes() == b"headerkeydelta"
