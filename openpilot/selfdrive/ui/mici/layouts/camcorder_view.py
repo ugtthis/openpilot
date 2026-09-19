@@ -1,81 +1,25 @@
-from typing import Literal
-
 import pyray as rl
 
 from openpilot.cereal.visionipc import VisionStreamType
+from openpilot.selfdrive.ui.mici.layouts.camcorder_clips import ClipRecorder, center_crop, format_timecode
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
-  BEVEL_WIDTH, BODY_COLOR, DIVIDER_COLOR, OSD_COLOR, RECORD_COLOR,
-  VIEWFINDER_INNER_BEZEL_COLOR, VIEWFINDER_OUTER_BEZEL_COLOR,
-  VIEWFINDER_EDGE_LIGHT_COLOR, VIEWFINDER_PANEL_COLOR, VIEWFINDER_SCREEN_WELL_COLOR,
-  VIEWFINDER_UPPER_EDGE_COLOR,
-  draw_physical_button, expand, inset, offset,
+  OSD_BACKGROUND, OSD_COLOR, RECORD_COLOR,
+  camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, hit_name, split_rail,
 )
 from openpilot.selfdrive.ui.mici.layouts.playback_view import PlaybackView
 from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
+from openpilot.selfdrive.ui.ui_state import device
 from openpilot.system.ui.lib.application import FontWeight, MousePos, TextAlignment, TextAlignmentVertical, gui_app
 from openpilot.system.ui.widgets.label import UnifiedLabel
 
 WIDE = VisionStreamType.VISION_STREAM_WIDE_ROAD
 CABIN = VisionStreamType.VISION_STREAM_CABIN
-
-FEED_ASPECT = 4 / 3
-PLAYBACK_SLOT_SHARE = 0.5
 FOLDER_ICON_SIZE = 40
-VIEWFINDER_MARGIN = 18
-VIEWFINDER_OUTER_BEZEL_WIDTH = 12
-VIEWFINDER_INNER_BEZEL_WIDTH = 7
-VIEWFINDER_SCREEN_LIP = 2
-
-Control = Literal["playback", "record", "feed"]
-
-
-def _aspect(rec: rl.Rectangle) -> float:
-  return abs(rec.width) / abs(rec.height) if rec.height else 0.0
-
-
-def _center_crop(fw: float, fh: float, aspect: float) -> rl.Rectangle:
-  if fw / fh > aspect:
-    w = fh * aspect
-    return rl.Rectangle((fw - w) / 2, 0, w, fh)
-  h = fw / aspect
-  return rl.Rectangle(0, (fh - h) / 2, fw, h)
-
-
-def _right_pane(rect: rl.Rectangle, aspect: float) -> rl.Rectangle:
-  w = min(rect.width, rect.height * aspect)
-  return rl.Rectangle(rect.x + rect.width - w, rect.y, w, rect.height)
-
-
-def _fit_inside(rect: rl.Rectangle, aspect: float) -> rl.Rectangle:
-  if rect.width / rect.height > aspect:
-    w, h = rect.height * aspect, rect.height
-  else:
-    w, h = rect.width, rect.width / aspect
-  return rl.Rectangle(rect.x + (rect.width - w) / 2,
-                      rect.y + (rect.height - h) / 2, w, h)
+RECORD_TIMEOUT_S = 3600
 
 
 def _icon_center(rec: rl.Rectangle) -> tuple[float, float, float]:
   return rec.x + rec.width / 2, rec.y + rec.height / 2, min(rec.width, rec.height) * 0.18
-
-
-def _draw_recessed_viewfinder(pane: rl.Rectangle, feed: rl.Rectangle):
-  rl.draw_rectangle_rec(pane, VIEWFINDER_PANEL_COLOR)
-  outer_bezel = expand(feed, VIEWFINDER_OUTER_BEZEL_WIDTH)
-  inner_bezel = expand(feed, VIEWFINDER_INNER_BEZEL_WIDTH)
-  rl.draw_rectangle_rounded(offset(outer_bezel, BEVEL_WIDTH, BEVEL_WIDTH),
-                           0.04, 6, VIEWFINDER_EDGE_LIGHT_COLOR)
-  rl.draw_rectangle_rounded(offset(outer_bezel, -BEVEL_WIDTH, -BEVEL_WIDTH),
-                           0.04, 6, VIEWFINDER_UPPER_EDGE_COLOR)
-  rl.draw_rectangle_rounded(outer_bezel, 0.04, 6, VIEWFINDER_OUTER_BEZEL_COLOR)
-  rl.draw_rectangle_rounded(inner_bezel, 0.04, 6, VIEWFINDER_INNER_BEZEL_COLOR)
-  rl.draw_rectangle_rounded(expand(feed, VIEWFINDER_SCREEN_LIP), 0.02, 6, VIEWFINDER_SCREEN_WELL_COLOR)
-
-
-def _draw_pixel_aligned_icon(rec: rl.Rectangle, tex: rl.Texture):
-  x = round(rec.x + (rec.width - tex.width) / 2)
-  y = round(rec.y + (rec.height - tex.height) / 2)
-  rl.draw_texture_v(tex, rl.Vector2(x, y), rl.WHITE)
 
 
 def _draw_record_icon(rec: rl.Rectangle):
@@ -92,8 +36,8 @@ class CamcorderView(CameraView):
   def __init__(self):
     super().__init__("camerad", WIDE)
     self._set_placeholder_color(rl.BLACK)
-    self._record_button_active = False
-    self._pressed_control: Control | None = None
+    self._recorder = ClipRecorder()
+    self._pressed: str | None = None
     self._playback = PlaybackView()
     self._folder_icon = gui_app.texture("icons/folder.png", FOLDER_ICON_SIZE, FOLDER_ICON_SIZE)
     self._rail = rl.Rectangle()
@@ -105,76 +49,89 @@ class CamcorderView(CameraView):
                                  text_color=OSD_COLOR,
                                  alignment=TextAlignment.CENTER,
                                  alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._rec_osd = UnifiedLabel("", 22, FontWeight.DISPLAY,
+                                 text_color=OSD_COLOR,
+                                 alignment=TextAlignment.LEFT,
+                                 alignment_vertical=TextAlignmentVertical.MIDDLE)
 
   def _showing_cabin(self) -> bool:
     return self.stream_type == CABIN
 
   def _switch_camera(self):
+    if self._recorder.recording:
+      return
     self.switch_stream(WIDE if self._showing_cabin() else CABIN)
 
+  def _toggle_record(self):
+    if self._recorder.recording:
+      clip = self._recorder.stop()
+      device.set_override_interactive_timeout(None)
+      if clip is not None:
+        self._playback.review(clip)
+      return
+    if self._recorder.start(self.stream_type):
+      device.set_override_interactive_timeout(RECORD_TIMEOUT_S)
+
   def _source_rect(self) -> rl.Rectangle:
-    assert self.frame is not None
-    src = _center_crop(float(self.frame.width), float(self.frame.height), FEED_ASPECT)
+    if self.frame is None:
+      return rl.Rectangle()
+    x, y, w, h = center_crop(self.frame.width, self.frame.height)
     if self._showing_cabin():
-      src.width = -src.width
-    return src
+      w = -w
+    return rl.Rectangle(x, y, w, h)
+
+  def _controls(self) -> list[tuple[str, rl.Rectangle]]:
+    hits = [("record", self._record_slot), ("feed", self._feed)]
+    if not self._recorder.recording:
+      hits.insert(0, ("playback", self._playback_slot))
+    return hits
 
   def _layout(self):
-    self._camera_pane = _right_pane(self.rect, FEED_ASPECT)
-    self._rail = rl.Rectangle(self.rect.x, self.rect.y,
-                              self._camera_pane.x - self.rect.x, self.rect.height)
-    self._feed = _fit_inside(inset(self._camera_pane, VIEWFINDER_MARGIN), FEED_ASPECT)
-    playback_height = self._rail.height * PLAYBACK_SLOT_SHARE
-    self._playback_slot = rl.Rectangle(self._rail.x, self._rail.y, self._rail.width, playback_height)
-    self._record_slot = rl.Rectangle(self._rail.x, self._rail.y + playback_height,
-                                     self._rail.width, self._rail.height - playback_height)
+    self._rail, self._camera_pane, self._feed = camera_body(self.rect)
+    self._playback_slot, self._record_slot = split_rail(self._rail, 2)
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
-    self._pressed_control = None
-    if rl.check_collision_point_rec(mouse_pos, self._playback_slot):
-      self._pressed_control = "playback"
-    elif rl.check_collision_point_rec(mouse_pos, self._record_slot):
-      self._pressed_control = "record"
-    elif rl.check_collision_point_rec(mouse_pos, self._feed):
-      self._pressed_control = "feed"
+    self._pressed = hit_name(mouse_pos, self._controls())
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
-    pressed_control = self._pressed_control
-    self._pressed_control = None
-    if pressed_control == "feed" and rl.check_collision_point_rec(mouse_pos, self._feed):
+    pressed = self._pressed
+    self._pressed = None
+    if pressed is None or hit_name(mouse_pos, self._controls()) != pressed:
+      return
+    if pressed == "feed":
       self._switch_camera()
-      return
-    if pressed_control == "playback" and rl.check_collision_point_rec(mouse_pos, self._playback_slot):
+    elif pressed == "playback":
       gui_app.push_widget(self._playback)
-      return
-    if pressed_control == "record" and rl.check_collision_point_rec(mouse_pos, self._record_slot):
-      self._record_button_active = not self._record_button_active
+    elif pressed == "record":
+      self._toggle_record()
 
   def _update_texture_color_filtering(self):
-    enhance_cabin_ir = self._showing_cabin()
-    self._enhance_driver_val[0] = int(enhance_cabin_ir)
+    self._enhance_driver_val[0] = int(self._showing_cabin())
     super()._update_texture_color_filtering()
 
+  def _draw_rec_osd(self):
+    elapsed = self._recorder.elapsed_s
+    chip = rl.Rectangle(self._feed.x + 8, self._feed.y + 8, 108, 28)
+    rl.draw_rectangle_rounded(chip, 0.3, 6, OSD_BACKGROUND)
+    if int(elapsed * 2) % 2 == 0:
+      rl.draw_circle(int(chip.x + 12), int(chip.y + chip.height / 2), 5, RECORD_COLOR)
+    self._rec_osd.set_text(format_timecode(elapsed))
+    self._rec_osd.render(rl.Rectangle(chip.x + 22, chip.y, chip.width - 26, chip.height))
+
   def _render(self, rect: rl.Rectangle):
-    if self.frame is not None and self._feed.height > 0:
-      assert abs(_aspect(self._source_rect()) - FEED_ASPECT) < 0.02
-      assert abs(_aspect(self._feed) - FEED_ASPECT) < 0.02
-
+    recording = self._recorder.recording
     rl.draw_rectangle_rec(rect, rl.BLACK)
-    _draw_recessed_viewfinder(self._camera_pane, self._feed)
+    draw_recessed_viewfinder(self._camera_pane, self._feed)
     super()._render(self._feed)
-    rl.draw_rectangle_rec(self._rail, BODY_COLOR)
-    rl.draw_line_ex(rl.Vector2(self._rail.x, self._record_slot.y),
-                    rl.Vector2(self._rail.x + self._rail.width, self._record_slot.y),
-                    2, DIVIDER_COLOR)
+    draw_rail(self._rail, [self._playback_slot, self._record_slot])
 
-    playback_pressed = self.is_pressed and self._pressed_control == "playback"
-    record_pressed = self._record_button_active or (self.is_pressed and self._pressed_control == "record")
-    playback_face = draw_physical_button(self._playback_slot, playback_pressed)
-    record_face = draw_physical_button(self._record_slot, record_pressed)
-    _draw_pixel_aligned_icon(playback_face, self._folder_icon)
-    if self._record_button_active:
+    playback_face = draw_physical_button(self._playback_slot, self.is_pressed and self._pressed == "playback")
+    record_face = draw_physical_button(self._record_slot, recording or (self.is_pressed and self._pressed == "record"))
+    folder_color = rl.Color(255, 255, 255, 70) if recording else rl.WHITE
+    draw_centered_texture(playback_face, self._folder_icon, folder_color)
+    if recording:
       _draw_stop_icon(record_face)
+      self._draw_rec_osd()
     else:
       _draw_record_icon(record_face)
     if self.frame is None:
