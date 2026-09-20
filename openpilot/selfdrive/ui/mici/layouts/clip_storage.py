@@ -398,6 +398,10 @@ def delete_clip(clip: Clip) -> bool:
   return not clip.path.exists()
 
 
+def delete_all_clips() -> int:
+  return sum(1 for clip in list_clips() if delete_clip(clip))
+
+
 class ClipReader:
   def __init__(self, clip: Clip):
     self.clip = clip
