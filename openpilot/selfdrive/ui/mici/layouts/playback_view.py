@@ -10,8 +10,9 @@ from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
 )
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   BODY_COLOR, OSD_BACKGROUND, OSD_COLOR, TEXT_COLOR, TRASH_ICON,
-  camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, fit_inside, hit_name,
-  split_rail,
+  camera_body, draw_centered_texture, draw_list_row, draw_physical_button, draw_rail,
+  SECOND_ROW_VISIBLE_FRACTION, draw_recessed_viewfinder, fit_inside, hit_name,
+  row_height_for_peek, split_rail, thumb_size_for_row,
 )
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog
 from openpilot.selfdrive.ui.ui_state import device
@@ -20,13 +21,15 @@ from openpilot.system.ui.lib.scroll_panel import GuiScrollPanel
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.label import UnifiedLabel
 
-BACK_SIZE = rl.Vector2(120, 52)
-HEADER_H = 56
-ROW_H = 88
-THUMB_W = 96
-THUMB_H = 72
+BACK_SIZE = rl.Vector2(156, 64)
+HEADER_H = 72
+THUMB_TEXT_GAP = 16
+TEXT_PAD = 10
+ROW_GAP = 2
 SCRUB_H = 16
-ROW_TRASH_W = 72
+ROW_TRASH_W = 88
+ROW_TITLE_SIZE = 44
+ROW_META_SIZE = 28
 OVERLAY_BUTTON_SIZE = 48
 
 
@@ -126,13 +129,15 @@ class ClipRow(Widget):
     self._pressed: str | None = None
     self._trash_rect = rl.Rectangle()
     self._thumb = _FrameTexture()
-    self._trash_icon = gui_app.texture(TRASH_ICON, 25, 30)
-    self._title = UnifiedLabel(clip.time_label, 32, FontWeight.DISPLAY,
+    self._thumb_w = 0
+    self._thumb_h = 0
+    self._trash_icon = gui_app.texture(TRASH_ICON, 32, 38)
+    self._title = UnifiedLabel(clip.time_label, ROW_TITLE_SIZE, FontWeight.DISPLAY,
                                text_color=TEXT_COLOR,
                                alignment=TextAlignment.LEFT,
                                alignment_vertical=TextAlignmentVertical.BOTTOM)
     detail = "photo" if clip.is_photo else clip.duration_label
-    self._meta = UnifiedLabel(f"{detail}  {clip.camera}", 22, FontWeight.ROMAN,
+    self._meta = UnifiedLabel(f"{detail}  {clip.camera}", ROW_META_SIZE, FontWeight.ROMAN,
                               text_color=OSD_COLOR,
                               alignment=TextAlignment.LEFT,
                               alignment_vertical=TextAlignmentVertical.TOP)
@@ -141,12 +146,18 @@ class ClipRow(Widget):
     super().hide_event()
     self._thumb.unload()
 
+  def set_thumb_size(self, width: int, height: int) -> None:
+    if (width, height) == (self._thumb_w, self._thumb_h):
+      return
+    self._thumb.unload()
+    self._thumb_w, self._thumb_h = width, height
+
   def _ensure_thumb(self):
-    if self._thumb.texture is not None:
+    if self._thumb.texture is not None or self._thumb_w <= 0 or self._thumb_h <= 0:
       return
     try:
       with ClipReader(self.clip) as reader:
-        self._thumb.show(scale_rgb(_crop_rgb_4x3(reader.frame(0)), THUMB_W, THUMB_H))
+        self._thumb.show(scale_rgb(_crop_rgb_4x3(reader.frame(0)), self._thumb_w, self._thumb_h))
     except Exception:
       self._thumb.unload()
 
@@ -172,13 +183,16 @@ class ClipRow(Widget):
 
   def _render(self, rect: rl.Rectangle):
     self._ensure_thumb()
-    face = draw_physical_button(rect, self.is_pressed)
-    thumb = rl.Rectangle(face.x + 8, face.y + (face.height - THUMB_H) / 2, THUMB_W, THUMB_H)
+    face = draw_list_row(rect, self.is_pressed)
+    thumb = rl.Rectangle(face.x, face.y, min(self._thumb_w, face.width), face.height)
     rl.draw_rectangle_rec(thumb, OSD_BACKGROUND)
     if self._thumb.texture is not None:
-      rl.draw_texture_ex(self._thumb.texture, (thumb.x, thumb.y), 0, 1.0, rl.WHITE)
-    text = rl.Rectangle(thumb.x + thumb.width + 12, face.y + 8,
-                        max(0, self._trash_rect.x - (thumb.x + thumb.width + 16)), face.height - 16)
+      rl.draw_texture_pro(self._thumb.texture,
+                          rl.Rectangle(0, 0, self._thumb.texture.width, self._thumb.texture.height),
+                          thumb, rl.Vector2(0, 0), 0.0, rl.WHITE)
+    text_x = thumb.x + thumb.width + THUMB_TEXT_GAP
+    text = rl.Rectangle(text_x, face.y + TEXT_PAD,
+                        max(0, self._trash_rect.x - text_x - TEXT_PAD), face.height - 2 * TEXT_PAD)
     self._title.render(rl.Rectangle(text.x, text.y, text.width, text.height * 0.55))
     self._meta.render(rl.Rectangle(text.x, text.y + text.height * 0.5, text.width, text.height * 0.5))
     tint = rl.Color(255, 255, 255, 160) if self.is_pressed and self._pressed == "delete" else rl.WHITE
@@ -483,13 +497,14 @@ class PlaybackView(Widget):
     self._pressed: str | None = None
     self._back_rect = rl.Rectangle()
     self._list_rect = rl.Rectangle()
+    self._row_h = 1
     self._rows: list[ClipRow] = []
     self._scroll = GuiScrollPanel()
     self._player = ClipPlayerView(self._confirm_delete)
     self._trash_confirm_icon = gui_app.texture(TRASH_ICON, 54, 64)
     self._title = UnifiedLabel("playback", 36, FontWeight.DISPLAY,
                                text_color=TEXT_COLOR,
-                               alignment=TextAlignment.LEFT,
+                               alignment=TextAlignment.CENTER,
                                alignment_vertical=TextAlignmentVertical.MIDDLE)
     self._back_label = UnifiedLabel("back", 32, FontWeight.DISPLAY,
                                     text_color=TEXT_COLOR,
@@ -550,9 +565,14 @@ class PlaybackView(Widget):
     self._reload()
 
   def _layout(self):
-    self._back_rect = rl.Rectangle(self.rect.x + 12, self.rect.y + 2, BACK_SIZE.x, BACK_SIZE.y)
+    self._back_rect = rl.Rectangle(self.rect.x + 8, self.rect.y + (HEADER_H - BACK_SIZE.y) / 2,
+                                   BACK_SIZE.x, BACK_SIZE.y)
     self._list_rect = rl.Rectangle(self.rect.x, self.rect.y + HEADER_H,
                                    self.rect.width, max(0, self.rect.height - HEADER_H))
+    self._row_h = row_height_for_peek(self._list_rect.height, ROW_GAP, SECOND_ROW_VISIBLE_FRACTION)
+    thumb_w, thumb_h = thumb_size_for_row(self._row_h)
+    for row in self._rows:
+      row.set_thumb_size(thumb_w, thumb_h)
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
     self._pressed = "back" if rl.check_collision_point_rec(mouse_pos, self._back_rect) else None
@@ -565,11 +585,9 @@ class PlaybackView(Widget):
 
   def _render(self, rect: rl.Rectangle):
     rl.draw_rectangle_rec(rect, BODY_COLOR)
+    self._title.render(rl.Rectangle(self.rect.x, self.rect.y, self.rect.width, HEADER_H))
     back_face = draw_physical_button(self._back_rect, self.is_pressed and self._pressed == "back")
     self._back_label.render(back_face)
-    title_rect = rl.Rectangle(self._back_rect.x + self._back_rect.width + 8, self.rect.y,
-                              max(0, self.rect.width - self._back_rect.width - 28), HEADER_H)
-    self._title.render(title_rect)
 
     if not self._rows:
       self._empty.render(self._list_rect)
@@ -577,13 +595,15 @@ class PlaybackView(Widget):
     if not self.enabled:
       return
 
-    content = rl.Rectangle(self._list_rect.x, self._list_rect.y, self._list_rect.width, len(self._rows) * ROW_H)
+    stride = self._row_h + ROW_GAP
+    content = rl.Rectangle(self._list_rect.x, self._list_rect.y, self._list_rect.width,
+                           len(self._rows) * stride)
     offset = self._scroll.update(self._list_rect, content)
     rl.begin_scissor_mode(int(self._list_rect.x), int(self._list_rect.y),
                           int(self._list_rect.width), int(self._list_rect.height))
     for i, row in enumerate(self._rows):
-      row_rect = rl.Rectangle(self._list_rect.x, self._list_rect.y + offset + i * ROW_H,
-                              self._list_rect.width, ROW_H)
+      row_rect = rl.Rectangle(self._list_rect.x, self._list_rect.y + offset + i * stride,
+                              self._list_rect.width, self._row_h)
       row.set_parent_rect(self._list_rect)
       row.render(row_rect)
     rl.end_scissor_mode()

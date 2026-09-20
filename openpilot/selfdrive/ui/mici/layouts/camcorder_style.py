@@ -95,13 +95,46 @@ def draw_recessed_viewfinder(pane: rl.Rectangle, feed: rl.Rectangle):
   rl.draw_rectangle_rounded(_expand(feed, VIEWFINDER_SCREEN_LIP), 0.02, 6, VIEWFINDER_SCREEN_WELL_COLOR)
 
 
+def physical_button_insets(short_side: float, pressed: bool = False) -> tuple[int, int]:
+  """Well inset from the slot, then face inset from that well."""
+  well = max(4, round(short_side * 0.10))
+  face = max(3, round(short_side * (0.067 if pressed else 0.05)))
+  return well, face
+
+
+# How much of the next list row stays visible so the list invites a scroll.
+SECOND_ROW_VISIBLE_FRACTION = 0.46
+
+
+def row_height_for_peek(list_height: float, gap: float, visible_fraction: float) -> int:
+  """Row height so one full row plus `visible_fraction` of the next row fit on screen."""
+  if list_height <= 0:
+    return 1
+  return max(1, round((list_height - gap) / (1 + visible_fraction)))
+
+
+def thumb_size_for_row(row_height: int, aspect: float = FEED_ASPECT) -> tuple[int, int]:
+  """Full-bleed 4:3 thumbnail matching the row height."""
+  thumb_h = max(2, int(row_height))
+  thumb_w = max(2, round(thumb_h * aspect))
+  return thumb_w, thumb_h
+
+
+def draw_list_row(slot: rl.Rectangle, pressed: bool) -> rl.Rectangle:
+  """Paint the row in the same rect the list laid out, so media can sit on its edges."""
+  rl.draw_rectangle_rounded(slot, 0.08, 6,
+                            BUTTON_FACE_PRESSED_COLOR if pressed else BUTTON_FACE_COLOR)
+  return slot
+
+
 def draw_physical_button(slot: rl.Rectangle, pressed: bool) -> rl.Rectangle:
   size = min(slot.width, slot.height)
-  well = _inset(slot, max(4, round(size * 0.10)))
+  well_inset, face_inset = physical_button_insets(size, pressed)
+  well = _inset(slot, well_inset)
   rl.draw_rectangle_rounded(well, 0.16, 8, BUTTON_WELL_COLOR)
   _draw_directional_bevel(_inset(well, max(BEVEL_WIDTH, round(size * 0.025))),
                           BUTTON_WELL_COLOR if pressed else BUTTON_FACE_COLOR, pressed)
-  face = _inset(well, max(3, round(size * (0.067 if pressed else 0.05))))
+  face = _inset(well, face_inset)
   rl.draw_rectangle_rounded(face, 0.14, 8, BUTTON_FACE_PRESSED_COLOR if pressed else BUTTON_FACE_COLOR)
   rl.draw_rectangle_rounded_lines_ex(face, 0.14, 8, 1,
                                     BUTTON_OUTLINE_PRESSED_COLOR if pressed else BUTTON_OUTLINE_COLOR)
