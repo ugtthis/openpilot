@@ -6,7 +6,7 @@ import pyray as rl
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
 from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
-  Clip, ClipReader, center_crop, delete_clip, format_timecode, list_clips, scale_rgb,
+  Clip, ClipReader, center_crop, delete_all_clips, delete_clip, format_timecode, list_clips, scale_rgb,
 )
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   BODY_COLOR, OSD_BACKGROUND, OSD_COLOR, TEXT_COLOR, TRASH_ICON,
@@ -496,6 +496,7 @@ class PlaybackView(Widget):
     super().__init__()
     self._pressed: str | None = None
     self._back_rect = rl.Rectangle()
+    self._delete_all_rect = rl.Rectangle()
     self._list_rect = rl.Rectangle()
     self._row_h = 1
     self._rows: list[ClipRow] = []
@@ -510,6 +511,10 @@ class PlaybackView(Widget):
                                     text_color=TEXT_COLOR,
                                     alignment=TextAlignment.CENTER,
                                     alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._delete_all_label = UnifiedLabel("delete all", 26, FontWeight.DISPLAY,
+                                          text_color=TEXT_COLOR,
+                                          alignment=TextAlignment.CENTER,
+                                          alignment_vertical=TextAlignmentVertical.MIDDLE)
     self._empty = UnifiedLabel("no clips", 32, FontWeight.ROMAN,
                                text_color=OSD_COLOR,
                                alignment=TextAlignment.CENTER,
@@ -555,6 +560,12 @@ class PlaybackView(Widget):
     gui_app.push_widget(BigConfirmationDialog("slide to delete", self._trash_confirm_icon,
                                               lambda: self._delete(clip), red=True))
 
+  def _confirm_delete_all(self):
+    if not self._rows:
+      return
+    gui_app.push_widget(BigConfirmationDialog("slide to delete all", self._trash_confirm_icon,
+                                              self._delete_all, red=True))
+
   def _delete(self, clip: Clip):
     reviewing = self._player.clip is not None and self._player.clip.clip_id == clip.clip_id
     if reviewing:
@@ -564,9 +575,25 @@ class PlaybackView(Widget):
       gui_app.pop_widget()
     self._reload()
 
+  def _delete_all(self):
+    if self._player.clip is not None:
+      self._player.release_files()
+    delete_all_clips()
+    if gui_app.widget_in_stack(self._player):
+      gui_app.pop_widget()
+    self._reload()
+
+  def _header_controls(self) -> list[tuple[str, rl.Rectangle]]:
+    controls = [("back", self._back_rect)]
+    if self._rows:
+      controls.append(("delete_all", self._delete_all_rect))
+    return controls
+
   def _layout(self):
-    self._back_rect = rl.Rectangle(self.rect.x + 8, self.rect.y + (HEADER_H - BACK_SIZE.y) / 2,
-                                   BACK_SIZE.x, BACK_SIZE.y)
+    header_y = self.rect.y + (HEADER_H - BACK_SIZE.y) / 2
+    self._back_rect = rl.Rectangle(self.rect.x + 8, header_y, BACK_SIZE.x, BACK_SIZE.y)
+    self._delete_all_rect = rl.Rectangle(self.rect.x + self.rect.width - BACK_SIZE.x - 8,
+                                         header_y, BACK_SIZE.x, BACK_SIZE.y)
     self._list_rect = rl.Rectangle(self.rect.x, self.rect.y + HEADER_H,
                                    self.rect.width, max(0, self.rect.height - HEADER_H))
     self._row_h = row_height_for_peek(self._list_rect.height, ROW_GAP, SECOND_ROW_VISIBLE_FRACTION)
@@ -575,19 +602,26 @@ class PlaybackView(Widget):
       row.set_thumb_size(thumb_w, thumb_h)
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
-    self._pressed = "back" if rl.check_collision_point_rec(mouse_pos, self._back_rect) else None
+    self._pressed = hit_name(mouse_pos, self._header_controls())
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
     pressed = self._pressed
     self._pressed = None
-    if pressed == "back" and rl.check_collision_point_rec(mouse_pos, self._back_rect):
+    if pressed is None or hit_name(mouse_pos, self._header_controls()) != pressed:
+      return
+    if pressed == "back":
       gui_app.pop_widget()
+    elif pressed == "delete_all":
+      self._confirm_delete_all()
 
   def _render(self, rect: rl.Rectangle):
     rl.draw_rectangle_rec(rect, BODY_COLOR)
     self._title.render(rl.Rectangle(self.rect.x, self.rect.y, self.rect.width, HEADER_H))
     back_face = draw_physical_button(self._back_rect, self.is_pressed and self._pressed == "back")
     self._back_label.render(back_face)
+    if self._rows:
+      delete_face = draw_physical_button(self._delete_all_rect, self.is_pressed and self._pressed == "delete_all")
+      self._delete_all_label.render(delete_face)
 
     if not self._rows:
       self._empty.render(self._list_rect)

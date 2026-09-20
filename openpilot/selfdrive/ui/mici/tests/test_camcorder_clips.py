@@ -6,7 +6,7 @@ import numpy as np
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
 from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
-  CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, ClipReader, ClipWriter, center_crop, delete_clip,
+  CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, ClipReader, ClipWriter, center_crop, delete_all_clips, delete_clip,
   extract_clip_rgb, format_timecode, list_clips, preview_size, scale_rgb,
 )
 from openpilot.selfdrive.ui.mici.layouts.hevc_writer import HevcWriter
@@ -108,6 +108,15 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert clip is not None
     assert delete_clip(clip)
     assert not clip.path.exists()
+    assert list_clips() == []
+
+  def test_delete_all_clips_clears_the_library(self):
+    for camera in ("wide", "cabin"):
+      writer = ClipWriter(camera)
+      writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+      assert writer.finalize() is not None
+    assert len(list_clips()) == 2
+    assert delete_all_clips() == 2
     assert list_clips() == []
 
   def test_empty_writer_is_discarded(self):
