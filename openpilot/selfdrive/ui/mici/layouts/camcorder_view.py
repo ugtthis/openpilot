@@ -369,8 +369,12 @@ class CamcorderView(CameraView):
     try:
       rgb = extract_clip_rgb(self.frame.data, self.frame.width, self.frame.height,
                              self.frame.stride, self.frame.uv_offset,
-                             flip_h=self._showing_cabin(), enhance=self._showing_cabin())
-      writer = ClipWriter("cabin" if self._showing_cabin() else "wide", media_type="photo")
+                             out_w=self.frame.width, out_h=self.frame.height,
+                             flip_h=self._showing_cabin(), enhance=self._showing_cabin(),
+                             crop_aspect=None)
+      writer = ClipWriter("cabin" if self._showing_cabin() else "wide",
+                          self.frame.width, self.frame.height,
+                          preview_contains_full_frame=True, media_type="photo")
       writer.add_frame(rgb, 0)
       writer.finalize()
       self._snapshot_flash_until = rl.get_time() + SNAPSHOT_FLASH_S
@@ -525,6 +529,9 @@ class CamcorderView(CameraView):
       self._draw_snapshot_countdown(now)
     elif self._snapshot_countdown.tick(now):
       self._take_photo()
+      # Snapshot conversion can take long enough that the frame's original
+      # timestamp would produce a flash alpha above the uint8 range.
+      now = rl.get_time()
     if self._snapshot_flash_until > now:
-      remaining = (self._snapshot_flash_until - now) / SNAPSHOT_FLASH_S
+      remaining = _clamp01((self._snapshot_flash_until - now) / SNAPSHOT_FLASH_S)
       rl.draw_rectangle_rec(self._feed, rl.Color(255, 255, 255, round(150 * remaining)))
