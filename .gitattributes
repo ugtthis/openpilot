@@ -6,6 +6,12 @@
 openpilot/selfdrive/modeld/models/big_driving_tinygrad.pkl filter=lfs diff=lfs merge=lfs -text
 *.svg filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
+openpilot/selfdrive/assets/icons/camera.png -filter -diff -merge -text
+openpilot/selfdrive/assets/icons/camera.svg -filter -diff -merge -text
+openpilot/selfdrive/assets/icons/folder.png -filter -diff -merge -text
+openpilot/selfdrive/assets/icons/folder.svg -filter -diff -merge -text
+openpilot/selfdrive/assets/icons/video_camera.png -filter -diff -merge -text
+openpilot/selfdrive/assets/icons/video_camera.svg -filter -diff -merge -text
 *.gif filter=lfs diff=lfs merge=lfs -text
 *.ttf filter=lfs diff=lfs merge=lfs -text
 *.otf filter=lfs diff=lfs merge=lfs -text
