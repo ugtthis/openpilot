@@ -80,6 +80,7 @@ class UIState:
     self.started_time: float = 0.0
     self._engaged_prev: bool = False
     self._started_prev: bool = False
+    self._ignition_prev: bool = False
 
     # Core state variables
     self.is_metric: bool = self.params.get_bool("IsMetric")
@@ -110,11 +111,15 @@ class UIState:
 
     # Callbacks
     self._offroad_transition_callbacks: list[Callable[[], None]] = []
+    self._ignition_transition_callbacks: list[Callable[[], None]] = []
     self._engaged_transition_callbacks: list[Callable[[], None]] = []
     self._on_body_changed_callbacks: list[Callable[[], None]] = []
 
   def add_offroad_transition_callback(self, callback: Callable[[], None]):
     self._offroad_transition_callbacks.append(callback)
+
+  def add_ignition_transition_callback(self, callback: Callable[[], None]):
+    self._ignition_transition_callbacks.append(callback)
 
   def add_engaged_transition_callback(self, callback: Callable[[], None]):
     self._engaged_transition_callbacks.append(callback)
@@ -163,6 +168,11 @@ class UIState:
           self.ignition = any(state.ignitionLine or state.ignitionCan for state in panda_states)
     elif not self.sm.alive["pandaStates"]:
       self.panda_type = log.PandaState.PandaType.unknown
+
+    if self.ignition != self._ignition_prev:
+      for callback in self._ignition_transition_callbacks:
+        callback()
+      self._ignition_prev = self.ignition
 
     # Handle wide road camera state updates
     if self.sm.updated["wideRoadCameraState"]:

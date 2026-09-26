@@ -9,6 +9,7 @@ from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
   AudioWriter, Clip, ClipWriter, extract_clip_rgb, preview_size,
 )
 from openpilot.selfdrive.ui.mici.layouts.hevc_writer import HevcWriter
+from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_encoder
 from openpilot.system.micd_lease import acquire_mic, release_mic
 
@@ -29,16 +30,18 @@ class ClipRecorder:
     self._audio_thread: threading.Thread | None = None
     self._stop = threading.Event()
     self._preview_ready = threading.Event()
+    self._finalizing = threading.Event()
     self._started_mono = 0.0
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self._preview: ClipWriter | None = None
     self._hevc: HevcWriter | None = None
     self._audio: AudioWriter | None = None
     self._lock = threading.Lock()
+    self._stop_lock = threading.Lock()
 
   @property
   def recording(self) -> bool:
-    return self._preview_thread is not None and self._preview_thread.is_alive()
+    return self._finalizing.is_set() or (self._preview_thread is not None and self._preview_thread.is_alive())
 
   @property
   def elapsed_s(self) -> float:
@@ -47,7 +50,9 @@ class ClipRecorder:
     return max(0.0, time.monotonic() - self._started_mono)
 
   def start(self, stream_type: VisionStreamType) -> bool:
-    if self.recording or not self._discard_stale():
+    # Recorder-level backstop: never acquire offroad capture processes based
+    # only on the UI page being visible.
+    if ui_state.ignition or ui_state.started or self.recording or not self._discard_stale():
       return False
     self._stop.clear()
     self._preview_ready.clear()
@@ -69,22 +74,52 @@ class ClipRecorder:
     self._audio_thread.start()
     return True
 
-  def stop(self) -> Clip | None:
+  def stop(self, release_first: bool = False) -> Clip | None:
     self._stop.set()
-    stopped = self._join_threads()
+    if release_first:
+      # Ignition abort: release driving resources before potentially blocking cleanup.
+      release_encoder()
+      release_mic()
+    return self._finish_stop(release_after=not release_first)
+
+  def _finish_stop(self, release_after: bool) -> Clip | None:
+    with self._stop_lock:
+      stopped = self._join_threads()
+      if release_after:
+        # Normal shutter stop: preserve the clip tail until capture has drained.
+        release_encoder()
+        release_mic()
+      if not stopped:
+        cloudlog.error("camcorder recorder did not stop")
+        return None
+      with self._lock:
+        preview, hevc, audio = self._preview, self._hevc, self._audio
+        self._preview = None
+        self._hevc = None
+        self._audio = None
+      master = hevc.finalize() if hevc is not None else None
+      audio_info = audio.finalize() if audio is not None else None
+      return preview.finalize(master, audio_info) if preview is not None else None
+
+  def stop_async(self) -> None:
+    """Abort for ignition without joining capture workers on the UI thread."""
+    self._stop.set()
     release_encoder()
     release_mic()
-    if not stopped:
-      cloudlog.error("camcorder recorder did not stop")
-      return None
-    with self._lock:
-      preview, hevc, audio = self._preview, self._hevc, self._audio
-      self._preview = None
-      self._hevc = None
-      self._audio = None
-    master = hevc.finalize() if hevc is not None else None
-    audio_info = audio.finalize() if audio is not None else None
-    return preview.finalize(master, audio_info) if preview is not None else None
+    self._finalizing.set()
+    try:
+      threading.Thread(target=self._finish_stop_async, name="camcorder-stop", daemon=True).start()
+    except RuntimeError:
+      # Resources are already released and capture workers have been asked to
+      # stop. Leave stale-file cleanup to the next offroad start.
+      self._finalizing.clear()
+      cloudlog.exception("camcorder stop finalizer could not start")
+
+  def _finish_stop_async(self) -> None:
+    try:
+      self._finish_stop(release_after=False)
+    finally:
+      self._finalizing.clear()
 
   def _discard_stale(self) -> bool:
     self._stop.set()
@@ -107,10 +142,11 @@ class ClipRecorder:
     return True
 
   def _join_threads(self, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
     threads = (self._preview_thread, self._hevc_thread, self._audio_thread)
     for thread in threads:
       if thread is not None:
-        thread.join(timeout=timeout)
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
     stopped = all(thread is None or not thread.is_alive() for thread in threads)
     if stopped:
       self._preview_thread = None

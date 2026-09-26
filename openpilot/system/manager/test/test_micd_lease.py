@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from openpilot.system.micd_lease import acquire_mic, mic_requested, release_mic
+from openpilot.system.micd_lease import acquire_mic, mic_requested, release_mic, revoke_mic
 
 
 def test_mic_lease_lifecycle():
@@ -33,3 +33,12 @@ def test_release_does_not_remove_another_process_lease():
     with patch("openpilot.system.micd_lease.LEASE_PATH", lease):
       release_mic()
       assert lease.exists()
+
+
+def test_manager_can_revoke_another_process_lease():
+  with TemporaryDirectory() as directory:
+    lease = Path(directory) / "mic_lease"
+    lease.write_text(str(os.getpid() + 1), encoding="utf-8")
+    with patch("openpilot.system.micd_lease.LEASE_PATH", lease):
+      revoke_mic()
+      assert not lease.exists()

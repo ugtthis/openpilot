@@ -26,6 +26,14 @@ def release_process_lease(path: Path) -> None:
   _remove_if_owned(path, str(os.getpid()))
 
 
+def revoke_process_lease(path: Path) -> None:
+  """Manager-side fail-safe: invalidate a lease regardless of its owner."""
+  try:
+    path.unlink(missing_ok=True)
+  except OSError:
+    pass
+
+
 def process_lease_requested(path: Path) -> bool:
   owner_pid = _read_owner_pid(path)
   if owner_pid is None:

@@ -2,6 +2,7 @@ import math
 
 import pyray as rl
 
+from openpilot.cereal import log
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.mici.layouts.camcorder_recorder import ClipRecorder
@@ -12,7 +13,7 @@ from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
 )
 from openpilot.selfdrive.ui.mici.layouts.playback_view import PlaybackView
 from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
-from openpilot.selfdrive.ui.ui_state import device
+from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.system.ui.lib.application import GL_VERSION, FontWeight, MousePos, TextAlignment, TextAlignmentVertical, gui_app
 from openpilot.system.ui.widgets.label import UnifiedLabel
 
@@ -84,6 +85,16 @@ MODE_RING_MIN_SEGMENTS = 96
 MODE_RING_SEGMENTS_PER_RADIUS = 2.5
 MODE_ICON_MIN_SIZE = 28
 MODE_ICON_MAX_SIZE = 56
+
+
+def camcorder_available(is_body: bool, ignition: bool, panda_type: log.PandaState.PandaType) -> bool:
+  """Whether camcorder may replace the car's swipe-left status/driving view.
+
+  A known internal Panda with ignition off includes a comma four detached from
+  its car harness and powered by a battery pack. Unknown Panda state fails
+  closed because it also represents startup or a failed internal Panda.
+  """
+  return not is_body and not ignition and panda_type != log.PandaState.PandaType.unknown
 
 
 def _clamp01(value: float) -> float:
@@ -326,9 +337,29 @@ class CamcorderView(CameraView):
                                          wrap_text=False)
 
   def close(self) -> None:
+    self._snapshot_countdown.cancel()
+    if self._recorder.recording:
+      self._recorder.stop()
+      device.set_override_interactive_timeout(None)
     if getattr(self, "_countdown_ring", None):
       self._countdown_ring.close()
     super().close()
+
+  @staticmethod
+  def _capture_allowed() -> bool:
+    # UI-level gate. ClipRecorder.start() repeats the driving-state check so
+    # capture does not depend on visibility or event ordering for safety.
+    return (camcorder_available(bool(ui_state.is_body), ui_state.ignition, ui_state.panda_type) and
+            not ui_state.started)
+
+  def on_ignition_transition(self) -> None:
+    if not ui_state.ignition:
+      return
+    self._snapshot_countdown.cancel()
+    self._pressed = None
+    if self._recorder.recording:
+      self._recorder.stop_async()
+    device.set_override_interactive_timeout(None)
 
   def _showing_cabin(self) -> bool:
     return self.stream_type == CABIN
@@ -354,6 +385,9 @@ class CamcorderView(CameraView):
       self._photo_mode = self._mode_pull_target_photo
 
   def _on_shutter(self):
+    if not self._capture_allowed():
+      self._snapshot_countdown.cancel()
+      return
     if self._showing_cabin():
       if self._countdown_active():
         self._snapshot_countdown.cancel()
@@ -363,7 +397,7 @@ class CamcorderView(CameraView):
     self._take_photo()
 
   def _take_photo(self):
-    if self.frame is None:
+    if not self._capture_allowed() or self.frame is None:
       return
     writer = None
     try:
@@ -389,6 +423,8 @@ class CamcorderView(CameraView):
       device.set_override_interactive_timeout(None)
       if clip is not None:
         self._playback.review(clip)
+      return
+    if not self._capture_allowed():
       return
     if self._recorder.start(self.stream_type):
       device.set_override_interactive_timeout(RECORD_TIMEOUT_S)

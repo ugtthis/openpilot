@@ -15,6 +15,8 @@ from openpilot.common.hardware import HARDWARE
 from openpilot.system.manager.helpers import unblock_stdout, save_bootlog
 from openpilot.system.manager.process import ensure_running
 from openpilot.system.manager.process_config import managed_processes
+from openpilot.system.loggerd.encoder_lease import revoke_encoder
+from openpilot.system.micd_lease import revoke_mic
 from openpilot.system.athena.registration import register, UNREGISTERED_DONGLE_ID
 from openpilot.common.swaglog import cloudlog, add_file_handler
 from openpilot.common.version import get_build_metadata
@@ -97,6 +99,13 @@ def manager_cleanup() -> None:
   cloudlog.info("everything is dead")
 
 
+def ignition_blocked_processes(started: bool, ignition: bool) -> list[str]:
+  """Manager backstop preventing offroad leases from crossing ignition-on."""
+  # Leases are an offroad convenience, never permission to keep camcorder-only
+  # resources alive while an ignition-on device is waiting to start.
+  return ["encoderd", "micd"] if ignition and not started else []
+
+
 def manager_thread() -> None:
   cloudlog.bind(daemon="manager")
   cloudlog.info("manager start")
@@ -133,6 +142,11 @@ def manager_thread() -> None:
     ignition = any(ps.ignitionLine or ps.ignitionCan for ps in sm['pandaStates'] if ps.pandaType != log.PandaState.PandaType.unknown)
     if ignition and not ignition_prev:
       params.clear_all(ParamKeyFlag.CLEAR_ON_IGNITION_ON)
+    if ignition:
+      # Leases are offroad-only. Revoke every loop so a racing or wedged UI
+      # cannot keep them alive into this ignition cycle or the next offroad.
+      revoke_encoder()
+      revoke_mic()
 
     # update offroad state for services that don't subscribe to deviceState
     if started != started_prev:
@@ -141,7 +155,8 @@ def manager_thread() -> None:
     started_prev = started
     ignition_prev = ignition
 
-    ensure_running(managed_processes.values(), started, params=params, CP=sm['carParams'], not_run=ignore)
+    not_run = ignore + ignition_blocked_processes(started, ignition)
+    ensure_running(managed_processes.values(), started, params=params, CP=sm['carParams'], not_run=not_run)
 
     running = ' '.join("{}{}\u001b[0m".format("\u001b[32m" if p.proc.is_alive() else "\u001b[31m", p.name)
                        for p in managed_processes.values() if p.proc)

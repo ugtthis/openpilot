@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from openpilot.system.process_lease import acquire_process_lease, process_lease_requested, release_process_lease
+from openpilot.system.process_lease import acquire_process_lease, process_lease_requested, release_process_lease, revoke_process_lease
 
 LEASE_PATH = Path("/tmp/openpilot_camcorder_mic")
 
@@ -13,6 +13,10 @@ def acquire_mic() -> None:
 
 def release_mic() -> None:
   release_process_lease(LEASE_PATH)
+
+
+def revoke_mic() -> None:
+  revoke_process_lease(LEASE_PATH)
 
 
 def mic_requested() -> bool:
