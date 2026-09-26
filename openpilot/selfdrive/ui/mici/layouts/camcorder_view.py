@@ -349,8 +349,7 @@ class CamcorderView(CameraView):
   def _capture_allowed() -> bool:
     # UI-level gate. ClipRecorder.start() repeats the driving-state check so
     # capture does not depend on visibility or event ordering for safety.
-    return (camcorder_available(bool(ui_state.is_body), ui_state.ignition, ui_state.panda_type) and
-            not ui_state.started)
+    return camcorder_available(bool(ui_state.is_body), ui_state.ignition, ui_state.panda_type)
 
   def on_ignition_transition(self) -> None:
     if not ui_state.ignition:

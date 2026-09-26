@@ -140,12 +140,12 @@ def test_recorder_refuses_onroad_start_before_acquiring_leases():
   acquire_mic.assert_not_called()
 
 
-def test_recorder_ignition_abort_releases_leases_before_waiting_for_threads():
-  released = {"encoder": False, "mic": False}
+def test_recorder_ignition_stop_releases_leases_before_waiting_for_threads():
+  events = []
 
   class CaptureThread:
     def join(self, timeout=None):
-      assert released == {"encoder": True, "mic": True}
+      events.append("join")
 
     def is_alive(self):
       return False
@@ -155,13 +155,17 @@ def test_recorder_ignition_abort_releases_leases_before_waiting_for_threads():
 
   with (
     patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.release_encoder",
-          side_effect=lambda: released.__setitem__("encoder", True)),
+          side_effect=lambda: events.append("encoder")),
     patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.release_mic",
-          side_effect=lambda: released.__setitem__("mic", True)),
+          side_effect=lambda: events.append("mic")),
   ):
-    assert recorder.stop(release_first=True) is None
+    recorder.stop_async()
+    deadline = time.monotonic() + 2.0
+    while recorder._finalizing.is_set() and time.monotonic() < deadline:
+      time.sleep(0.01)
 
-  assert released == {"encoder": True, "mic": True}
+  assert not recorder._finalizing.is_set()
+  assert events == ["encoder", "mic", "join"]
 
 
 def test_recorder_normal_stop_releases_leases_after_waiting_for_threads():

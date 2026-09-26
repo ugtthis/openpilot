@@ -52,7 +52,7 @@ class ClipRecorder:
   def start(self, stream_type: VisionStreamType) -> bool:
     # Recorder-level backstop: never acquire offroad capture processes based
     # only on the UI page being visible.
-    if ui_state.ignition or ui_state.started or self.recording or not self._discard_stale():
+    if ui_state.ignition or self.recording or not self._discard_stale():
       return False
     self._stop.clear()
     self._preview_ready.clear()
@@ -74,13 +74,9 @@ class ClipRecorder:
     self._audio_thread.start()
     return True
 
-  def stop(self, release_first: bool = False) -> Clip | None:
+  def stop(self) -> Clip | None:
     self._stop.set()
-    if release_first:
-      # Ignition abort: release driving resources before potentially blocking cleanup.
-      release_encoder()
-      release_mic()
-    return self._finish_stop(release_after=not release_first)
+    return self._finish_stop(release_after=True)
 
   def _finish_stop(self, release_after: bool) -> Clip | None:
     with self._stop_lock:
