@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -189,9 +190,15 @@ class TestCamcorderClips(OpenpilotTestCase):
     audio = audio_writer.finalize()
     assert audio is not None
     assert audio.frame_count == 30
+    assert (audio.gap_count, audio.gap_frame_count) == (1, 15)
     samples = np.fromfile(writer.path / audio.filename, dtype=np.int16)
     np.testing.assert_array_equal(samples, [1] * 10 + [0] * 15 + [1] * 5)
-    writer.abort()
+
+    writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+    clip = writer.finalize(audio=audio)
+    assert clip is not None
+    meta = json.loads((clip.path / "clip.json").read_text())
+    assert (meta["audio_gap_count"], meta["audio_gap_frame_count"]) == (1, 15)
 
   def test_audio_writer_ignores_send_jitter(self):
     writer = ClipWriter("wide")

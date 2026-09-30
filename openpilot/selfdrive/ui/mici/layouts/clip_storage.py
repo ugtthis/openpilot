@@ -131,6 +131,8 @@ class AudioInfo:
   channels: int
   frame_count: int
   first_log_mono_ns: int
+  gap_count: int = 0
+  gap_frame_count: int = 0
 
 
 class AudioWriter:
@@ -145,6 +147,8 @@ class AudioWriter:
     self._frame_count = 0
     self._first_log_mono_ns = 0
     self._first_packet_frames = 0
+    self._gap_count = 0
+    self._gap_frame_count = 0
 
   def add_packet(self, data: bytes, sample_rate: int, log_mono_ns: int, channels: int = 1) -> None:
     if self._file.closed:
@@ -183,6 +187,8 @@ class AudioWriter:
       self._file.write(silence[:count * frame_size])
       remaining -= count
     self._frame_count += missing
+    self._gap_count += 1
+    self._gap_frame_count += missing
 
   def finalize(self) -> AudioInfo | None:
     self._file.close()
@@ -191,7 +197,8 @@ class AudioWriter:
       return None
     self._partial.replace(self._path)
     return AudioInfo(self._path.name, self._sample_rate, self._channels,
-                     self._frame_count, self._first_log_mono_ns)
+                     self._frame_count, self._first_log_mono_ns,
+                     self._gap_count, self._gap_frame_count)
 
   def abort(self) -> None:
     if not self._file.closed:
@@ -362,6 +369,8 @@ class ClipWriter:
         "audio_channels": audio.channels,
         "audio_frame_count": audio.frame_count,
         "audio_start_mono_ns": audio.first_log_mono_ns,
+        "audio_gap_count": audio.gap_count,
+        "audio_gap_frame_count": audio.gap_frame_count,
       })
     (self.path / _CLIP_JSON).write_text(json.dumps(payload), encoding="utf-8")
 
