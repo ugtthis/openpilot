@@ -361,6 +361,8 @@ class ClipWriter:
         "native_height": master.height,
         "native_frame_count": master.frame_count,
         "video_start_mono_ns": master.first_timestamp_ns,
+        "video_gap_count": master.gap_count,
+        "video_dropped_frame_count": master.dropped_frame_count,
       })
     if audio is not None:
       payload.update({

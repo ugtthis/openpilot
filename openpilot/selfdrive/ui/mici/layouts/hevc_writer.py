@@ -8,6 +8,8 @@ V4L2_BUF_FLAG_KEYFRAME = 8
 
 MASTER_FILENAME = "video.hevc"
 _PARTIAL_FILENAME = "video.hevc.partial"
+# encoderd runs every camera at 20 fps.
+_FRAME_NS = 50_000_000
 
 
 @dataclass(frozen=True)
@@ -17,6 +19,8 @@ class MasterInfo:
   height: int
   frame_count: int
   first_timestamp_ns: int = 0
+  gap_count: int = 0
+  dropped_frame_count: int = 0
 
 
 class HevcWriter:
@@ -29,6 +33,9 @@ class HevcWriter:
     self._height = 0
     self._frame_count = 0
     self._first_timestamp_ns = 0
+    self._last_timestamp_ns = 0
+    self._gap_count = 0
+    self._dropped_frame_count = 0
 
   def add_encoded(self, encoded):
     self.add_packet(bytes(encoded.header), bytes(encoded.data),
@@ -43,6 +50,12 @@ class HevcWriter:
         return
       self._started = True
       self._first_timestamp_ns = timestamp_ns
+    elif timestamp_ns and self._last_timestamp_ns:
+      dropped = round((timestamp_ns - self._last_timestamp_ns) / _FRAME_NS) - 1
+      if dropped > 0:
+        self._gap_count += 1
+        self._dropped_frame_count += dropped
+    self._last_timestamp_ns = timestamp_ns
     if keyframe and header:
       self._file.write(header)
     self._file.write(data)
@@ -57,7 +70,8 @@ class HevcWriter:
       return None
     self._partial.replace(self._path)
     return MasterInfo(self._path.name, self._width, self._height,
-                      self._frame_count, self._first_timestamp_ns)
+                      self._frame_count, self._first_timestamp_ns,
+                      self._gap_count, self._dropped_frame_count)
 
   def abort(self):
     if not self._file.closed:
