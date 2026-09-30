@@ -222,16 +222,23 @@ class ClipRecorder:
         if not messages:
           self._stop.wait(0.01)
           continue
-        with self._lock:
-          if self._preview is None:
-            continue
-          if self._audio is None:
-            self._audio = AudioWriter(self._preview.path)
-          audio = self._audio
-        for event in messages:
-          audio.add_packet(bytes(event.rawAudioData.data),
-                           int(event.rawAudioData.sampleRate),
-                           int(event.logMonoTime))
+        self._write_audio(messages)
     except Exception:
       # Audio is optional; never stop an otherwise healthy video recording.
       cloudlog.exception("camcorder audio recorder failed")
+
+  def _write_audio(self, messages) -> int:
+    """Write packets and return the newest logMonoTime written, or 0."""
+    if not messages:
+      return 0
+    with self._lock:
+      if self._preview is None:
+        return 0
+      if self._audio is None:
+        self._audio = AudioWriter(self._preview.path)
+      audio = self._audio
+    for event in messages:
+      audio.add_packet(bytes(event.rawAudioData.data),
+                       int(event.rawAudioData.sampleRate),
+                       int(event.logMonoTime))
+    return int(messages[-1].logMonoTime)
