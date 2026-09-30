@@ -178,6 +178,32 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert not (writer.path / "audio.s16le.partial").exists()
     writer.abort()
 
+  def test_audio_writer_fills_dropped_packets_with_silence(self):
+    writer = ClipWriter("wide")
+    audio_writer = AudioWriter(writer.path)
+    packet = np.ones(5, dtype=np.int16).tobytes()
+    audio_writer.add_packet(packet, sample_rate=10, log_mono_ns=500_000_000)
+    audio_writer.add_packet(packet, sample_rate=10, log_mono_ns=1_000_000_000)
+    # Three packets (1.5 s) never arrived.
+    audio_writer.add_packet(packet, sample_rate=10, log_mono_ns=3_000_000_000)
+    audio = audio_writer.finalize()
+    assert audio is not None
+    assert audio.frame_count == 30
+    samples = np.fromfile(writer.path / audio.filename, dtype=np.int16)
+    np.testing.assert_array_equal(samples, [1] * 10 + [0] * 15 + [1] * 5)
+    writer.abort()
+
+  def test_audio_writer_ignores_send_jitter(self):
+    writer = ClipWriter("wide")
+    audio_writer = AudioWriter(writer.path)
+    packet = np.ones(5, dtype=np.int16).tobytes()
+    for log_mono_ns in (500_000_000, 1_150_000_000, 1_400_000_000, 2_000_000_000):
+      audio_writer.add_packet(packet, sample_rate=10, log_mono_ns=log_mono_ns)
+    audio = audio_writer.finalize()
+    assert audio is not None
+    assert audio.frame_count == 20
+    writer.abort()
+
   def test_audio_playback_sync_and_mute(self):
     writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)

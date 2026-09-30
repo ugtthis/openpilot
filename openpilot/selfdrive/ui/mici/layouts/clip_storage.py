@@ -38,6 +38,9 @@ _FRAMES_BIN = "frames.bin"
 _INDEX_BIN = "index.bin"
 _AUDIO_PCM = "audio.s16le"
 _AUDIO_PARTIAL = "audio.s16le.partial"
+# A packet stamped this much later than its samples predict means earlier
+# packets were lost before we read them. Smaller slips are send jitter.
+_AUDIO_GAP_TOLERANCE_NS = 200_000_000
 
 
 def clips_root() -> Path:
@@ -141,6 +144,7 @@ class AudioWriter:
     self._channels = 1
     self._frame_count = 0
     self._first_log_mono_ns = 0
+    self._first_packet_frames = 0
 
   def add_packet(self, data: bytes, sample_rate: int, log_mono_ns: int, channels: int = 1) -> None:
     if self._file.closed:
@@ -152,12 +156,33 @@ class AudioWriter:
       raise ValueError("invalid int16 audio packet")
     if self._sample_rate and (sample_rate != self._sample_rate or channels != self._channels):
       raise ValueError("audio format changed during recording")
+    frames = len(data) // frame_size
     if not self._sample_rate:
       self._sample_rate = sample_rate
       self._channels = channels
       self._first_log_mono_ns = log_mono_ns
+      self._first_packet_frames = frames
+    else:
+      self._fill_gap(log_mono_ns, frames)
     self._file.write(data)
-    self._frame_count += len(data) // frame_size
+    self._frame_count += frames
+
+  def _fill_gap(self, log_mono_ns: int, frames: int) -> None:
+    # Packets are stamped when sent, after their last sample.
+    written_after_first = self._frame_count + frames - self._first_packet_frames
+    expected_ns = self._first_log_mono_ns + written_after_first * 1_000_000_000 // self._sample_rate
+    late_ns = log_mono_ns - expected_ns
+    if late_ns <= _AUDIO_GAP_TOLERANCE_NS:
+      return
+    missing = late_ns * self._sample_rate // 1_000_000_000
+    frame_size = PCM_SAMPLE_BYTES * self._channels
+    silence = bytes(self._sample_rate * frame_size)
+    remaining = missing
+    while remaining > 0:
+      count = min(remaining, self._sample_rate)
+      self._file.write(silence[:count * frame_size])
+      remaining -= count
+    self._frame_count += missing
 
   def finalize(self) -> AudioInfo | None:
     self._file.close()
