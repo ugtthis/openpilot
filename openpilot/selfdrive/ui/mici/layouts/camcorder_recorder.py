@@ -21,6 +21,8 @@ _ENCODE_SERVICES = {
   VisionStreamType.VISION_STREAM_WIDE_ROAD: "wideRoadEncodeData",
   VisionStreamType.VISION_STREAM_CABIN: "cabinEncodeData",
 }
+# micd sends a packet every 50 ms; the UI thread waits on this at stop.
+_AUDIO_TAIL_TIMEOUT_S = 0.2
 
 
 class ClipRecorder:
@@ -32,6 +34,7 @@ class ClipRecorder:
     self._preview_ready = threading.Event()
     self._finalizing = threading.Event()
     self._started_mono = 0.0
+    self._stop_mono_ns = 0
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self._preview: ClipWriter | None = None
     self._hevc: HevcWriter | None = None
@@ -56,6 +59,7 @@ class ClipRecorder:
       return False
     self._stop.clear()
     self._preview_ready.clear()
+    self._stop_mono_ns = 0
     self._stream_type = stream_type
     self._started_mono = time.monotonic()
     try:
@@ -75,6 +79,7 @@ class ClipRecorder:
     return True
 
   def stop(self) -> Clip | None:
+    self._stop_mono_ns = time.monotonic_ns()
     self._stop.set()
     return self._finish_stop(release_after=True)
 
@@ -99,6 +104,7 @@ class ClipRecorder:
 
   def stop_async(self) -> None:
     """Abort for ignition without joining capture workers on the UI thread."""
+    self._stop_mono_ns = time.monotonic_ns()
     self._stop.set()
     release_encoder()
     release_mic()
@@ -223,6 +229,8 @@ class ClipRecorder:
           self._stop.wait(0.01)
           continue
         self._write_audio(messages)
+      if self._preview_ready.is_set():
+        self._drain_audio_tail(sock)
     except Exception:
       # Audio is optional; never stop an otherwise healthy video recording.
       cloudlog.exception("camcorder audio recorder failed")
@@ -242,3 +250,13 @@ class ClipRecorder:
                        int(event.rawAudioData.sampleRate),
                        int(event.logMonoTime))
     return int(messages[-1].logMonoTime)
+
+  def _drain_audio_tail(self, sock) -> None:
+    from openpilot.cereal import messaging
+
+    stop_ns = self._stop_mono_ns
+    deadline = time.monotonic() + _AUDIO_TAIL_TIMEOUT_S
+    while stop_ns and time.monotonic() < deadline:
+      if self._write_audio(messaging.drain_sock(sock, wait_for_one=False)) >= stop_ns:
+        return
+      time.sleep(0.005)

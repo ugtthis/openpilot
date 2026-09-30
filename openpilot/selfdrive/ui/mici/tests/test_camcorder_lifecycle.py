@@ -241,6 +241,45 @@ def test_async_stop_thread_failure_remains_fail_safe():
   log_exception.assert_called_once()
 
 
+class _AudioSink:
+  def __init__(self):
+    self.stamps = []
+
+  def add_packet(self, _data, _sample_rate, log_mono_ns):
+    self.stamps.append(log_mono_ns)
+
+
+def _audio_event(log_mono_ns):
+  return SimpleNamespace(rawAudioData=SimpleNamespace(data=b"\0\0", sampleRate=10), logMonoTime=log_mono_ns)
+
+
+def test_stop_keeps_audio_up_to_the_stop_press():
+  recorder = ClipRecorder()
+  sink = _AudioSink()
+  recorder._preview = cast(Any, SimpleNamespace(path=None))
+  recorder._audio = cast(Any, sink)
+  recorder._stop_mono_ns = 1_000
+  batches = [[_audio_event(800), _audio_event(900)], [], [_audio_event(1_050)], [_audio_event(1_100)]]
+
+  with patch("openpilot.cereal.messaging.drain_sock", side_effect=lambda *_args, **_kwargs: batches.pop(0)):
+    recorder._drain_audio_tail(object())
+
+  assert sink.stamps == [800, 900, 1_050]
+
+
+def test_audio_tail_drain_gives_up_when_micd_is_gone():
+  recorder = ClipRecorder()
+  recorder._preview = cast(Any, SimpleNamespace(path=None))
+  recorder._audio = cast(Any, _AudioSink())
+  recorder._stop_mono_ns = time.monotonic_ns()
+
+  started = time.monotonic()
+  with patch("openpilot.cereal.messaging.drain_sock", return_value=[]):
+    recorder._drain_audio_tail(object())
+
+  assert time.monotonic() - started < 0.5
+
+
 def test_ignition_transition_cancels_and_stops_capture():
   class Countdown:
     cancelled = False
