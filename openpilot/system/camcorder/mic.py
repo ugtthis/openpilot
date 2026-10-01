@@ -17,6 +17,7 @@ from openpilot.system.camcorder.timing import boot_time_ns
 BLOCK_DURATION_S = 0.05
 PREROLL_NS = 5_000_000_000
 STOP_TIMEOUT_S = 1.0
+STALL_TIMEOUT_S = 1.0
 USB_AUDIO_NAME = "usb audio"
 
 
@@ -109,6 +110,8 @@ class CamcorderMic:
       return
     self._stop.clear()
     self.error = ""
+    with self._lock:
+      self._buffer.clear()  # pre-roll from a previous stream may be stale or another device
     self._thread = threading.Thread(target=self._capture, name="camcorder-mic", daemon=True)
     self._thread.start()
 
@@ -185,11 +188,16 @@ class CamcorderMic:
       with sd.InputStream(device=device.index, channels=device.channels, samplerate=device.sample_rate,
                           dtype="int16", callback=callback, blocksize=blocksize):
         cloudlog.info(f"camcorder mic started: {device=}")
+        last_packet = time.monotonic()
         while not self._stop.is_set():
           try:
             packet = self._packets.get(timeout=0.1)
           except queue.Empty:
+            # ALSA often stops calling back on unplug instead of raising.
+            if time.monotonic() - last_packet > STALL_TIMEOUT_S:
+              raise RuntimeError("microphone stream stalled") from None
             continue
+          last_packet = time.monotonic()
           self._handle(packet)
         while not self._packets.empty():
           self._handle(self._packets.get())

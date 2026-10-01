@@ -1,9 +1,12 @@
+import contextlib
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import numpy as np
 
+from openpilot.system.camcorder import mic as mic_module
 from openpilot.system.camcorder.mic import CamcorderMic, MicPacket, adc_start_ns, select_input_device
 
 
@@ -14,6 +17,15 @@ class SoundDevice:
 
   def query_devices(self):
     return self._devices
+
+  def _terminate(self):
+    pass
+
+  def _initialize(self):
+    pass
+
+  def InputStream(self, **kwargs):
+    return contextlib.nullcontext()  # never calls back, like an unplugged ALSA device
 
 
 def device(name, channels, rate):
@@ -92,6 +104,18 @@ def test_unplugged_mic_pads_silence_to_the_stop_time_and_marks_the_error():
   assert audio is not None
   assert (audio.frame_count, audio.gap_count, audio.gap_frame_count) == (20, 1, 10)
   assert (audio.device_name, audio.error) == ("DJI USB Audio", "device unplugged")
+
+
+def test_stalled_stream_fails_so_the_mic_can_restart(monkeypatch):
+  monkeypatch.setitem(sys.modules, "sounddevice", SoundDevice([device("DJI USB Audio", 2, 48000)]))
+  monkeypatch.setattr(mic_module, "STALL_TIMEOUT_S", 0.1)
+  mic = CamcorderMic()
+  mic.start()
+  assert mic._thread is not None
+  mic._thread.join(timeout=2.0)
+
+  assert not mic.running and not mic.ready
+  assert mic.error == "microphone stream stalled"
 
 
 def test_builtin_capture_drops_hardware_channels_that_are_exactly_silent():
