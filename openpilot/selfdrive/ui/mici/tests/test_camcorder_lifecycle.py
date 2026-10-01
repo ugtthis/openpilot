@@ -502,13 +502,17 @@ def test_ignition_transition_cancels_and_stops_capture():
     recording = True
     stopped = False
 
-    def stop_async(self):
+    def stop(self):
       self.stopped = True
+
+    def set_warm(self, warm, stream_type):
+      assert not warm
 
   view = SimpleNamespace(
     _snapshot_countdown=Countdown(),
     _recorder=Recorder(),
     _pressed="record",
+    stream_type=WIDE,
   )
 
   with (

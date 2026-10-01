@@ -5,8 +5,8 @@ import pyray as rl
 from openpilot.cereal import log
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
+from openpilot.system.camcorder.client import CamcorderClient
 from openpilot.system.camcorder.clip_storage import ClipWriter, center_crop, extract_clip_rgb, format_timecode
-from openpilot.system.camcorder.recorder import ClipRecorder
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   OSD_BACKGROUND, OSD_COLOR, RECORD_COLOR,
   camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, hit_name, split_rail,
@@ -305,7 +305,8 @@ class CamcorderView(CameraView):
   def __init__(self):
     super().__init__("camerad", WIDE)
     self._set_placeholder_color(rl.BLACK)
-    self._recorder = ClipRecorder(lambda: not ui_state.ignition)
+    self._recorder = CamcorderClient()
+    gui_app.add_nav_stack_tick(self._update_recorder)
     self._photo_mode = False
     self._mode_pull = ModePullGesture()
     self._mode_pull_target_photo = True
@@ -338,9 +339,9 @@ class CamcorderView(CameraView):
 
   def close(self) -> None:
     self._snapshot_countdown.cancel()
-    if self._recorder.recording:
-      self._recorder.stop()
-      device.set_override_interactive_timeout(None)
+    gui_app.remove_nav_stack_tick(self._update_recorder)
+    self._recorder.close()
+    device.set_override_interactive_timeout(None)
     if getattr(self, "_countdown_ring", None):
       self._countdown_ring.close()
     super().close()
@@ -354,13 +355,20 @@ class CamcorderView(CameraView):
   def set_warm(self, on_screen: bool) -> None:
     self._recorder.set_warm(on_screen and self._capture_allowed(), self.stream_type)
 
+  def _update_recorder(self) -> None:
+    clip = self._recorder.update()
+    if clip is not None:
+      device.set_override_interactive_timeout(None)
+      self._playback.review(clip)
+
   def on_ignition_transition(self) -> None:
     if not ui_state.ignition:
       return
     self._snapshot_countdown.cancel()
     self._pressed = None
     if self._recorder.recording:
-      self._recorder.stop_async()
+      self._recorder.stop()
+    self._recorder.set_warm(False, self.stream_type)
     device.set_override_interactive_timeout(None)
 
   def _showing_cabin(self) -> bool:
@@ -421,10 +429,8 @@ class CamcorderView(CameraView):
 
   def _toggle_record(self):
     if self._recorder.recording:
-      clip = self._recorder.stop()
+      self._recorder.stop()
       device.set_override_interactive_timeout(None)
-      if clip is not None:
-        self._playback.review(clip)
       return
     if not self._capture_allowed():
       return

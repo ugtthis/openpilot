@@ -84,7 +84,7 @@ class ClipRecorder:
     elif not self.recording:
       self._preroll.start(_ENCODE_SERVICES[stream_type])
 
-  def start(self, stream_type: VisionStreamType) -> bool:
+  def start(self, stream_type: VisionStreamType, recording_start_mono_ns: int | None = None) -> bool:
     # Recorder-level backstop: never acquire offroad capture processes based
     # only on the UI page being visible.
     if not self._capture_allowed() or self.recording or not self._discard_stale():
@@ -97,7 +97,7 @@ class ClipRecorder:
     self._hevc_after_ns = 0
     self._audio_after_ns = 0
     self._stream_type = stream_type
-    self._started_mono = time.monotonic()
+    self._started_mono = (recording_start_mono_ns / 1e9) if recording_start_mono_ns else time.monotonic()
     try:
       acquire_encoder()
       acquire_mic()
@@ -113,8 +113,8 @@ class ClipRecorder:
     self._audio_thread.start()
     return True
 
-  def stop(self) -> Clip | None:
-    self._stop_mono_ns = time.monotonic_ns()
+  def stop(self, stop_mono_ns: int | None = None) -> Clip | None:
+    self._stop_mono_ns = stop_mono_ns or time.monotonic_ns()
     self._stop.set()
     return self._finish_stop(release_after=True)
 

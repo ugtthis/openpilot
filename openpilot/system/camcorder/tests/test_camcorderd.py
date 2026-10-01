@@ -11,19 +11,22 @@ class FakeRecorder:
     self.starts = []
     self.stops = 0
 
-  def start(self, stream_type):
-    self.starts.append(stream_type)
+  def set_warm(self, warm, stream_type):
+    pass
+
+  def start(self, stream_type, request_mono_ns):
+    self.starts.append((stream_type, request_mono_ns))
     self.recording = True
     return True
 
-  def stop(self):
+  def stop(self, request_mono_ns=None):
     self.stops += 1
     self.recording = False
     return SimpleNamespace(clip_id="saved-clip")
 
 
-def control(sequence, action, stream="wideRoad"):
-  return SimpleNamespace(sequence=sequence, action=action, stream=stream)
+def control(sequence, action, stream="wideRoad", request_mono_time=123):
+  return SimpleNamespace(sequence=sequence, action=action, stream=stream, requestMonoTime=request_mono_time)
 
 
 def test_start_and_stop_commands_publish_the_saved_clip():
@@ -31,7 +34,7 @@ def test_start_and_stop_commands_publish_the_saved_clip():
   daemon = CamcorderDaemon(recorder)
 
   daemon.apply_control(control(1, "start", "cabin"))
-  assert recorder.starts == [VisionStreamType.VISION_STREAM_CABIN]
+  assert recorder.starts == [(VisionStreamType.VISION_STREAM_CABIN, 123)]
   assert daemon.phase == "recording"
 
   daemon.apply_control(control(2, "stop", "cabin"))

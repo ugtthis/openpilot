@@ -34,14 +34,20 @@ class CamcorderDaemon:
     self.stream_type = _STREAMS.get(str(control.stream), self.stream_type)
     action = str(control.action)
     try:
-      if action == "start":
-        if self.recorder.start(self.stream_type):
+      if action == "idle" and not self.recorder.recording:
+        self.recorder.set_warm(True, self.stream_type)
+      elif action == "start":
+        self.recorder.set_warm(True, self.stream_type)
+        if self.recorder.start(self.stream_type, int(control.requestMonoTime)):
           self.phase = "recording"
           self.clip_id = ""
           self.error = ""
+        else:
+          self.phase = "failed"
+          self.error = "recorder could not start"
       elif action == "stop" and self.recorder.recording:
         self.phase = "finalizing"
-        clip = self.recorder.stop()
+        clip = self.recorder.stop(int(control.requestMonoTime))
         self.clip_id = clip.clip_id if clip is not None else ""
         self.phase = "warming"
     except Exception as exc:
