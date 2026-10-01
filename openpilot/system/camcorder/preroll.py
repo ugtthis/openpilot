@@ -34,6 +34,11 @@ class _Run:
     self.lock = threading.Lock()
     self.gops: deque[list[HevcPacket]] = deque(maxlen=_GOPS)
 
+  @property
+  def ready(self) -> bool:
+    with self.lock:
+      return bool(self.gops)
+
   def add_video(self, encoded) -> None:
     packet = HevcPacket(bytes(encoded.header), bytes(encoded.data),
                         bool(encoded.idx.flags & V4L2_BUF_FLAG_KEYFRAME),
@@ -59,6 +64,12 @@ class PreRoll:
   def __init__(self):
     self._lock = threading.Lock()
     self._run: _Run | None = None
+
+  @property
+  def ready(self) -> bool:
+    with self._lock:
+      run = self._run
+    return run is not None and run.ready
 
   def start(self, service: str) -> None:
     with self._lock:

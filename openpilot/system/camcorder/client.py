@@ -18,7 +18,7 @@ class CamcorderClient:
     self._sm = sm or messaging.SubMaster(["camcorderState"])
     self._sequence = 0
     self._pending = None
-    self._phase = "idle"
+    self._phase = "warming"
     self._elapsed_s = 0.0
     self._warm = False
     self._lease_held = False
@@ -48,7 +48,7 @@ class CamcorderClient:
       self._lease_held = False
 
   def start(self, stream_type: VisionStreamType, press_mono_ns: int | None = None) -> bool:
-    if self.recording:
+    if self.recording or self._phase != "idle":
       return False
     self.set_warm(True, stream_type)
     self._requested_recording = True
@@ -76,14 +76,16 @@ class CamcorderClient:
       self._elapsed_s = float(state.elapsedS)
       if self._pending is not None and int(state.sequence) >= self._sequence:
         self._pending = None
-      if self._requested_recording and self._phase == "warming" and state.clipId:
+      if self._requested_recording and self._phase in ("idle", "warming") and state.clipId:
         self._requested_recording = False
         self._completed_clip = load_clip(clips_root() / str(state.clipId))
         if not self._warm and self._lease_held:
           release_camcorder()
           self._lease_held = False
+      elif self._requested_recording and self._phase == "warming" and state.error:
+        self._requested_recording = False
     if self._pending is not None:
-      self._pm.send("camcorderControl", self._pending)
+      self._publish_pending()
     clip, self._completed_clip = self._completed_clip, None
     return clip
 
@@ -95,4 +97,9 @@ class CamcorderClient:
     msg.camcorderControl.stream = _STREAM_NAMES[stream_type]
     msg.camcorderControl.requestMonoTime = request_mono_ns
     self._pending = msg
-    self._pm.send("camcorderControl", msg)
+    self._publish_pending()
+
+  def _publish_pending(self) -> None:
+    assert self._pending is not None
+    self._pm.send("camcorderControl", self._pending)
+    self._pending.clear_write_flag()

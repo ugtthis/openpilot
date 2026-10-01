@@ -40,7 +40,10 @@ class CamcorderDaemon:
         self.recorder.set_warm(True, self.stream_type)
       elif action == "start":
         self.recorder.set_warm(True, self.stream_type)
-        if self.recorder.start(self.stream_type, int(control.requestMonoTime)):
+        if not self.recorder.ready:
+          self.phase = "warming"
+          self.error = "recorder is still warming up"
+        elif self.recorder.start(self.stream_type, int(control.requestMonoTime)):
           self.phase = "recording"
           self.clip_id = ""
           self.error = ""
@@ -89,8 +92,8 @@ class CamcorderDaemon:
         if sm.updated["camcorderControl"]:
           self.apply_control(sm["camcorderControl"])
         if not self.recorder.recording and self.phase not in ("failed", "finalizing"):
-          self.phase = "warming"
           self.recorder.set_warm(True, self.stream_type)
+          self.phase = "idle" if self.recorder.ready else "warming"
         pm.send("camcorderState", self.state_message())
         rk.keep_time()
     finally:

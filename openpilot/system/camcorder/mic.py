@@ -94,6 +94,11 @@ class CamcorderMic:
   def running(self) -> bool:
     return self._thread is not None and self._thread.is_alive()
 
+  @property
+  def ready(self) -> bool:
+    with self._lock:
+      return self.running and bool(self._buffer)
+
   def start(self) -> None:
     if self.running or time.monotonic() < self._retry_after:
       return

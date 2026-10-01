@@ -71,6 +71,10 @@ class ClipRecorder:
   def mic_error(self) -> str:
     return self._mic.error
 
+  @property
+  def ready(self) -> bool:
+    return self._preroll.ready and self._mic.ready
+
   def set_warm(self, warm: bool, stream_type: VisionStreamType) -> None:
     """Keep encoderd and direct mic capture warm while the camcorder is on screen.
 

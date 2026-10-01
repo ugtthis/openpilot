@@ -12,6 +12,7 @@ class FakeRecorder:
     self.mic_sample_rate = 48000
     self.mic_channels = 2
     self.mic_error = ""
+    self.ready = True
     self.starts = []
     self.stops = 0
 

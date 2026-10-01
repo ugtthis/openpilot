@@ -32,6 +32,7 @@ class SubMaster:
 def test_commands_repeat_until_the_daemon_acknowledges_them():
   pm, sm = PubMaster(), SubMaster()
   client = CamcorderClient(pm, sm)
+  client._phase = "idle"
   with patch("openpilot.system.camcorder.client.acquire_camcorder"):
     assert client.start(WIDE, 123)
 
@@ -51,9 +52,19 @@ def test_commands_repeat_until_the_daemon_acknowledges_them():
   assert client.elapsed_s == 2.5
 
 
+def test_recording_cannot_start_before_preroll_is_ready():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  with patch("openpilot.system.camcorder.client.acquire_camcorder"):
+    client.set_warm(True, WIDE)
+    assert not client.start(WIDE, 123)
+  assert pm.messages == []
+
+
 def test_leaving_the_page_keeps_the_lease_until_stop_finishes():
   pm, sm = PubMaster(), SubMaster()
   client = CamcorderClient(pm, sm)
+  client._phase = "idle"
   clip = object()
   with (
     patch("openpilot.system.camcorder.client.acquire_camcorder") as acquire,
