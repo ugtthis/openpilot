@@ -6,6 +6,7 @@ from opendbc.car.structs import car
 from openpilot.common.params import Params
 from openpilot.common.hardware import PC, COMMA_HARDWARE
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
+from openpilot.system.camcorder_lease import camcorder_requested
 from openpilot.system.loggerd.encoder_lease import encoder_requested
 from openpilot.system.micd_lease import mic_requested
 
@@ -63,6 +64,9 @@ def camera_encoding(started: bool, params: Params, CP: car.CarParams) -> bool:
 def microphone_capture(started: bool, params: Params, CP: car.CarParams) -> bool:
   return iscar(started, params, CP) or mic_requested()
 
+def camcorder_capture(started: bool, params: Params, CP: car.CarParams) -> bool:
+  return camcorder_requested()
+
 def only_offroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return not started
 
@@ -89,6 +93,7 @@ procs = [
   PythonProcess("proclogd", "openpilot.system.proclogd", only_onroad, enabled=platform.system() != "Darwin"),
   PythonProcess("journald", "openpilot.system.journald", only_onroad, platform.system() != "Darwin"),
   PythonProcess("micd", "openpilot.system.micd", microphone_capture),
+  PythonProcess("camcorderd", "openpilot.system.camcorder.camcorderd", camcorder_capture),
   PythonProcess("timed", "openpilot.system.timed", always_run, enabled=not PC),
 
   PythonProcess("modeld", "openpilot.selfdrive.modeld.modeld", only_onroad),

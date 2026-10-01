@@ -15,6 +15,7 @@ from openpilot.common.hardware import HARDWARE
 from openpilot.system.manager.helpers import unblock_stdout, save_bootlog
 from openpilot.system.manager.process import ensure_running
 from openpilot.system.manager.process_config import managed_processes
+from openpilot.system.camcorder_lease import revoke_camcorder
 from openpilot.system.loggerd.encoder_lease import revoke_encoder
 from openpilot.system.micd_lease import revoke_mic
 from openpilot.system.athena.registration import register, UNREGISTERED_DONGLE_ID
@@ -103,7 +104,7 @@ def ignition_blocked_processes(started: bool, ignition: bool) -> list[str]:
   """Manager backstop preventing offroad leases from crossing ignition-on."""
   # Leases are an offroad convenience, never permission to keep camcorder-only
   # resources alive while an ignition-on device is waiting to start.
-  return ["encoderd", "micd"] if ignition and not started else []
+  return ["encoderd", "micd", "camcorderd"] if ignition and not started else []
 
 
 def manager_thread() -> None:
@@ -147,6 +148,7 @@ def manager_thread() -> None:
       # cannot keep them alive into this ignition cycle or the next offroad.
       revoke_encoder()
       revoke_mic()
+      revoke_camcorder()
 
     # update offroad state for services that don't subscribe to deviceState
     if started != started_prev:
