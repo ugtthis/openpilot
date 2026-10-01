@@ -2,15 +2,15 @@
 
 import threading
 import time
+from collections.abc import Callable
 
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
-from openpilot.selfdrive.ui.mici.layouts.camcorder_preroll import AudioPacket, HevcPacket, PreRoll
-from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
+from openpilot.system.camcorder.preroll import AudioPacket, HevcPacket, PreRoll
+from openpilot.system.camcorder.clip_storage import (
   AudioWriter, Clip, ClipWriter, extract_clip_rgb, preview_size,
 )
-from openpilot.selfdrive.ui.mici.layouts.hevc_writer import HevcWriter
-from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.system.camcorder.hevc_writer import HevcWriter
 from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_encoder
 from openpilot.system.micd_lease import acquire_mic, release_mic
 
@@ -27,7 +27,8 @@ _AUDIO_TAIL_TIMEOUT_S = 0.2
 
 
 class ClipRecorder:
-  def __init__(self):
+  def __init__(self, capture_allowed: Callable[[], bool] = lambda: True):
+    self._capture_allowed = capture_allowed
     self._preview_thread: threading.Thread | None = None
     self._hevc_thread: threading.Thread | None = None
     self._audio_thread: threading.Thread | None = None
@@ -65,7 +66,7 @@ class ClipRecorder:
 
     Spawning both on the shutter press cost every take its first ~0.7 s.
     """
-    warm = warm and not ui_state.ignition
+    warm = warm and self._capture_allowed()
     if warm != self._warm:
       self._warm = warm
       if warm:
@@ -86,7 +87,7 @@ class ClipRecorder:
   def start(self, stream_type: VisionStreamType) -> bool:
     # Recorder-level backstop: never acquire offroad capture processes based
     # only on the UI page being visible.
-    if ui_state.ignition or self.recording or not self._discard_stale():
+    if not self._capture_allowed() or self.recording or not self._discard_stale():
       return False
     self._stop.clear()
     self._preview_ready.clear()

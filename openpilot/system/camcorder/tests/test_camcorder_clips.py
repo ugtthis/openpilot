@@ -6,11 +6,11 @@ import numpy as np
 
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
-from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
+from openpilot.system.camcorder.clip_storage import (
   CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, ClipReader, ClipWriter, center_crop, delete_all_clips, delete_clip,
   extract_clip_rgb, format_timecode, list_clips, preview_size, scale_rgb,
 )
-from openpilot.selfdrive.ui.mici.layouts.hevc_writer import HevcWriter
+from openpilot.system.camcorder.hevc_writer import HevcWriter
 
 
 def _make_nv12(width: int, height: int, stride: int | None = None, y=128, u=128, v=128) -> tuple[np.ndarray, int, int]:

@@ -5,8 +5,8 @@ import pyray as rl
 from openpilot.cereal import log
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
-from openpilot.selfdrive.ui.mici.layouts.camcorder_recorder import ClipRecorder
-from openpilot.selfdrive.ui.mici.layouts.clip_storage import ClipWriter, center_crop, extract_clip_rgb, format_timecode
+from openpilot.system.camcorder.clip_storage import ClipWriter, center_crop, extract_clip_rgb, format_timecode
+from openpilot.system.camcorder.recorder import ClipRecorder
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   OSD_BACKGROUND, OSD_COLOR, RECORD_COLOR,
   camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, hit_name, split_rail,
@@ -305,7 +305,7 @@ class CamcorderView(CameraView):
   def __init__(self):
     super().__init__("camerad", WIDE)
     self._set_placeholder_color(rl.BLACK)
-    self._recorder = ClipRecorder()
+    self._recorder = ClipRecorder(lambda: not ui_state.ignition)
     self._photo_mode = False
     self._mode_pull = ModePullGesture()
     self._mode_pull_target_photo = True

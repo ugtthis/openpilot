@@ -21,7 +21,7 @@ import numpy as np
 
 from openpilot.common.hardware import PC
 from openpilot.common.hardware.hw import Paths
-from openpilot.selfdrive.ui.mici.layouts.hevc_writer import MasterInfo
+from openpilot.system.camcorder.hevc_writer import MasterInfo
 from openpilot.system.audio_utils import PCM_SAMPLE_BYTES
 
 # Must match camcorder_style.FEED_ASPECT so the take matches the live crop.

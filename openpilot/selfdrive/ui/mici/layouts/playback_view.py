@@ -5,7 +5,7 @@ import pyray as rl
 
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
-from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
+from openpilot.system.camcorder.clip_storage import (
   Clip, ClipReader, center_crop, delete_all_clips, delete_clip, format_timecode, list_clips, scale_rgb,
 )
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (

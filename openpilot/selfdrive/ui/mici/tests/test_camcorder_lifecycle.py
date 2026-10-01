@@ -8,11 +8,11 @@ from unittest.mock import patch
 
 from openpilot.cereal import log
 from openpilot.cereal.visionipc import VisionStreamType
-from openpilot.selfdrive.ui.mici.layouts.camcorder_preroll import _Run
-from openpilot.selfdrive.ui.mici.layouts.camcorder_recorder import ClipRecorder
 from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout, SwipeLeftPage, camcorder_available
 from openpilot.selfdrive.ui.ui_state import device, ui_state
+from openpilot.system.camcorder.preroll import _Run
+from openpilot.system.camcorder.recorder import ClipRecorder
 from openpilot.system.ui.widgets import Widget
 
 
@@ -131,12 +131,12 @@ def test_started_transition_keeps_delayed_navigation_fallback():
 
 
 def test_recorder_refuses_onroad_start_before_acquiring_leases():
-  recorder = ClipRecorder()
+  recorder = ClipRecorder(lambda: not ui_state.ignition)
   with (
     patch.object(ui_state, "ignition", True),
     patch.object(ui_state, "started", False),
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.acquire_encoder") as acquire_encoder,
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.acquire_mic") as acquire_mic,
+    patch("openpilot.system.camcorder.recorder.acquire_encoder") as acquire_encoder,
+    patch("openpilot.system.camcorder.recorder.acquire_mic") as acquire_mic,
   ):
     assert not recorder.start(VisionStreamType.VISION_STREAM_WIDE_ROAD)
 
@@ -158,9 +158,9 @@ def test_recorder_ignition_stop_releases_leases_before_waiting_for_threads():
   recorder._preview_thread = cast(Any, CaptureThread())
 
   with (
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.release_encoder",
+    patch("openpilot.system.camcorder.recorder.release_encoder",
           side_effect=lambda: events.append("encoder")),
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.release_mic",
+    patch("openpilot.system.camcorder.recorder.release_mic",
           side_effect=lambda: events.append("mic")),
   ):
     recorder.stop_async()
@@ -187,9 +187,9 @@ def test_recorder_normal_stop_releases_leases_after_waiting_for_threads():
   recorder._preview_thread = cast(Any, CaptureThread())
 
   with (
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.release_encoder",
+    patch("openpilot.system.camcorder.recorder.release_encoder",
           side_effect=lambda: assert_joined()),
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.release_mic",
+    patch("openpilot.system.camcorder.recorder.release_mic",
           side_effect=lambda: assert_joined()),
   ):
     def assert_joined():
@@ -215,8 +215,8 @@ def test_ignition_stop_still_saves_the_take():
   preview = recorder._preview
 
   with (
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.release_encoder"),
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.release_mic"),
+    patch("openpilot.system.camcorder.recorder.release_encoder"),
+    patch("openpilot.system.camcorder.recorder.release_mic"),
   ):
     recorder.stop_async()
     deadline = time.monotonic() + 2.0
@@ -230,11 +230,11 @@ def test_ignition_stop_still_saves_the_take():
 def test_async_stop_thread_failure_remains_fail_safe():
   recorder = ClipRecorder()
   with (
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.release_encoder") as release_encoder,
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.release_mic") as release_mic,
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.threading.Thread.start",
+    patch("openpilot.system.camcorder.recorder.release_encoder") as release_encoder,
+    patch("openpilot.system.camcorder.recorder.release_mic") as release_mic,
+    patch("openpilot.system.camcorder.recorder.threading.Thread.start",
           side_effect=RuntimeError("thread unavailable")),
-    patch("openpilot.selfdrive.ui.mici.layouts.camcorder_recorder.cloudlog.exception") as log_exception,
+    patch("openpilot.system.camcorder.recorder.cloudlog.exception") as log_exception,
   ):
     recorder.stop_async()
 
@@ -261,7 +261,7 @@ class _TakeThread:
 @contextmanager
 def _recorded_leases(ignition: bool = False):
   events: list[str] = []
-  recorder_module = "openpilot.selfdrive.ui.mici.layouts.camcorder_recorder"
+  recorder_module = "openpilot.system.camcorder.recorder"
   with (
     patch.object(ui_state, "ignition", ignition),
     patch(f"{recorder_module}.acquire_encoder", side_effect=lambda: events.append("acquire")),
@@ -284,7 +284,7 @@ class _FakePreRoll:
 
 
 def _warmable_recorder() -> ClipRecorder:
-  recorder = ClipRecorder()
+  recorder = ClipRecorder(lambda: not ui_state.ignition)
   recorder._preroll = cast(Any, _FakePreRoll())
   return recorder
 

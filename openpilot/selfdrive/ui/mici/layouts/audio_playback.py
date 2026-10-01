@@ -3,7 +3,7 @@ import threading
 import numpy as np
 
 from openpilot.common.swaglog import cloudlog
-from openpilot.selfdrive.ui.mici.layouts.clip_storage import Clip
+from openpilot.system.camcorder.clip_storage import Clip
 from openpilot.system.audio_utils import PCM_DTYPE, PCM_SAMPLE_BYTES, patch_sounddevice
 
 _CALLBACKS_PER_SECOND = 50

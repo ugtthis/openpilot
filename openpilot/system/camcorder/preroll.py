@@ -11,7 +11,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from openpilot.common.swaglog import cloudlog
-from openpilot.selfdrive.ui.mici.layouts.hevc_writer import V4L2_BUF_FLAG_KEYFRAME
+from openpilot.system.camcorder.hevc_writer import V4L2_BUF_FLAG_KEYFRAME
 
 # The keyframe before the press must survive until the take's writer exists,
 # which waits for the first preview frame.
