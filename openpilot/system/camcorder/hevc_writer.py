@@ -4,7 +4,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-from openpilot.system.camcorder.journal import read_json, write_json_atomic
+from openpilot.system.camcorder.journal import PeriodicSync, read_json, write_json_atomic
 
 # Same bit as openpilot/system/loggerd/encoder/encoder.h
 V4L2_BUF_FLAG_KEYFRAME = 8
@@ -37,6 +37,7 @@ class HevcWriter:
     self._info_path = clip_path / _INFO_FILENAME
     self._file = open(self._partial, "wb", buffering=0)
     self._index = open(self._index_path, "wb", buffering=0)
+    self._sync = PeriodicSync(self._file, self._index)
     self._started = False
     self._width = 0
     self._height = 0
@@ -80,10 +81,12 @@ class HevcWriter:
     self._width = width
     self._height = height
     self._frame_count += 1
+    self._sync.maybe_sync()
 
   def finalize(self) -> MasterInfo | None:
     self._file.truncate(self._last_complete_offset)
     self._index.truncate(self._frame_count * _INDEX.size)
+    self._sync.sync()
     self._close()
     if not self._started or self._frame_count == 0:
       self._cleanup()

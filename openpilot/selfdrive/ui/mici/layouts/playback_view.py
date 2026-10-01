@@ -137,7 +137,8 @@ class ClipRow(Widget):
                                alignment=TextAlignment.LEFT,
                                alignment_vertical=TextAlignmentVertical.BOTTOM)
     detail = "photo" if clip.is_photo else clip.duration_label
-    self._meta = UnifiedLabel(f"{detail}  {clip.camera}", ROW_META_SIZE, FontWeight.ROMAN,
+    recovered = "  Recovered" if clip.recovered else ""
+    self._meta = UnifiedLabel(f"{detail}  {clip.camera}{recovered}", ROW_META_SIZE, FontWeight.ROMAN,
                               text_color=OSD_COLOR,
                               alignment=TextAlignment.LEFT,
                               alignment_vertical=TextAlignmentVertical.TOP)

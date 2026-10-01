@@ -21,7 +21,7 @@ import numpy as np
 
 from openpilot.common.hardware import PC
 from openpilot.common.hardware.hw import Paths
-from openpilot.system.camcorder.journal import read_json, write_json_atomic
+from openpilot.system.camcorder.journal import PeriodicSync, read_json, write_json_atomic
 from openpilot.system.camcorder.hevc_writer import MasterInfo, cleanup_hevc_journal, recover_hevc
 from openpilot.system.audio_utils import PCM_SAMPLE_BYTES
 
@@ -113,6 +113,8 @@ class Clip:
   audio_device_name: str = ""
   audio_overflow_count: int = 0
   audio_error: str = ""
+  recovered: bool = False
+  recovery_error: str = ""
 
   @property
   def time_label(self) -> str:
@@ -159,6 +161,7 @@ class AudioWriter:
     self._partial = clip_path / _AUDIO_PARTIAL
     self._info_path = clip_path / _AUDIO_INFO
     self._file = open(self._partial, "wb", buffering=0)
+    self._sync = PeriodicSync(self._file)
     self._sample_rate = 0
     self._channels = 1
     self._frame_count = 0
@@ -182,11 +185,7 @@ class AudioWriter:
       self._sample_rate = sample_rate
       self._channels = channels
       self._first_log_mono_ns = log_mono_ns
-      write_json_atomic(self._info_path, {
-        "sample_rate": sample_rate,
-        "channels": channels,
-        "first_log_mono_ns": log_mono_ns,
-      })
+      self._write_info()
     elif log_mono_ns - self._end_ns > _AUDIO_GAP_TOLERANCE_NS:
       # Compare against the previous block, not the nominal rate: mic clocks are
       # off by hundreds of ppm, which is drift for the exporter, not lost audio.
@@ -194,6 +193,8 @@ class AudioWriter:
     self._file.write(data)
     self._frame_count += frames
     self._end_ns = log_mono_ns + frames * 1_000_000_000 // sample_rate
+    if self._sync.maybe_sync():
+      self._write_info()
 
   def _write_silence(self, frames: int) -> None:
     frame_size = PCM_SAMPLE_BYTES * self._channels
@@ -219,6 +220,8 @@ class AudioWriter:
   def finalize(self) -> AudioInfo | None:
     if self._sample_rate:
       self._file.truncate(self._frame_count * PCM_SAMPLE_BYTES * self._channels)
+      self._sync.sync()
+      self._write_info()
     self._file.close()
     if self._frame_count <= 0:
       self._partial.unlink(missing_ok=True)
@@ -240,6 +243,14 @@ class AudioWriter:
       return float(self._sample_rate)
     return measured
 
+  def _write_info(self) -> None:
+    write_json_atomic(self._info_path, {
+      "sample_rate": self._sample_rate,
+      "measured_sample_rate": self._measured_sample_rate(),
+      "channels": self._channels,
+      "first_log_mono_ns": self._first_log_mono_ns,
+    })
+
   def abort(self) -> None:
     if not self._file.closed:
       self._file.close()
@@ -260,6 +271,7 @@ def recover_audio(clip_path: Path) -> AudioInfo | None:
     sample_rate = int(info["sample_rate"])
     channels = int(info["channels"])
     first_log_mono_ns = int(info["first_log_mono_ns"])
+    measured_sample_rate = float(info.get("measured_sample_rate") or sample_rate)
     if sample_rate <= 0 or channels <= 0:
       return None
     frame_size = PCM_SAMPLE_BYTES * channels
@@ -271,7 +283,7 @@ def recover_audio(clip_path: Path) -> AudioInfo | None:
     if source == partial:
       partial.replace(output)
     return AudioInfo(output.name, sample_rate, channels, frame_count, first_log_mono_ns,
-                     error="recording was interrupted", measured_sample_rate=float(sample_rate))
+                     error="recording was interrupted", measured_sample_rate=measured_sample_rate)
   except (KeyError, OSError, TypeError, ValueError):
     return None
   finally:
@@ -391,6 +403,7 @@ class ClipWriter:
     try:
       self._frames = open(self.path / _FRAMES_BIN, "wb", buffering=0)
       self._index = open(self.path / _INDEX_BIN, "wb", buffering=0)
+      self._sync = PeriodicSync(self._frames, self._index)
       self._write_meta("recording")
     except OSError:
       self._close_files()
@@ -410,12 +423,15 @@ class ClipWriter:
     self._last_complete_offset = self._frames.tell()
     self.frame_count += 1
     self._last_t_ms = t_ms
+    self._sync.maybe_sync()
 
   def finalize(self, master: MasterInfo | None = None, audio: AudioInfo | None = None) -> Clip | None:
     if self._frames is not None:
       self._frames.truncate(self._last_complete_offset)
     if self._index is not None:
       self._index.truncate(self.frame_count * _INDEX.size)
+    if self._frames is not None and self._index is not None:
+      self._sync.sync()
     self._close_files()
     if self.frame_count <= 0:
       self.abort()
@@ -513,6 +529,8 @@ def load_clip(path: Path) -> Clip | None:
       audio_device_name=str(meta.get("audio_device_name", "")),
       audio_overflow_count=int(meta.get("audio_overflow_count", 0)),
       audio_error=str(meta.get("audio_error", "")),
+      recovered=bool(meta.get("recovered", False)),
+      recovery_error=str(meta.get("recovery_error", "")),
     )
   except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError):
     return None

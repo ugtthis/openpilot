@@ -317,6 +317,8 @@ class TestCamcorderClips(OpenpilotTestCase):
 
     audio_writer = AudioWriter(writer.path)
     audio_writer.add_packet(np.arange(10, dtype=np.int16).tobytes(), 100, 1_000_000_000)
+    audio_writer._sync._last_sync = 0.0
+    audio_writer.add_packet(np.arange(10, dtype=np.int16).tobytes(), 100, 1_099_000_000)
 
     # Emulate a killed process and torn writes after the last journaled units.
     writer._close_files()
@@ -335,10 +337,12 @@ class TestCamcorderClips(OpenpilotTestCase):
     clip = recovered[0]
     assert clip.frame_count == 1
     assert clip.native_frame_count == 2
-    assert clip.audio_frame_count == 10
+    assert clip.audio_frame_count == 20
+    assert clip.audio_measured_sample_rate > clip.audio_sample_rate
     assert clip.audio_error == "recording was interrupted"
+    assert clip.recovered and clip.recovery_error == "recording was interrupted"
     assert (clip.path / "video.hevc").read_bytes() == b"headerkeydelta"
-    assert (clip.path / "audio.s16le").stat().st_size == 20
+    assert (clip.path / "audio.s16le").stat().st_size == 40
     meta = json.loads((clip.path / "clip.json").read_text())
     assert meta["status"] == "ready" and meta["recovered"]
 
