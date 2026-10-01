@@ -352,7 +352,7 @@ class CamcorderView(CameraView):
     return camcorder_available(bool(ui_state.is_body), ui_state.ignition, ui_state.panda_type)
 
   def set_warm(self, on_screen: bool) -> None:
-    self._recorder.set_warm(on_screen and self._capture_allowed())
+    self._recorder.set_warm(on_screen and self._capture_allowed(), self.stream_type)
 
   def on_ignition_transition(self) -> None:
     if not ui_state.ignition:

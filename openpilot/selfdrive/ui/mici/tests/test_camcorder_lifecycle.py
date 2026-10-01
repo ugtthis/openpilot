@@ -1,11 +1,14 @@
 import time
 from contextlib import contextmanager
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
 from openpilot.cereal import log
 from openpilot.cereal.visionipc import VisionStreamType
+from openpilot.selfdrive.ui.mici.layouts.camcorder_preroll import _Run
 from openpilot.selfdrive.ui.mici.layouts.camcorder_recorder import ClipRecorder
 from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout, SwipeLeftPage, camcorder_available
@@ -269,25 +272,46 @@ def _recorded_leases(ignition: bool = False):
     yield events
 
 
-def test_warm_camcorder_holds_leases_across_a_take():
+class _FakePreRoll:
+  def __init__(self):
+    self.service: str | None = None
+
+  def start(self, service):
+    self.service = service
+
+  def stop(self):
+    self.service = None
+
+
+def _warmable_recorder() -> ClipRecorder:
   recorder = ClipRecorder()
+  recorder._preroll = cast(Any, _FakePreRoll())
+  return recorder
+
+
+WIDE = VisionStreamType.VISION_STREAM_WIDE_ROAD
+CABIN = VisionStreamType.VISION_STREAM_CABIN
+
+
+def test_warm_camcorder_holds_leases_across_a_take():
+  recorder = _warmable_recorder()
   with _recorded_leases() as events:
-    recorder.set_warm(True)
-    recorder.set_warm(True)
+    recorder.set_warm(True, WIDE)
+    recorder.set_warm(True, WIDE)
     recorder._preview_thread = cast(Any, _TakeThread())
     recorder.stop()
     assert events == ["acquire", "acquire mic"]
 
-    recorder.set_warm(False)
+    recorder.set_warm(False, WIDE)
   assert events == ["acquire", "acquire mic", "release", "release mic"]
 
 
 def test_leaving_the_camcorder_mid_take_keeps_leases_until_stop():
-  recorder = ClipRecorder()
+  recorder = _warmable_recorder()
   with _recorded_leases() as events:
-    recorder.set_warm(True)
+    recorder.set_warm(True, WIDE)
     recorder._preview_thread = cast(Any, _TakeThread())
-    recorder.set_warm(False)
+    recorder.set_warm(False, WIDE)
     assert events == ["acquire", "acquire mic"]
 
     recorder.stop()
@@ -295,21 +319,111 @@ def test_leaving_the_camcorder_mid_take_keeps_leases_until_stop():
 
 
 def test_camcorder_does_not_warm_up_with_ignition_on():
-  recorder = ClipRecorder()
+  recorder = _warmable_recorder()
   with _recorded_leases(ignition=True) as events:
-    recorder.set_warm(True)
+    recorder.set_warm(True, WIDE)
   assert events == []
+  assert recorder._preroll.service is None
+
+
+def test_preroll_follows_the_camera_and_pauses_for_takes():
+  recorder = _warmable_recorder()
+  preroll = recorder._preroll
+  with _recorded_leases():
+    recorder.set_warm(True, WIDE)
+    assert preroll.service == "wideRoadEncodeData"
+    recorder.set_warm(True, CABIN)
+    assert preroll.service == "cabinEncodeData"
+
+    preroll.stop()  # a take hands the pre-roll over at its first preview frame
+    recorder._preview_thread = cast(Any, _TakeThread())
+    recorder.set_warm(True, CABIN)
+    assert preroll.service is None
+
+    recorder.stop()
+    recorder.set_warm(True, CABIN)
+    assert preroll.service == "cabinEncodeData"
+    recorder.set_warm(False, CABIN)
+  assert preroll.service is None
 
 
 def test_ignition_stop_releases_warm_leases():
-  recorder = ClipRecorder()
+  recorder = _warmable_recorder()
   with _recorded_leases() as events:
-    recorder.set_warm(True)
+    recorder.set_warm(True, WIDE)
     recorder.stop_async()
     deadline = time.monotonic() + 2.0
     while recorder._finalizing.is_set() and time.monotonic() < deadline:
       time.sleep(0.01)
   assert events == ["acquire", "acquire mic", "release", "release mic"]
+  assert recorder._preroll.service is None
+
+
+def _encoded(timestamp_ms: int, keyframe: bool = False):
+  return SimpleNamespace(header=b"H" if keyframe else b"", data=b"%d" % timestamp_ms, width=1344, height=760,
+                         idx=SimpleNamespace(flags=8 if keyframe else 0, timestampEof=timestamp_ms * 1_000_000))
+
+
+def _audio_message(stamp_ms: int):
+  return SimpleNamespace(rawAudioData=SimpleNamespace(data=b"\1\0" * 5, sampleRate=100), logMonoTime=stamp_ms * 1_000_000)
+
+
+def test_preroll_starts_at_the_keyframe_before_the_press():
+  run = _Run("wideRoadEncodeData")
+  for timestamp_ms in range(0, 3000, 50):
+    run.add_video(_encoded(timestamp_ms, keyframe=timestamp_ms % 1000 == 0))
+    run.add_audio(_audio_message(timestamp_ms + 50))
+
+  video, audio = run.take(press_ns=2_400_000_000)
+
+  assert video[0].keyframe and video[0].timestamp_ns == 2_000_000_000
+  assert video[-1].timestamp_ns == 2_950_000_000
+  assert audio[0].log_mono_ns == 2_050_000_000
+
+
+def test_preroll_is_bounded():
+  run = _Run("wideRoadEncodeData")
+  for timestamp_ms in range(0, 10_000, 50):
+    run.add_video(_encoded(timestamp_ms, keyframe=timestamp_ms % 1000 == 0))
+    run.add_audio(_audio_message(timestamp_ms))
+
+  assert len(run.gops) == 3
+  assert run.gops[0][0].timestamp_ns == 7_000_000_000
+  assert run.audio[0].log_mono_ns >= 4_950_000_000
+
+
+def test_preroll_without_an_earlier_keyframe_starts_at_the_first_one():
+  run = _Run("wideRoadEncodeData")
+  run.add_video(_encoded(900))  # mid-GOP frame before any keyframe is dropped
+  run.add_video(_encoded(1000, keyframe=True))
+
+  video, _ = run.take(press_ns=500_000_000)
+
+  assert [packet.timestamp_ns for packet in video] == [1_000_000_000]
+
+
+def test_take_writes_preroll_then_skips_what_its_own_sockets_repeat():
+  run = _Run("wideRoadEncodeData")
+  for timestamp_ms in (1000, 1050, 1100):
+    run.add_video(_encoded(timestamp_ms, keyframe=timestamp_ms == 1000))
+    run.add_audio(_audio_message(timestamp_ms))
+
+  with TemporaryDirectory() as directory:
+    recorder = ClipRecorder()
+    recorder._preview = cast(Any, SimpleNamespace(path=Path(directory)))
+    recorder._preroll_video, recorder._preroll_audio = run.take(press_ns=1_060_000_000)
+
+    recorder._write_hevc([_encoded(1050), _encoded(1100), _encoded(1150)])
+    recorder._write_audio([_audio_message(1100), _audio_message(1150)])
+    assert recorder._hevc is not None and recorder._audio is not None
+    master = recorder._hevc.finalize()
+    audio = recorder._audio.finalize()
+
+    assert master is not None and audio is not None
+    assert (master.first_timestamp_ns, master.frame_count) == (1_000_000_000, 4)
+    assert (Path(directory) / "video.hevc").read_bytes() == b"H1000" + b"1050" + b"1100" + b"1150"
+    # The packet stamped 1000 ends where the video starts, so audio begins with the next one.
+    assert (audio.first_log_mono_ns, audio.frame_count) == (1_050_000_000, 15)
 
 
 def test_camcorder_warms_up_only_while_settled_on_screen():

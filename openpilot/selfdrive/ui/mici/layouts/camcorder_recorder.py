@@ -5,6 +5,7 @@ import time
 
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
+from openpilot.selfdrive.ui.mici.layouts.camcorder_preroll import AudioPacket, HevcPacket, PreRoll
 from openpilot.selfdrive.ui.mici.layouts.clip_storage import (
   AudioWriter, Clip, ClipWriter, extract_clip_rgb, preview_size,
 )
@@ -42,6 +43,12 @@ class ClipRecorder:
     self._lock = threading.Lock()
     self._stop_lock = threading.Lock()
     self._warm = False
+    self._preroll = PreRoll()
+    self._preroll_video: list[HevcPacket] = []
+    self._preroll_audio: list[AudioPacket] = []
+    # Newest pre-roll timestamp written; the take's own sockets repeat earlier packets.
+    self._hevc_after_ns = 0
+    self._audio_after_ns = 0
 
   @property
   def recording(self) -> bool:
@@ -53,25 +60,28 @@ class ClipRecorder:
       return 0.0
     return max(0.0, time.monotonic() - self._started_mono)
 
-  def set_warm(self, warm: bool) -> None:
-    """Keep encoderd and micd running while the camcorder is on screen.
+  def set_warm(self, warm: bool, stream_type: VisionStreamType) -> None:
+    """Keep encoderd and micd running, with a pre-roll, while the camcorder is on screen.
 
     Spawning both on the shutter press cost every take its first ~0.7 s.
     """
     warm = warm and not ui_state.ignition
-    if warm == self._warm:
-      return
-    self._warm = warm
-    if warm:
-      try:
-        acquire_encoder()
-        acquire_mic()
-      except OSError:
-        self._warm = False
+    if warm != self._warm:
+      self._warm = warm
+      if warm:
+        try:
+          acquire_encoder()
+          acquire_mic()
+        except OSError:
+          self._warm = False
+          self._release_leases()
+          cloudlog.exception("camcorder could not warm up recording services")
+      elif not self.recording:
         self._release_leases()
-        cloudlog.exception("camcorder could not warm up recording services")
+    if not self._warm:
+      self._preroll.stop()
     elif not self.recording:
-      self._release_leases()
+      self._preroll.start(_ENCODE_SERVICES[stream_type])
 
   def start(self, stream_type: VisionStreamType) -> bool:
     # Recorder-level backstop: never acquire offroad capture processes based
@@ -81,6 +91,10 @@ class ClipRecorder:
     self._stop.clear()
     self._preview_ready.clear()
     self._stop_mono_ns = 0
+    self._preroll_video = []
+    self._preroll_audio = []
+    self._hevc_after_ns = 0
+    self._audio_after_ns = 0
     self._stream_type = stream_type
     self._started_mono = time.monotonic()
     try:
@@ -126,6 +140,7 @@ class ClipRecorder:
     self._stop_mono_ns = time.monotonic_ns()
     self._stop.set()
     self._warm = False
+    self._preroll.stop()
     self._release_leases()
     self._finalizing.set()
     try:
@@ -197,10 +212,13 @@ class ClipRecorder:
           continue
         with self._lock:
           if self._preview is None:
+            press_ns = int(self._started_mono * 1e9)
+            # Overlaps the take's own subscriptions, which began at the press.
+            self._preroll_video, self._preroll_audio = self._preroll.take(press_ns)
             width, height = preview_size(buf.width, buf.height)
             self._preview = ClipWriter(_STREAM_NAMES.get(self._stream_type, "wide"),
                                        width, height, preview_contains_full_frame=True,
-                                       recording_start_mono_ns=int(self._started_mono * 1e9))
+                                       recording_start_mono_ns=press_ns)
             self._preview_ready.set()
           preview = self._preview
         rgb = extract_clip_rgb(buf.data, buf.width, buf.height, buf.stride, buf.uv_offset,
@@ -228,17 +246,25 @@ class ClipRecorder:
         if not messages:
           self._stop.wait(0.01)
           continue
-        with self._lock:
-          if self._preview is None:
-            continue
-          if self._hevc is None:
-            self._hevc = HevcWriter(self._preview.path)
-          hevc = self._hevc
-        for event in messages:
-          hevc.add_encoded(getattr(event, service))
+        self._write_hevc([getattr(event, service) for event in messages])
     except Exception:
       # Keep the RGB preview even if the native master is incomplete.
       cloudlog.exception("camcorder native recorder failed")
+
+  def _write_hevc(self, encoded_frames) -> None:
+    with self._lock:
+      if self._preview is None:
+        return
+      if self._hevc is None:
+        self._hevc = HevcWriter(self._preview.path)
+        for packet in self._preroll_video:
+          self._hevc.add_packet(packet.header, packet.data, packet.keyframe,
+                                packet.width, packet.height, packet.timestamp_ns)
+          self._hevc_after_ns = packet.timestamp_ns
+      hevc = self._hevc
+    for encoded in encoded_frames:
+      if encoded.idx.timestampEof > self._hevc_after_ns:
+        hevc.add_encoded(encoded)
 
   def _capture_audio(self):
     from openpilot.cereal import messaging
@@ -268,11 +294,15 @@ class ClipRecorder:
         return 0
       if self._audio is None:
         self._audio = AudioWriter(self._preview.path)
+        for packet in self._preroll_audio:
+          self._audio.add_packet(packet.data, packet.sample_rate, packet.log_mono_ns)
+          self._audio_after_ns = packet.log_mono_ns
       audio = self._audio
     for event in messages:
-      audio.add_packet(bytes(event.rawAudioData.data),
-                       int(event.rawAudioData.sampleRate),
-                       int(event.logMonoTime))
+      if event.logMonoTime > self._audio_after_ns:
+        audio.add_packet(bytes(event.rawAudioData.data),
+                         int(event.rawAudioData.sampleRate),
+                         int(event.logMonoTime))
     return int(messages[-1].logMonoTime)
 
   def _drain_audio_tail(self, sock) -> None:
