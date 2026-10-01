@@ -21,6 +21,9 @@ class FakeRecorder:
   def set_warm(self, warm, stream_type):
     pass
 
+  def poll(self):
+    pass
+
   def start(self, stream_type, request_mono_ns):
     self.starts.append((stream_type, request_mono_ns))
     self.recording = True

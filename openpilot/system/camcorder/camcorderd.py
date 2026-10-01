@@ -61,6 +61,8 @@ class CamcorderDaemon:
       cloudlog.exception("camcorder command failed")
 
   def update(self) -> None:
+    if self.phase == "recording":
+      self.recorder.poll()
     if self.phase == "recording" and self.recorder.capture_error:
       self._finish_recording()
       return
