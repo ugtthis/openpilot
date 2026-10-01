@@ -155,6 +155,7 @@ class AudioWriter:
     self._channels = 1
     self._frame_count = 0
     self._first_log_mono_ns = 0
+    self._end_ns = 0
     self._gap_count = 0
     self._gap_frame_count = 0
 
@@ -173,22 +174,13 @@ class AudioWriter:
       self._sample_rate = sample_rate
       self._channels = channels
       self._first_log_mono_ns = log_mono_ns
-    else:
-      self._fill_gap(log_mono_ns, frames)
+    elif log_mono_ns - self._end_ns > _AUDIO_GAP_TOLERANCE_NS:
+      # Compare against the previous block, not the nominal rate: mic clocks are
+      # off by hundreds of ppm, which is drift for the exporter, not lost audio.
+      self.pad_to(log_mono_ns)
     self._file.write(data)
     self._frame_count += frames
-
-  def _fill_gap(self, log_mono_ns: int, frames: int) -> None:
-    # Direct-capture packets are stamped at their first ADC sample.
-    expected_ns = self._first_log_mono_ns + self._frame_count * 1_000_000_000 // self._sample_rate
-    late_ns = log_mono_ns - expected_ns
-    if late_ns <= _AUDIO_GAP_TOLERANCE_NS:
-      return
-    missing = late_ns * self._sample_rate // 1_000_000_000
-    self._write_silence(missing)
-    self._frame_count += missing
-    self._gap_count += 1
-    self._gap_frame_count += missing
+    self._end_ns = log_mono_ns + frames * 1_000_000_000 // sample_rate
 
   def _write_silence(self, frames: int) -> None:
     frame_size = PCM_SAMPLE_BYTES * self._channels
@@ -202,12 +194,12 @@ class AudioWriter:
   def pad_to(self, end_ns: int) -> None:
     if not self._sample_rate:
       return
-    written_end_ns = self._first_log_mono_ns + self._frame_count * 1_000_000_000 // self._sample_rate
-    missing = max(0, (end_ns - written_end_ns) * self._sample_rate // 1_000_000_000)
+    missing = max(0, (end_ns - self._end_ns) * self._sample_rate // 1_000_000_000)
     if not missing:
       return
     self._write_silence(missing)
     self._frame_count += missing
+    self._end_ns = end_ns
     self._gap_count += 1
     self._gap_frame_count += missing
 

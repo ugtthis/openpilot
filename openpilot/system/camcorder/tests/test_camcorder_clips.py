@@ -214,6 +214,18 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert audio.frame_count == 20
     writer.abort()
 
+  def test_audio_writer_treats_slow_mic_clock_as_drift_not_gaps(self):
+    writer = ClipWriter("wide")
+    audio_writer = AudioWriter(writer.path)
+    packet = np.ones(5, dtype=np.int16).tobytes()
+    # Each 50 ms block arrives 1 ms late: 2% slow, 20 ms behind after 20 blocks.
+    for i in range(20):
+      audio_writer.add_packet(packet, sample_rate=100, log_mono_ns=i * 51_000_000)
+    audio = audio_writer.finalize()
+    assert audio is not None
+    assert (audio.frame_count, audio.gap_count) == (100, 0)
+    writer.abort()
+
   def test_audio_playback_sync_and_mute(self):
     writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
