@@ -184,29 +184,29 @@ class TestCamcorderClips(OpenpilotTestCase):
     writer = ClipWriter("wide")
     audio_writer = AudioWriter(writer.path)
     packet = np.ones(5, dtype=np.int16).tobytes()
-    audio_writer.add_packet(packet, sample_rate=10, log_mono_ns=500_000_000)
-    audio_writer.add_packet(packet, sample_rate=10, log_mono_ns=1_000_000_000)
-    # Three packets (1.5 s) never arrived.
-    audio_writer.add_packet(packet, sample_rate=10, log_mono_ns=3_000_000_000)
+    audio_writer.add_packet(packet, sample_rate=100, log_mono_ns=0)
+    audio_writer.add_packet(packet, sample_rate=100, log_mono_ns=50_000_000)
+    # The 50 ms packet starting at 100 ms never arrived.
+    audio_writer.add_packet(packet, sample_rate=100, log_mono_ns=150_000_000)
     audio = audio_writer.finalize()
     assert audio is not None
-    assert audio.frame_count == 30
-    assert (audio.gap_count, audio.gap_frame_count) == (1, 15)
+    assert audio.frame_count == 20
+    assert (audio.gap_count, audio.gap_frame_count) == (1, 5)
     samples = np.fromfile(writer.path / audio.filename, dtype=np.int16)
-    np.testing.assert_array_equal(samples, [1] * 10 + [0] * 15 + [1] * 5)
+    np.testing.assert_array_equal(samples, [1] * 10 + [0] * 5 + [1] * 5)
 
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
     clip = writer.finalize(audio=audio)
     assert clip is not None
     meta = json.loads((clip.path / "clip.json").read_text())
-    assert (meta["audio_gap_count"], meta["audio_gap_frame_count"]) == (1, 15)
+    assert (meta["audio_gap_count"], meta["audio_gap_frame_count"]) == (1, 5)
 
   def test_audio_writer_ignores_send_jitter(self):
     writer = ClipWriter("wide")
     audio_writer = AudioWriter(writer.path)
     packet = np.ones(5, dtype=np.int16).tobytes()
-    for log_mono_ns in (500_000_000, 1_150_000_000, 1_400_000_000, 2_000_000_000):
-      audio_writer.add_packet(packet, sample_rate=10, log_mono_ns=log_mono_ns)
+    for log_mono_ns in (0, 52_000_000, 99_000_000, 151_000_000):
+      audio_writer.add_packet(packet, sample_rate=100, log_mono_ns=log_mono_ns)
     audio = audio_writer.finalize()
     assert audio is not None
     assert audio.frame_count == 20

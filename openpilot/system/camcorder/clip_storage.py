@@ -38,9 +38,9 @@ _FRAMES_BIN = "frames.bin"
 _INDEX_BIN = "index.bin"
 _AUDIO_PCM = "audio.s16le"
 _AUDIO_PARTIAL = "audio.s16le.partial"
-# A packet stamped this much later than its samples predict means earlier
-# packets were lost before we read them. Smaller slips are send jitter.
-_AUDIO_GAP_TOLERANCE_NS = 200_000_000
+# ADC-start timestamps do not include process scheduling jitter. Allow small
+# hardware-clock noise, but detect even one missing 50 ms capture block.
+_AUDIO_GAP_TOLERANCE_NS = 10_000_000
 
 
 def clips_root() -> Path:
