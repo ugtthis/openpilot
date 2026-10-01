@@ -1,5 +1,6 @@
 import contextlib
 import sys
+import threading
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -11,9 +12,10 @@ from openpilot.system.camcorder.mic import CamcorderMic, MicPacket, adc_start_ns
 
 
 class SoundDevice:
-  def __init__(self, devices, default=(0, None)):
+  def __init__(self, devices, default=(0, None), silent=False):
     self._devices = devices
     self.default = SimpleNamespace(device=default)
+    self.silent = silent
 
   def query_devices(self):
     return self._devices
@@ -24,8 +26,28 @@ class SoundDevice:
   def _initialize(self):
     pass
 
-  def InputStream(self, **kwargs):
-    return contextlib.nullcontext()  # never calls back, like an unplugged ALSA device
+  def InputStream(self, callback, channels, **kwargs):
+    if self.silent:
+      return contextlib.nullcontext()  # never calls back, like an unplugged ALSA device
+    return LiveStream(callback, channels)
+
+
+class LiveStream:
+  def __init__(self, callback, channels):
+    self._callback = callback
+    self._channels = channels
+    self._closed = threading.Event()
+
+  def __enter__(self):
+    threading.Thread(target=self._run, daemon=True).start()
+
+  def __exit__(self, *args):
+    self._closed.set()
+
+  def _run(self):
+    while not self._closed.wait(0.01):
+      self._callback(np.zeros((5, self._channels), dtype="<i2"), 5,
+                     SimpleNamespace(currentTime=1.0, inputBufferAdcTime=0.99), None)
 
 
 def device(name, channels, rate):
@@ -107,7 +129,7 @@ def test_unplugged_mic_pads_silence_to_the_stop_time_and_marks_the_error():
 
 
 def test_stalled_stream_fails_so_the_mic_can_restart(monkeypatch):
-  monkeypatch.setitem(sys.modules, "sounddevice", SoundDevice([device("DJI USB Audio", 2, 48000)]))
+  monkeypatch.setitem(sys.modules, "sounddevice", SoundDevice([device("DJI USB Audio", 2, 48000)], silent=True))
   monkeypatch.setattr(mic_module, "STALL_TIMEOUT_S", 0.1)
   mic = CamcorderMic()
   mic.start()
@@ -116,6 +138,22 @@ def test_stalled_stream_fails_so_the_mic_can_restart(monkeypatch):
 
   assert not mic.running and not mic.ready
   assert mic.error == "microphone stream stalled"
+
+
+def test_plugging_in_usb_audio_reselects_the_input_between_takes(monkeypatch):
+  usb = threading.Event()
+  monkeypatch.setitem(sys.modules, "sounddevice", SoundDevice([device("Built-in Mic", 1, 16000)]))
+  monkeypatch.setattr(mic_module, "usb_audio_present", usb.is_set)
+  mic = CamcorderMic()
+  mic.start()
+  assert mic._thread is not None
+  usb.set()
+  mic._thread.join(timeout=2.0)
+
+  assert not mic.running and mic.error == ""
+  mic.start()  # immediate, without the failure backoff
+  assert mic.running
+  mic.stop()
 
 
 def test_builtin_capture_drops_hardware_channels_that_are_exactly_silent():

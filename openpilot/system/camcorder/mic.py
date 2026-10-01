@@ -19,6 +19,7 @@ PREROLL_NS = 5_000_000_000
 STOP_TIMEOUT_S = 1.0
 STALL_TIMEOUT_S = 1.0
 USB_AUDIO_NAME = "usb audio"
+ASOUND_CARDS = Path("/proc/asound/cards")
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,14 @@ def select_input_device(sd) -> MicDevice:
   if sample_rate <= 0 or channels <= 0:
     raise RuntimeError("microphone has an invalid native format")
   return MicDevice(index, str(device["name"]), sample_rate, channels)
+
+
+def usb_audio_present() -> bool:
+  # The kernel card list is live; PortAudio's device list is cached until re-init.
+  try:
+    return "USB-Audio" in ASOUND_CARDS.read_text()
+  except OSError:
+    return False
 
 
 def adc_start_ns(time_info, frames: int, sample_rate: int, now_ns: int | None = None,
@@ -162,6 +171,7 @@ class CamcorderMic:
     try:
       sd._terminate()
       sd._initialize()
+      usb_present = usb_audio_present()
       device = select_input_device(sd)
       self.device_name = device.name
       self.sample_rate = device.sample_rate
@@ -199,6 +209,10 @@ class CamcorderMic:
             continue
           last_packet = time.monotonic()
           self._handle(packet)
+          # Switch mics only between takes; a clip keeps one device and format.
+          if self._writer is None and usb_audio_present() != usb_present:
+            cloudlog.info("camcorder mic hot-plugged, reselecting input")
+            break
         while not self._packets.empty():
           self._handle(self._packets.get())
     except Exception as exc:
