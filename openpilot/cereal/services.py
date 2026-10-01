@@ -77,6 +77,8 @@ _services: dict[str, tuple] = {
   "soundPressure": (True, 10., 10),
   "rawAudioData": (False, 20.),
   "bookmarkButton": (True, 0., 1),
+  "camcorderControl": (False, 0.),
+  "camcorderState": (False, 10.),
   "narrowRoadEncodeData": (False, 20., None, QueueSize.BIG),
   "cabinEncodeData": (False, 20., None, QueueSize.BIG),
   "wideRoadEncodeData": (False, 20., None, QueueSize.BIG),

@@ -10,10 +10,43 @@ $Cxx.namespace("cereal");
 # DO rename the structs
 # DON'T change the identifier (e.g. @0x81c2f05a394cf4af)
 
-struct CustomReserved0 @0x81c2f05a394cf4af {
+struct CamcorderControl @0x81c2f05a394cf4af {
+  sequence @0 :UInt32;
+  action @1 :Action;
+  stream @2 :Stream;
+  requestMonoTime @3 :UInt64;
+
+  enum Action {
+    idle @0;
+    start @1;
+    stop @2;
+  }
+
+  enum Stream {
+    wideRoad @0;
+    cabin @1;
+  }
 }
 
-struct CustomReserved1 @0xaedffd8f31e7b55d {
+struct CamcorderState @0xaedffd8f31e7b55d {
+  sequence @0 :UInt32;
+  phase @1 :Phase;
+  clipId @2 :Text;
+  error @3 :Text;
+  elapsedS @4 :Float32;
+  audioSampleRate @5 :UInt32;
+  audioChannels @6 :UInt16;
+  audioGapCount @7 :UInt32;
+  audioGapFrameCount @8 :UInt64;
+  micName @9 :Text;
+
+  enum Phase {
+    idle @0;
+    warming @1;
+    recording @2;
+    finalizing @3;
+    failed @4;
+  }
 }
 
 struct CustomReserved2 @0xf35cc4560bbf6ec2 {
