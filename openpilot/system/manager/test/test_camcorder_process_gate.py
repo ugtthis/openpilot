@@ -12,11 +12,10 @@ def test_offroad_leases_request_capture_processes():
   params = Params()
   with (
     patch("openpilot.system.manager.process_config.encoder_requested", return_value=True),
-    patch("openpilot.system.manager.process_config.mic_requested", return_value=True),
     patch("openpilot.system.manager.process_config.camcorder_requested", return_value=True),
   ):
     assert camera_encoding(False, params, CP)
-    assert microphone_capture(False, params, CP)
+    assert not microphone_capture(False, params, CP)
     assert camcorder_capture(False, params, CP)
   assert ignition_blocked_processes(started=False, ignition=False) == []
 
@@ -31,7 +30,6 @@ def test_started_uses_normal_onroad_process_predicates_without_leases():
   params = Params()
   with (
     patch("openpilot.system.manager.process_config.encoder_requested", return_value=False),
-    patch("openpilot.system.manager.process_config.mic_requested", return_value=False),
     patch("openpilot.system.manager.process_config.camcorder_requested", return_value=False),
   ):
     assert camera_encoding(True, params, CP)

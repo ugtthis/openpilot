@@ -1,10 +1,9 @@
 """Non-blocking UI client for the managed camcorder recorder."""
 
-import time
-
 from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.system.camcorder.clip_storage import Clip, clips_root, load_clip
+from openpilot.system.camcorder.timing import boot_time_ns
 from openpilot.system.camcorder_lease import acquire_camcorder, release_camcorder
 
 _STREAM_NAMES = {
@@ -43,7 +42,7 @@ class CamcorderClient:
       acquire_camcorder()
       self._lease_held = True
     if self._lease_held and warm and stream_changed and not self.recording:
-      self._send("idle", stream_type, time.monotonic_ns())
+      self._send("idle", stream_type, boot_time_ns())
     if not warm and self._lease_held and not self.recording:
       release_camcorder()
       self._lease_held = False
@@ -54,13 +53,13 @@ class CamcorderClient:
     self.set_warm(True, stream_type)
     self._requested_recording = True
     self._completed_clip = None
-    self._send("start", stream_type, press_mono_ns or time.monotonic_ns())
+    self._send("start", stream_type, press_mono_ns or boot_time_ns())
     return True
 
   def stop(self, stop_mono_ns: int | None = None) -> None:
     if not self.recording:
       return
-    self._send("stop", self._stream_type, stop_mono_ns or time.monotonic_ns())
+    self._send("stop", self._stream_type, stop_mono_ns or boot_time_ns())
 
   def close(self) -> None:
     self.stop()

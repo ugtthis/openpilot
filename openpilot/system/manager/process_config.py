@@ -8,7 +8,6 @@ from openpilot.common.hardware import PC, COMMA_HARDWARE
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
 from openpilot.system.camcorder_lease import camcorder_requested
 from openpilot.system.loggerd.encoder_lease import encoder_requested
-from openpilot.system.micd_lease import mic_requested
 
 WEBCAM = os.getenv("USE_WEBCAM") is not None
 
@@ -62,7 +61,7 @@ def camera_encoding(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started or encoder_requested()
 
 def microphone_capture(started: bool, params: Params, CP: car.CarParams) -> bool:
-  return iscar(started, params, CP) or mic_requested()
+  return iscar(started, params, CP)
 
 def camcorder_capture(started: bool, params: Params, CP: car.CarParams) -> bool:
   return camcorder_requested()

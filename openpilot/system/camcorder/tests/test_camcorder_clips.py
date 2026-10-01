@@ -168,6 +168,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert clip.audio_sample_rate == 10
     assert clip.audio_channels == 1
     assert clip.audio_frame_count == 20
+    assert clip.audio_timestamp == "adc_start_boottime"
     np.testing.assert_array_equal(np.fromfile(clip.path / str(clip.audio), dtype=np.int16), samples)
 
   def test_audio_writer_abort_removes_partial(self):

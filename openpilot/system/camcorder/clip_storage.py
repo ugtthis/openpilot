@@ -4,7 +4,7 @@
   frames.bin    [uint32 size][zlib rgb8]...
   index.bin     [uint64 offset][uint32 t_ms]...
   video.hevc    native hardware-encoded master, written by HevcWriter
-  audio.s16le   mono int16 PCM captured from micd
+  audio.s16le   native-channel int16 PCM captured directly by camcorderd
 """
 
 import bisect
@@ -101,6 +101,9 @@ class Clip:
   audio_channels: int = 0
   audio_frame_count: int = 0
   audio_start_mono_ns: int = 0
+  audio_timestamp: str = ""
+  audio_gap_count: int = 0
+  audio_gap_frame_count: int = 0
 
   @property
   def time_label(self) -> str:
@@ -146,7 +149,6 @@ class AudioWriter:
     self._channels = 1
     self._frame_count = 0
     self._first_log_mono_ns = 0
-    self._first_packet_frames = 0
     self._gap_count = 0
     self._gap_frame_count = 0
 
@@ -165,16 +167,14 @@ class AudioWriter:
       self._sample_rate = sample_rate
       self._channels = channels
       self._first_log_mono_ns = log_mono_ns
-      self._first_packet_frames = frames
     else:
       self._fill_gap(log_mono_ns, frames)
     self._file.write(data)
     self._frame_count += frames
 
   def _fill_gap(self, log_mono_ns: int, frames: int) -> None:
-    # Packets are stamped when sent, after their last sample.
-    written_after_first = self._frame_count + frames - self._first_packet_frames
-    expected_ns = self._first_log_mono_ns + written_after_first * 1_000_000_000 // self._sample_rate
+    # Direct-capture packets are stamped at their first ADC sample.
+    expected_ns = self._first_log_mono_ns + self._frame_count * 1_000_000_000 // self._sample_rate
     late_ns = log_mono_ns - expected_ns
     if late_ns <= _AUDIO_GAP_TOLERANCE_NS:
       return
@@ -335,7 +335,7 @@ class ClipWriter:
     if self.preview_contains_full_frame or self.media_type != "video":
       format_version = 2
     if audio is not None:
-      format_version = 3
+      format_version = 4
     payload = {
       "format_version": format_version,
       "id": self.clip_id,
@@ -371,6 +371,7 @@ class ClipWriter:
         "audio_channels": audio.channels,
         "audio_frame_count": audio.frame_count,
         "audio_start_mono_ns": audio.first_log_mono_ns,
+        "audio_timestamp": "adc_start_boottime",
         "audio_gap_count": audio.gap_count,
         "audio_gap_frame_count": audio.gap_frame_count,
       })
@@ -412,6 +413,9 @@ def load_clip(path: Path) -> Clip | None:
       audio_channels=int(meta.get("audio_channels", 0)),
       audio_frame_count=int(meta.get("audio_frame_count", 0)),
       audio_start_mono_ns=int(meta.get("audio_start_mono_ns", 0)),
+      audio_timestamp=str(meta.get("audio_timestamp", "")),
+      audio_gap_count=int(meta.get("audio_gap_count", 0)),
+      audio_gap_frame_count=int(meta.get("audio_gap_frame_count", 0)),
     )
   except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError):
     return None

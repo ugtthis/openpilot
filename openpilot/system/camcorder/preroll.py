@@ -1,9 +1,7 @@
-"""Keep the last few seconds of encoded video and audio between takes.
+"""Keep the last few encoded video GOPs between takes.
 
-encoderd and micd already run while the camcorder is on screen, but a take
-can only begin on a keyframe. Without a pre-roll a press waits for the next
-one, up to a GOP later. With it, a take begins at the keyframe just before
-the press, and audio from the same moment.
+encoderd already runs while the camcorder is on screen, but a take can only
+begin on a keyframe. Direct microphone capture keeps its own bounded pre-roll.
 """
 
 import threading
@@ -16,8 +14,6 @@ from openpilot.system.camcorder.hevc_writer import V4L2_BUF_FLAG_KEYFRAME
 # The keyframe before the press must survive until the take's writer exists,
 # which waits for the first preview frame.
 _GOPS = 3
-# Covers _GOPS at the slowest main-encoder keyframe interval (30 frames, 1.5 s).
-_AUDIO_KEEP_NS = 5_000_000_000
 _POLL_S = 0.01
 
 
@@ -31,20 +27,12 @@ class HevcPacket:
   timestamp_ns: int
 
 
-@dataclass(frozen=True, slots=True)
-class AudioPacket:
-  data: bytes
-  sample_rate: int
-  log_mono_ns: int
-
-
 class _Run:
   def __init__(self, service: str):
     self.service = service
     self.stop = threading.Event()
     self.lock = threading.Lock()
     self.gops: deque[list[HevcPacket]] = deque(maxlen=_GOPS)
-    self.audio: deque[AudioPacket] = deque()
 
   def add_video(self, encoded) -> None:
     packet = HevcPacket(bytes(encoded.header), bytes(encoded.data),
@@ -57,25 +45,14 @@ class _Run:
       elif self.gops:
         self.gops[-1].append(packet)
 
-  def add_audio(self, event) -> None:
-    packet = AudioPacket(bytes(event.rawAudioData.data), int(event.rawAudioData.sampleRate), int(event.logMonoTime))
-    with self.lock:
-      self.audio.append(packet)
-      while self.audio and self.audio[0].log_mono_ns < packet.log_mono_ns - _AUDIO_KEEP_NS:
-        self.audio.popleft()
-
-  def take(self, press_ns: int) -> tuple[list[HevcPacket], list[AudioPacket]]:
+  def take(self, press_ns: int) -> list[HevcPacket]:
     with self.lock:
       gops = list(self.gops)
-      audio = list(self.audio)
     first = 0
     for i, gop in enumerate(gops):
       if gop[0].timestamp_ns <= press_ns:
         first = i
-    video = [packet for gop in gops[first:] for packet in gop]
-    # Audio stamps mark the end of each packet, so keep the one spanning the start.
-    start_ns = min(video[0].timestamp_ns, press_ns) if video else press_ns
-    return video, [packet for packet in audio if packet.log_mono_ns > start_ns]
+    return [packet for gop in gops[first:] for packet in gop]
 
 
 class PreRoll:
@@ -101,12 +78,12 @@ class PreRoll:
     with self._lock:
       self._stop_locked()
 
-  def take(self, press_ns: int) -> tuple[list[HevcPacket], list[AudioPacket]]:
+  def take(self, press_ns: int) -> list[HevcPacket]:
     """Return what to start a take with, then stop buffering for the take."""
     with self._lock:
       run = self._run
       self._stop_locked()
-    return run.take(press_ns) if run is not None else ([], [])
+    return run.take(press_ns) if run is not None else []
 
   def _stop_locked(self) -> None:
     if self._run is not None:
@@ -119,12 +96,9 @@ class PreRoll:
 
     try:
       video_sock = messaging.sub_sock(run.service, conflate=False)
-      audio_sock = messaging.sub_sock("rawAudioData", conflate=False)
       while not run.stop.is_set():
         for event in messaging.drain_sock(video_sock, wait_for_one=False):
           run.add_video(getattr(event, run.service))
-        for event in messaging.drain_sock(audio_sock, wait_for_one=False):
-          run.add_audio(event)
         run.stop.wait(_POLL_S)
     except Exception:
       # A missing pre-roll only means a take waits for the next keyframe.

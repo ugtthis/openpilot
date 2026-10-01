@@ -130,18 +130,44 @@ def test_started_transition_keeps_delayed_navigation_fallback():
   assert layout._onroad_time_delay == 42.0
 
 
+class _FakeMic:
+  def __init__(self, audio=None):
+    self.audio = audio
+    self.started = False
+    self.stopped = False
+    self.device_name = "test mic"
+    self.sample_rate = 48000
+    self.channels = 2
+    self.error = ""
+
+  def start(self):
+    self.started = True
+
+  def stop(self):
+    self.stopped = True
+
+  def finish(self, stop_ns):
+    return self.audio
+
+  def abort(self):
+    pass
+
+  def attach(self, path, start_ns):
+    pass
+
+
 def test_recorder_refuses_onroad_start_before_acquiring_leases():
-  recorder = ClipRecorder(lambda: not ui_state.ignition)
+  mic = _FakeMic()
+  recorder = ClipRecorder(lambda: not ui_state.ignition, cast(Any, mic))
   with (
     patch.object(ui_state, "ignition", True),
     patch.object(ui_state, "started", False),
     patch("openpilot.system.camcorder.recorder.acquire_encoder") as acquire_encoder,
-    patch("openpilot.system.camcorder.recorder.acquire_mic") as acquire_mic,
   ):
     assert not recorder.start(VisionStreamType.VISION_STREAM_WIDE_ROAD)
 
   acquire_encoder.assert_not_called()
-  acquire_mic.assert_not_called()
+  assert not mic.started
 
 
 def test_recorder_ignition_stop_releases_leases_before_waiting_for_threads():
@@ -160,8 +186,6 @@ def test_recorder_ignition_stop_releases_leases_before_waiting_for_threads():
   with (
     patch("openpilot.system.camcorder.recorder.release_encoder",
           side_effect=lambda: events.append("encoder")),
-    patch("openpilot.system.camcorder.recorder.release_mic",
-          side_effect=lambda: events.append("mic")),
   ):
     recorder.stop_async()
     deadline = time.monotonic() + 2.0
@@ -169,7 +193,7 @@ def test_recorder_ignition_stop_releases_leases_before_waiting_for_threads():
       time.sleep(0.01)
 
   assert not recorder._finalizing.is_set()
-  assert events == ["encoder", "mic", "join"]
+  assert events == ["encoder", "join"]
 
 
 def test_recorder_normal_stop_releases_leases_after_waiting_for_threads():
@@ -189,8 +213,6 @@ def test_recorder_normal_stop_releases_leases_after_waiting_for_threads():
   with (
     patch("openpilot.system.camcorder.recorder.release_encoder",
           side_effect=lambda: assert_joined()),
-    patch("openpilot.system.camcorder.recorder.release_mic",
-          side_effect=lambda: assert_joined()),
   ):
     def assert_joined():
       assert joined
@@ -208,16 +230,12 @@ def test_ignition_stop_still_saves_the_take():
       self.finalized_with = args
       return self.result
 
-  recorder = ClipRecorder()
+  recorder = ClipRecorder(mic=cast(Any, _FakeMic("audio")))
   recorder._preview = cast(Any, Writer("clip"))
   recorder._hevc = cast(Any, Writer("master"))
-  recorder._audio = cast(Any, Writer("audio"))
   preview = recorder._preview
 
-  with (
-    patch("openpilot.system.camcorder.recorder.release_encoder"),
-    patch("openpilot.system.camcorder.recorder.release_mic"),
-  ):
+  with patch("openpilot.system.camcorder.recorder.release_encoder"):
     recorder.stop_async()
     deadline = time.monotonic() + 2.0
     while recorder._finalizing.is_set() and time.monotonic() < deadline:
@@ -231,7 +249,6 @@ def test_async_stop_thread_failure_remains_fail_safe():
   recorder = ClipRecorder()
   with (
     patch("openpilot.system.camcorder.recorder.release_encoder") as release_encoder,
-    patch("openpilot.system.camcorder.recorder.release_mic") as release_mic,
     patch("openpilot.system.camcorder.recorder.threading.Thread.start",
           side_effect=RuntimeError("thread unavailable")),
     patch("openpilot.system.camcorder.recorder.cloudlog.exception") as log_exception,
@@ -241,7 +258,6 @@ def test_async_stop_thread_failure_remains_fail_safe():
   assert recorder._stop.is_set()
   assert not recorder._finalizing.is_set()
   release_encoder.assert_called_once()
-  release_mic.assert_called_once()
   log_exception.assert_called_once()
 
 
@@ -265,9 +281,7 @@ def _recorded_leases(ignition: bool = False):
   with (
     patch.object(ui_state, "ignition", ignition),
     patch(f"{recorder_module}.acquire_encoder", side_effect=lambda: events.append("acquire")),
-    patch(f"{recorder_module}.acquire_mic", side_effect=lambda: events.append("acquire mic")),
     patch(f"{recorder_module}.release_encoder", side_effect=lambda: events.append("release")),
-    patch(f"{recorder_module}.release_mic", side_effect=lambda: events.append("release mic")),
   ):
     yield events
 
@@ -284,7 +298,7 @@ class _FakePreRoll:
 
 
 def _warmable_recorder() -> ClipRecorder:
-  recorder = ClipRecorder(lambda: not ui_state.ignition)
+  recorder = ClipRecorder(lambda: not ui_state.ignition, cast(Any, _FakeMic()))
   recorder._preroll = cast(Any, _FakePreRoll())
   return recorder
 
@@ -300,10 +314,10 @@ def test_warm_camcorder_holds_leases_across_a_take():
     recorder.set_warm(True, WIDE)
     recorder._preview_thread = cast(Any, _TakeThread())
     recorder.stop()
-    assert events == ["acquire", "acquire mic"]
+    assert events == ["acquire"]
 
     recorder.set_warm(False, WIDE)
-  assert events == ["acquire", "acquire mic", "release", "release mic"]
+  assert events == ["acquire", "release"]
 
 
 def test_leaving_the_camcorder_mid_take_keeps_leases_until_stop():
@@ -312,10 +326,10 @@ def test_leaving_the_camcorder_mid_take_keeps_leases_until_stop():
     recorder.set_warm(True, WIDE)
     recorder._preview_thread = cast(Any, _TakeThread())
     recorder.set_warm(False, WIDE)
-    assert events == ["acquire", "acquire mic"]
+    assert events == ["acquire"]
 
     recorder.stop()
-  assert events == ["acquire", "acquire mic", "release", "release mic"]
+  assert events == ["acquire", "release"]
 
 
 def test_camcorder_does_not_warm_up_with_ignition_on():
@@ -355,7 +369,7 @@ def test_ignition_stop_releases_warm_leases():
     deadline = time.monotonic() + 2.0
     while recorder._finalizing.is_set() and time.monotonic() < deadline:
       time.sleep(0.01)
-  assert events == ["acquire", "acquire mic", "release", "release mic"]
+  assert events == ["acquire", "release"]
   assert recorder._preroll.service is None
 
 
@@ -364,32 +378,24 @@ def _encoded(timestamp_ms: int, keyframe: bool = False):
                          idx=SimpleNamespace(flags=8 if keyframe else 0, timestampEof=timestamp_ms * 1_000_000))
 
 
-def _audio_message(stamp_ms: int):
-  return SimpleNamespace(rawAudioData=SimpleNamespace(data=b"\1\0" * 5, sampleRate=100), logMonoTime=stamp_ms * 1_000_000)
-
-
 def test_preroll_starts_at_the_keyframe_before_the_press():
   run = _Run("wideRoadEncodeData")
   for timestamp_ms in range(0, 3000, 50):
     run.add_video(_encoded(timestamp_ms, keyframe=timestamp_ms % 1000 == 0))
-    run.add_audio(_audio_message(timestamp_ms + 50))
 
-  video, audio = run.take(press_ns=2_400_000_000)
+  video = run.take(press_ns=2_400_000_000)
 
   assert video[0].keyframe and video[0].timestamp_ns == 2_000_000_000
   assert video[-1].timestamp_ns == 2_950_000_000
-  assert audio[0].log_mono_ns == 2_050_000_000
 
 
 def test_preroll_is_bounded():
   run = _Run("wideRoadEncodeData")
   for timestamp_ms in range(0, 10_000, 50):
     run.add_video(_encoded(timestamp_ms, keyframe=timestamp_ms % 1000 == 0))
-    run.add_audio(_audio_message(timestamp_ms))
 
   assert len(run.gops) == 3
   assert run.gops[0][0].timestamp_ns == 7_000_000_000
-  assert run.audio[0].log_mono_ns >= 4_950_000_000
 
 
 def test_preroll_without_an_earlier_keyframe_starts_at_the_first_one():
@@ -397,33 +403,28 @@ def test_preroll_without_an_earlier_keyframe_starts_at_the_first_one():
   run.add_video(_encoded(900))  # mid-GOP frame before any keyframe is dropped
   run.add_video(_encoded(1000, keyframe=True))
 
-  video, _ = run.take(press_ns=500_000_000)
+  video = run.take(press_ns=500_000_000)
 
   assert [packet.timestamp_ns for packet in video] == [1_000_000_000]
 
 
-def test_take_writes_preroll_then_skips_what_its_own_sockets_repeat():
+def test_take_writes_video_preroll_then_skips_what_its_own_socket_repeats():
   run = _Run("wideRoadEncodeData")
   for timestamp_ms in (1000, 1050, 1100):
     run.add_video(_encoded(timestamp_ms, keyframe=timestamp_ms == 1000))
-    run.add_audio(_audio_message(timestamp_ms))
 
   with TemporaryDirectory() as directory:
-    recorder = ClipRecorder()
+    recorder = ClipRecorder(mic=cast(Any, _FakeMic()))
     recorder._preview = cast(Any, SimpleNamespace(path=Path(directory)))
-    recorder._preroll_video, recorder._preroll_audio = run.take(press_ns=1_060_000_000)
+    recorder._preroll_video = run.take(press_ns=1_060_000_000)
 
     recorder._write_hevc([_encoded(1050), _encoded(1100), _encoded(1150)])
-    recorder._write_audio([_audio_message(1100), _audio_message(1150)])
-    assert recorder._hevc is not None and recorder._audio is not None
+    assert recorder._hevc is not None
     master = recorder._hevc.finalize()
-    audio = recorder._audio.finalize()
 
-    assert master is not None and audio is not None
+    assert master is not None
     assert (master.first_timestamp_ns, master.frame_count) == (1_000_000_000, 4)
     assert (Path(directory) / "video.hevc").read_bytes() == b"H1000" + b"1050" + b"1100" + b"1150"
-    # The packet stamped 1000 ends where the video starts, so audio begins with the next one.
-    assert (audio.first_log_mono_ns, audio.frame_count) == (1_050_000_000, 15)
 
 
 def test_camcorder_warms_up_only_while_settled_on_screen():
@@ -450,45 +451,6 @@ def test_camcorder_warms_up_only_while_settled_on_screen():
   layout._swipe_left_page.showing_camcorder = False
   tick()
   assert warm == [True, False, False, False, False]
-
-
-class _AudioSink:
-  def __init__(self):
-    self.stamps = []
-
-  def add_packet(self, _data, _sample_rate, log_mono_ns):
-    self.stamps.append(log_mono_ns)
-
-
-def _audio_event(log_mono_ns):
-  return SimpleNamespace(rawAudioData=SimpleNamespace(data=b"\0\0", sampleRate=10), logMonoTime=log_mono_ns)
-
-
-def test_stop_keeps_audio_up_to_the_stop_press():
-  recorder = ClipRecorder()
-  sink = _AudioSink()
-  recorder._preview = cast(Any, SimpleNamespace(path=None))
-  recorder._audio = cast(Any, sink)
-  recorder._stop_mono_ns = 1_000
-  batches = [[_audio_event(800), _audio_event(900)], [], [_audio_event(1_050)], [_audio_event(1_100)]]
-
-  with patch("openpilot.cereal.messaging.drain_sock", side_effect=lambda *_args, **_kwargs: batches.pop(0)):
-    recorder._drain_audio_tail(object())
-
-  assert sink.stamps == [800, 900, 1_050]
-
-
-def test_audio_tail_drain_gives_up_when_micd_is_gone():
-  recorder = ClipRecorder()
-  recorder._preview = cast(Any, SimpleNamespace(path=None))
-  recorder._audio = cast(Any, _AudioSink())
-  recorder._stop_mono_ns = time.monotonic_ns()
-
-  started = time.monotonic()
-  with patch("openpilot.cereal.messaging.drain_sock", return_value=[]):
-    recorder._drain_audio_tail(object())
-
-  assert time.monotonic() - started < 0.5
 
 
 def test_ignition_transition_cancels_and_stops_capture():

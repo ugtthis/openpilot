@@ -25,6 +25,8 @@ class CamcorderDaemon:
     self.phase = "warming"
     self.clip_id = ""
     self.error = ""
+    self.audio_gap_count = 0
+    self.audio_gap_frame_count = 0
 
   def apply_control(self, control) -> None:
     sequence = int(control.sequence)
@@ -42,6 +44,8 @@ class CamcorderDaemon:
           self.phase = "recording"
           self.clip_id = ""
           self.error = ""
+          self.audio_gap_count = 0
+          self.audio_gap_frame_count = 0
         else:
           self.phase = "failed"
           self.error = "recorder could not start"
@@ -49,6 +53,8 @@ class CamcorderDaemon:
         self.phase = "finalizing"
         clip = self.recorder.stop(int(control.requestMonoTime))
         self.clip_id = clip.clip_id if clip is not None else ""
+        self.audio_gap_count = clip.audio_gap_count if clip is not None else 0
+        self.audio_gap_frame_count = clip.audio_gap_frame_count if clip is not None else 0
         self.phase = "warming"
     except Exception as exc:
       self.phase = "failed"
@@ -63,6 +69,13 @@ class CamcorderDaemon:
     state.clipId = self.clip_id
     state.error = self.error
     state.elapsedS = self.recorder.elapsed_s
+    state.audioSampleRate = self.recorder.mic_sample_rate
+    state.audioChannels = self.recorder.mic_channels
+    state.audioGapCount = self.audio_gap_count
+    state.audioGapFrameCount = self.audio_gap_frame_count
+    state.micName = self.recorder.mic_name
+    if self.recorder.mic_error and not state.error:
+      state.error = self.recorder.mic_error
     return msg
 
   def run(self) -> None:

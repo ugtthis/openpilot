@@ -8,6 +8,10 @@ class FakeRecorder:
   def __init__(self):
     self.recording = False
     self.elapsed_s = 0.0
+    self.mic_name = "test mic"
+    self.mic_sample_rate = 48000
+    self.mic_channels = 2
+    self.mic_error = ""
     self.starts = []
     self.stops = 0
 
@@ -22,7 +26,7 @@ class FakeRecorder:
   def stop(self, request_mono_ns=None):
     self.stops += 1
     self.recording = False
-    return SimpleNamespace(clip_id="saved-clip")
+    return SimpleNamespace(clip_id="saved-clip", audio_gap_count=0, audio_gap_frame_count=0)
 
 
 def control(sequence, action, stream="wideRoad", request_mono_time=123):
