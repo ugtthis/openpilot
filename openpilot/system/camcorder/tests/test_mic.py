@@ -44,6 +44,14 @@ def test_adc_timestamp_uses_the_first_sample_on_the_boot_clock():
   assert adc_start_ns(time_info, 2400, 48000, now_ns=10_000_000_000) == 9_950_000_000
 
 
+def test_stable_portaudio_clock_mapping_ignores_callback_scheduling_jitter():
+  first = SimpleNamespace(currentTime=20.0, inputBufferAdcTime=19.95)
+  second = SimpleNamespace(currentTime=20.07, inputBufferAdcTime=20.00)
+  offset = 10_000_000_000 - round(first.currentTime * 1e9)
+  assert adc_start_ns(first, 2400, 48000, now_ns=10_000_000_000, clock_offset_ns=offset) == 9_950_000_000
+  assert adc_start_ns(second, 2400, 48000, now_ns=10_075_000_000, clock_offset_ns=offset) == 10_000_000_000
+
+
 def test_direct_mic_writes_preroll_overlap_then_live_packets():
   mic = CamcorderMic()
   mic._handle(packet(0))

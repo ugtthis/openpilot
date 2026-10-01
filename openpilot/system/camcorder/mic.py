@@ -61,9 +61,13 @@ def select_input_device(sd) -> MicDevice:
   return MicDevice(index, str(device["name"]), sample_rate, channels)
 
 
-def adc_start_ns(time_info, frames: int, sample_rate: int, now_ns: int | None = None) -> int:
+def adc_start_ns(time_info, frames: int, sample_rate: int, now_ns: int | None = None,
+                 clock_offset_ns: int | None = None) -> int:
   now_ns = boot_time_ns() if now_ns is None else now_ns
   try:
+    adc_time = float(time_info.inputBufferAdcTime)
+    if clock_offset_ns is not None and adc_time > 0:
+      return clock_offset_ns + round(adc_time * 1e9)
     delay_s = float(time_info.currentTime) - float(time_info.inputBufferAdcTime)
   except (AttributeError, TypeError, ValueError):
     delay_s = frames / sample_rate
@@ -157,13 +161,22 @@ class CamcorderMic:
       self.sample_rate = device.sample_rate
       self.channels = device.channels
       blocksize = round(BLOCK_DURATION_S * device.sample_rate)
+      clock_offset_ns = None
 
       def callback(indata, frames, time_info, status):
+        nonlocal clock_offset_ns
         if status:
           self.overflow_count += 1
+        try:
+          current_time = float(time_info.currentTime)
+          if clock_offset_ns is None and current_time > 0:
+            clock_offset_ns = boot_time_ns() - round(current_time * 1e9)
+        except (AttributeError, TypeError, ValueError):
+          pass
         data = np.asarray(indata, dtype=PCM_DTYPE).tobytes()
         self._packets.put(MicPacket(data, device.sample_rate, device.channels,
-                                    adc_start_ns(time_info, frames, device.sample_rate), frames))
+                                    adc_start_ns(time_info, frames, device.sample_rate,
+                                                 clock_offset_ns=clock_offset_ns), frames))
 
       with sd.InputStream(device=device.index, channels=device.channels, samplerate=device.sample_rate,
                           dtype="int16", callback=callback, blocksize=blocksize):
