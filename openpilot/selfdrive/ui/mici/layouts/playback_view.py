@@ -423,7 +423,12 @@ class ClipPlayerView(Widget):
       return
     duration = self._duration()
     if self._playing:
-      self._playhead = time.monotonic() - self._play_origin
+      audio_playhead = self._audio.playhead_s if self._has_playable_audio() else None
+      if audio_playhead is not None:
+        self._playhead = max(0.0, audio_playhead)
+        self._play_origin = time.monotonic() - self._playhead
+      else:
+        self._playhead = time.monotonic() - self._play_origin
       if duration and self._playhead >= duration:
         self._playhead = duration
         self._playing = False
