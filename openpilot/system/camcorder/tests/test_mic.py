@@ -2,6 +2,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
+import numpy as np
+
 from openpilot.system.camcorder.mic import CamcorderMic, MicPacket, adc_start_ns, select_input_device
 
 
@@ -90,3 +92,34 @@ def test_unplugged_mic_pads_silence_to_the_stop_time_and_marks_the_error():
   assert audio is not None
   assert (audio.frame_count, audio.gap_count, audio.gap_frame_count) == (20, 1, 10)
   assert (audio.device_name, audio.error) == ("DJI USB Audio", "device unplugged")
+
+
+def test_builtin_capture_drops_hardware_channels_that_are_exactly_silent():
+  mic = CamcorderMic()
+  mic.device_name = "sdm845-tavil-snd-card"
+  samples = np.zeros((5, 8), dtype="<i2")
+  samples[:, 2] = [1, 2, 3, 4, 5]
+  mic._handle(MicPacket(samples.tobytes(), 100, 8, 0, 5))
+
+  with TemporaryDirectory() as directory:
+    path = Path(directory)
+    mic.attach(path, start_ns=0)
+    audio = mic.finish(stop_ns=50_000_000)
+    recorded = np.fromfile(path / "audio.s16le", dtype="<i2")
+
+  assert audio is not None and audio.channels == 1
+  np.testing.assert_array_equal(recorded, samples[:, 2])
+
+
+def test_usb_capture_keeps_all_advertised_channels():
+  mic = CamcorderMic()
+  mic.device_name = "DJI USB Audio"
+  samples = np.zeros((5, 2), dtype="<i2")
+  samples[:, 0] = 1
+  mic._handle(MicPacket(samples.tobytes(), 100, 2, 0, 5))
+
+  with TemporaryDirectory() as directory:
+    mic.attach(Path(directory), start_ns=0)
+    audio = mic.finish(stop_ns=50_000_000)
+
+  assert audio is not None and audio.channels == 2

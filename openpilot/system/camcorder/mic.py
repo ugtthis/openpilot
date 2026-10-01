@@ -86,6 +86,7 @@ class CamcorderMic:
     self._thread: threading.Thread | None = None
     self._writer: AudioWriter | None = None
     self._write_after_ns = 0
+    self._channel_indices: tuple[int, ...] | None = None
     self._last_end_ns = 0
     self.device_name = ""
     self.sample_rate = 0
@@ -117,6 +118,8 @@ class CamcorderMic:
         raise RuntimeError("microphone writer is already attached")
       self._writer = AudioWriter(clip_path)
       self._write_after_ns = start_ns
+      self._channel_indices = self._select_recording_channels()
+      self.channels = len(self._channel_indices)
       for packet in self._buffer:
         if packet.end_ns > start_ns:
           self._write(packet)
@@ -160,6 +163,7 @@ class CamcorderMic:
       self.device_name = device.name
       self.sample_rate = device.sample_rate
       self.channels = device.channels
+      self._channel_indices = None
       blocksize = round(BLOCK_DURATION_S * device.sample_rate)
       clock_offset_ns = None
 
@@ -206,4 +210,22 @@ class CamcorderMic:
 
   def _write(self, packet: MicPacket) -> None:
     assert self._writer is not None
-    self._writer.add_packet(packet.data, packet.sample_rate, packet.start_ns, packet.channels)
+    indices = self._channel_indices or tuple(range(packet.channels))
+    data = packet.data
+    if indices != tuple(range(packet.channels)):
+      samples = np.frombuffer(data, dtype=PCM_DTYPE).reshape(-1, packet.channels)
+      data = np.ascontiguousarray(samples[:, indices]).tobytes()
+    self._writer.add_packet(data, packet.sample_rate, packet.start_ns, len(indices))
+
+  def _select_recording_channels(self) -> tuple[int, ...]:
+    if not self._buffer:
+      return tuple(range(max(1, self.channels)))
+    capture_channels = self._buffer[-1].channels
+    if USB_AUDIO_NAME in self.device_name.lower():
+      return tuple(range(capture_channels))
+    peaks = np.zeros(capture_channels, dtype=np.int64)
+    for packet in self._buffer:
+      samples = np.frombuffer(packet.data, dtype=PCM_DTYPE).reshape(-1, packet.channels)
+      peaks = np.maximum(peaks, np.max(np.abs(samples.astype(np.int32)), axis=0))
+    active = tuple(int(i) for i in np.flatnonzero(peaks))
+    return active or (0,)
