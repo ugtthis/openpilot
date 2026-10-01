@@ -21,7 +21,7 @@ def test_offroad_leases_request_capture_processes():
 
 
 def test_ignition_blocks_lease_started_processes_until_onroad():
-  assert set(ignition_blocked_processes(started=False, ignition=True)) == {"encoderd", "micd", "camcorderd"}
+  assert set(ignition_blocked_processes(started=False, ignition=True)) == {"encoderd", "camcorderd"}
   assert ignition_blocked_processes(started=True, ignition=True) == []
 
 

@@ -68,7 +68,6 @@ class UIState:
         "carControl",
         "vehicleParameters",
         "testJoystick",
-        "rawAudioData",
       ]
     )
 
