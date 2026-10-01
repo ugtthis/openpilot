@@ -4,6 +4,7 @@ import queue
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -87,7 +88,7 @@ def adc_start_ns(time_info, frames: int, sample_rate: int, now_ns: int | None = 
 
 
 class CamcorderMic:
-  def __init__(self):
+  def __init__(self, on_write_error: Callable[[str], None] | None = None):
     self._lock = threading.Lock()
     self._stop = threading.Event()
     self._packet_ready = threading.Event()
@@ -104,6 +105,7 @@ class CamcorderMic:
     self.overflow_count = 0
     self.error = ""
     self._retry_after = 0.0
+    self._on_write_error = on_write_error
 
   @property
   def running(self) -> bool:
@@ -232,12 +234,19 @@ class CamcorderMic:
 
   def _write(self, packet: MicPacket) -> None:
     assert self._writer is not None
-    indices = self._channel_indices or tuple(range(packet.channels))
-    data = packet.data
-    if indices != tuple(range(packet.channels)):
-      samples = np.frombuffer(data, dtype=PCM_DTYPE).reshape(-1, packet.channels)
-      data = np.ascontiguousarray(samples[:, indices]).tobytes()
-    self._writer.add_packet(data, packet.sample_rate, packet.start_ns, len(indices))
+    try:
+      indices = self._channel_indices or tuple(range(packet.channels))
+      data = packet.data
+      if indices != tuple(range(packet.channels)):
+        samples = np.frombuffer(data, dtype=PCM_DTYPE).reshape(-1, packet.channels)
+        data = np.ascontiguousarray(samples[:, indices]).tobytes()
+      self._writer.add_packet(data, packet.sample_rate, packet.start_ns, len(indices))
+    except Exception as exc:
+      error = f"audio write failed: {exc}"
+      self.error = error
+      if self._on_write_error is not None:
+        self._on_write_error(error)
+      raise RuntimeError(error) from exc
 
   def _select_recording_channels(self) -> tuple[int, ...]:
     if not self._buffer:

@@ -31,7 +31,7 @@ class ClipRecorder:
   def __init__(self, capture_allowed: Callable[[], bool] = lambda: True, mic: CamcorderMic | None = None,
                storage: StorageMonitor | None = None):
     self._capture_allowed = capture_allowed
-    self._mic = mic or CamcorderMic()
+    self._mic = mic or CamcorderMic(on_write_error=self._set_capture_error)
     self._storage = storage or StorageMonitor()
     self._preview_thread: threading.Thread | None = None
     self._hevc_thread: threading.Thread | None = None

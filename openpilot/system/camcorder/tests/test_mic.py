@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from openpilot.system.camcorder import mic as mic_module
 from openpilot.system.camcorder.mic import CamcorderMic, MicPacket, adc_start_ns, select_input_device
@@ -185,3 +186,19 @@ def test_usb_capture_keeps_all_advertised_channels():
     audio = mic.finish(stop_ns=50_000_000)
 
   assert audio is not None and audio.channels == 2
+
+
+def test_audio_write_failure_stops_the_take_instead_of_dropping_the_track():
+  class BrokenWriter:
+    def add_packet(self, *args):
+      raise OSError("disk full")
+
+  errors = []
+  mic = CamcorderMic(on_write_error=errors.append)
+  mic._writer = BrokenWriter()
+
+  with pytest.raises(RuntimeError, match="audio write failed: disk full"):
+    mic._write(packet(0))
+
+  assert errors == ["audio write failed: disk full"]
+  assert mic.error == errors[0]
