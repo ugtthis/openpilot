@@ -61,6 +61,18 @@ def test_recording_cannot_start_before_preroll_is_ready():
   assert pm.messages == []
 
 
+def test_camera_switch_returns_to_warming_until_the_new_stream_is_ready():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  client._phase = "idle"
+  with patch("openpilot.system.camcorder.client.acquire_camcorder"):
+    client.set_warm(True, VisionStreamType.VISION_STREAM_CABIN)
+    assert not client.start(VisionStreamType.VISION_STREAM_CABIN, 123)
+  command = pm.messages[-1][1].camcorderControl
+  assert command.action == "idle"
+  assert command.stream == "cabin"
+
+
 def test_leaving_the_page_keeps_the_lease_until_stop_finishes():
   pm, sm = PubMaster(), SubMaster()
   client = CamcorderClient(pm, sm)

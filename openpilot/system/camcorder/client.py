@@ -42,6 +42,7 @@ class CamcorderClient:
       acquire_camcorder()
       self._lease_held = True
     if self._lease_held and warm and stream_changed and not self.recording:
+      self._phase = "warming"
       self._send("idle", stream_type, boot_time_ns())
     if not warm and self._lease_held and not self.recording:
       release_camcorder()
