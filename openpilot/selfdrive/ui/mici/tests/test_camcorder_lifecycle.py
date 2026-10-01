@@ -427,6 +427,23 @@ def test_take_writes_video_preroll_then_skips_what_its_own_socket_repeats():
     assert (Path(directory) / "video.hevc").read_bytes() == b"H1000" + b"1050" + b"1100" + b"1150"
 
 
+def test_stop_drains_encoded_video_through_the_stop_press():
+  service = "wideRoadEncodeData"
+  with TemporaryDirectory() as directory:
+    recorder = ClipRecorder(mic=cast(Any, _FakeMic()))
+    recorder._preview = cast(Any, SimpleNamespace(path=Path(directory)))
+    recorder._write_hevc([_encoded(1000, keyframe=True)])
+    recorder._stop_mono_ns = 1_050_000_000
+    batches = [[SimpleNamespace(wideRoadEncodeData=_encoded(1050))]]
+
+    with patch("openpilot.cereal.messaging.drain_sock", side_effect=lambda *_args, **_kwargs: batches.pop(0)):
+      recorder._drain_hevc_tail(object(), service)
+
+    assert recorder._hevc is not None
+    master = recorder._hevc.finalize()
+    assert master is not None and master.frame_count == 2
+
+
 def test_camcorder_warms_up_only_while_settled_on_screen():
   warm = []
   layout = cast(Any, object.__new__(MiciMainLayout))

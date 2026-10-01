@@ -23,6 +23,9 @@ _ENCODE_SERVICES = {
   VisionStreamType.VISION_STREAM_WIDE_ROAD: "wideRoadEncodeData",
   VisionStreamType.VISION_STREAM_CABIN: "cabinEncodeData",
 }
+_VIDEO_TAIL_TIMEOUT_S = 0.5
+
+
 class ClipRecorder:
   def __init__(self, capture_allowed: Callable[[], bool] = lambda: True, mic: CamcorderMic | None = None):
     self._capture_allowed = capture_allowed
@@ -256,14 +259,16 @@ class ClipRecorder:
           self._stop.wait(0.01)
           continue
         self._write_hevc([getattr(event, service) for event in messages])
+      if self._preview_ready.is_set():
+        self._drain_hevc_tail(sock, service)
     except Exception:
       # Keep the RGB preview even if the native master is incomplete.
       cloudlog.exception("camcorder native recorder failed")
 
-  def _write_hevc(self, encoded_frames) -> None:
+  def _write_hevc(self, encoded_frames) -> int:
     with self._lock:
       if self._preview is None:
-        return
+        return 0
       if self._hevc is None:
         self._hevc = HevcWriter(self._preview.path)
         for packet in self._preroll_video:
@@ -274,3 +279,14 @@ class ClipRecorder:
     for encoded in encoded_frames:
       if encoded.idx.timestampEof > self._hevc_after_ns:
         hevc.add_encoded(encoded)
+    return int(encoded_frames[-1].idx.timestampEof) if encoded_frames else 0
+
+  def _drain_hevc_tail(self, sock, service: str) -> None:
+    from openpilot.cereal import messaging
+
+    deadline = time.monotonic() + _VIDEO_TAIL_TIMEOUT_S
+    while self._stop_mono_ns and time.monotonic() < deadline:
+      events = messaging.drain_sock(sock, wait_for_one=False)
+      if events and self._write_hevc([getattr(event, service) for event in events]) >= self._stop_mono_ns:
+        return
+      time.sleep(0.005)
