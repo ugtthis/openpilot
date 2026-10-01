@@ -39,6 +39,7 @@ struct CamcorderState @0xaedffd8f31e7b55d {
   audioGapCount @7 :UInt32;
   audioGapFrameCount @8 :UInt64;
   micName @9 :Text;
+  notice @10 :Notice;
 
   enum Phase {
     idle @0;
@@ -46,6 +47,17 @@ struct CamcorderState @0xaedffd8f31e7b55d {
     recording @2;
     finalizing @3;
     failed @4;
+  }
+
+  enum Notice {
+    none @0;
+    storageFullSaved @1;
+    storageFull @2;
+    audioErrorSaved @3;
+    recordingErrorSaved @4;
+    recordingFailed @5;
+    micDisconnected @6;
+    micUnavailable @7;
   }
 }
 

@@ -3,6 +3,7 @@
 import threading
 import time
 from collections.abc import Callable
+from typing import Literal
 
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
@@ -12,7 +13,7 @@ from openpilot.system.camcorder.clip_storage import (
   Clip, ClipWriter, extract_clip_rgb, preview_size,
 )
 from openpilot.system.camcorder.hevc_writer import HevcWriter
-from openpilot.system.camcorder.storage import StorageMonitor
+from openpilot.system.camcorder.storage import StorageFullError, StorageMonitor
 from openpilot.system.camcorder.timing import boot_time_ns
 from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_encoder
 
@@ -25,13 +26,14 @@ _ENCODE_SERVICES = {
   VisionStreamType.VISION_STREAM_CABIN: "cabinEncodeData",
 }
 _VIDEO_TAIL_TIMEOUT_S = 0.5
+CaptureFailure = Literal["none", "storage", "audio", "recording"]
 
 
 class ClipRecorder:
   def __init__(self, capture_allowed: Callable[[], bool] = lambda: True, mic: CamcorderMic | None = None,
                storage: StorageMonitor | None = None):
     self._capture_allowed = capture_allowed
-    self._mic = mic or CamcorderMic(on_write_error=self._set_capture_error)
+    self._mic = mic or CamcorderMic(on_write_error=lambda error: self._set_capture_error(error, "audio"))
     self._storage = storage or StorageMonitor()
     self._preview_thread: threading.Thread | None = None
     self._hevc_thread: threading.Thread | None = None
@@ -52,6 +54,7 @@ class ClipRecorder:
     # Newest pre-roll timestamp written; the take's own sockets repeat earlier packets.
     self._hevc_after_ns = 0
     self._capture_error = ""
+    self._capture_failure: CaptureFailure = "none"
 
   @property
   def recording(self) -> bool:
@@ -62,6 +65,11 @@ class ClipRecorder:
   def capture_error(self) -> str:
     with self._lock:
       return self._capture_error
+
+  @property
+  def capture_failure(self) -> CaptureFailure:
+    with self._lock:
+      return self._capture_failure
 
   @property
   def elapsed_s(self) -> float:
@@ -91,7 +99,7 @@ class ClipRecorder:
 
   def poll(self) -> None:
     if self._recording.is_set() and not self._storage.available():
-      self._set_capture_error("storage full")
+      self._set_capture_error("storage full", "storage")
 
   def set_warm(self, warm: bool, stream_type: VisionStreamType) -> None:
     """Keep encoderd and direct mic capture warm while the camcorder is on screen.
@@ -128,12 +136,18 @@ class ClipRecorder:
     self._hevc_after_ns = 0
     with self._lock:
       self._capture_error = ""
+      self._capture_failure = "none"
     self._stream_type = stream_type
     self._started_mono = (recording_start_mono_ns or boot_time_ns()) / 1e9
     try:
       self._storage.start()
       acquire_encoder()
       self._mic.start()
+    except StorageFullError as exc:
+      self._set_capture_error(str(exc), "storage")
+      self._release_leases()
+      cloudlog.exception("camcorder could not request recording services")
+      return False
     except (OSError, RuntimeError) as exc:
       self._set_capture_error(str(exc))
       self._release_leases()
@@ -184,7 +198,7 @@ class ClipRecorder:
       try:
         audio_info = self._mic.finish(self._stop_mono_ns)
       except Exception as exc:
-        self._set_capture_error(f"audio finalization failed: {exc}")
+        self._set_capture_error(f"audio finalization failed: {exc}", "audio")
         cloudlog.exception("camcorder audio finalization failed")
       try:
         return preview.finalize(master, audio_info) if preview is not None else None
@@ -328,10 +342,11 @@ class ClipRecorder:
         hevc.add_encoded(encoded)
     return int(encoded_frames[-1].idx.timestampEof) if encoded_frames else 0
 
-  def _set_capture_error(self, error: str) -> None:
+  def _set_capture_error(self, error: str, failure: CaptureFailure = "recording") -> None:
     with self._lock:
       if not self._capture_error:
         self._capture_error = error
+        self._capture_failure = failure
     self._stop.set()
 
   def _drain_hevc_tail(self, sock, service: str) -> None:

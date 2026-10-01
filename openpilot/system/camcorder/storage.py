@@ -13,6 +13,10 @@ STOP_MARGIN_BYTES = 256 * 1024 * 1024
 STOP_MARGIN_PERCENT = 1
 
 
+class StorageFullError(RuntimeError):
+  pass
+
+
 def has_recording_space(stat) -> bool:
   available_bytes = stat.f_bavail * stat.f_frsize
   available_percent = 100.0 * stat.f_bavail / stat.f_blocks
@@ -35,7 +39,7 @@ class StorageMonitor:
     root.mkdir(parents=True, exist_ok=True)
     (root / ".finalize-reserve").unlink(missing_ok=True)  # remove the old reservation scheme
     if not self._has_space(root):
-      raise RuntimeError("not enough free storage to record")
+      raise StorageFullError("not enough free storage to record")
     self._last_check = self._clock()
 
   def available(self) -> bool:

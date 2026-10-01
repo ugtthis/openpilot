@@ -112,8 +112,13 @@ def test_failed_recording_returns_a_salvaged_clip_and_the_error():
     assert client.start(WIDE, 100)
     sm.updated["camcorderState"] = True
     sm.state = SimpleNamespace(sequence=1, phase="warming", elapsedS=0.0, clipId="salvaged",
-                               error="preview capture failed")
+                               error="preview capture failed", notice="recordingErrorSaved")
     assert client.update() is clip
 
   assert not client.recording
-  assert client.error == "preview capture failed"
+  assert client.error == "Camera error — clip saved"
+
+  client.dismiss_error()
+  assert client.error == ""
+  assert client.update() is None
+  assert client.error == ""

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from openpilot.cereal.visionipc import VisionStreamType
-from openpilot.system.camcorder.camcorderd import CamcorderDaemon
+from openpilot.system.camcorder.camcorderd import CamcorderDaemon, failure_notice
 from openpilot.system.camcorder.recorder import ClipRecorder
 
 
@@ -14,6 +14,7 @@ class FakeRecorder:
     self.mic_channels = 2
     self.mic_error = ""
     self.capture_error = ""
+    self.capture_failure = "none"
     self.ready = True
     self.starts = []
     self.stops = 0
@@ -37,6 +38,13 @@ class FakeRecorder:
 
 def control(sequence, action, stream="wideRoad", request_mono_time=123):
   return SimpleNamespace(sequence=sequence, action=action, stream=stream, requestMonoTime=request_mono_time)
+
+
+def test_failure_notices_describe_what_was_saved():
+  assert failure_notice("storage", True) == "storageFullSaved"
+  assert failure_notice("storage", False) == "storageFull"
+  assert failure_notice("audio", True) == "audioErrorSaved"
+  assert failure_notice("recording", False) == "recordingFailed"
 
 
 def test_start_and_stop_commands_publish_the_saved_clip():
@@ -75,6 +83,7 @@ def test_capture_failure_stops_and_publishes_the_salvaged_clip():
   daemon = CamcorderDaemon(recorder)
   daemon.apply_control(control(1, "start"))
   recorder.capture_error = "preview capture failed: disk write failed"
+  recorder.capture_failure = "recording"
 
   daemon.update()
 
@@ -82,6 +91,7 @@ def test_capture_failure_stops_and_publishes_the_salvaged_clip():
   assert daemon.phase == "warming"
   assert daemon.clip_id == "saved-clip"
   assert daemon.error == recorder.capture_error
+  assert daemon.notice == "recordingErrorSaved"
 
 
 def test_finalization_salvages_other_tracks_when_one_writer_fails():

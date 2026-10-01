@@ -335,6 +335,12 @@ class CamcorderView(CameraView):
                                    text_color=rl.WHITE,
                                    alignment=TextAlignment.CENTER,
                                    alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._error_dismiss_label = UnifiedLabel("dismiss", 20, FontWeight.DISPLAY,
+                                             text_color=rl.WHITE,
+                                             alignment=TextAlignment.CENTER,
+                                             alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._error_banner = rl.Rectangle()
+    self._error_dismiss = rl.Rectangle()
     self._countdown_label = UnifiedLabel("", 96, FontWeight.DISPLAY,
                                          text_color=rl.WHITE,
                                          alignment=TextAlignment.CENTER,
@@ -451,6 +457,8 @@ class CamcorderView(CameraView):
 
   def _controls(self) -> list[tuple[str, rl.Rectangle]]:
     hits = [("record", self._record_slot), ("feed", self._feed)]
+    if self._recorder.error:
+      hits.insert(0, ("dismiss_error", self._error_dismiss))
     if not self._recorder.recording:
       hits.insert(0, ("playback", self._playback_slot))
     return hits
@@ -458,6 +466,10 @@ class CamcorderView(CameraView):
   def _layout(self):
     self._rail, self._camera_pane, self._feed = camera_body(self.rect)
     self._playback_slot, self._record_slot = split_rail(self._rail, 2)
+    self._error_banner = rl.Rectangle(self._feed.x + 12, self._feed.y + self._feed.height - 68,
+                                      self._feed.width - 24, 56)
+    self._error_dismiss = rl.Rectangle(self._error_banner.x + self._error_banner.width - 104,
+                                       self._error_banner.y + 6, 98, self._error_banner.height - 12)
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
     self._pressed = hit_name(mouse_pos, self._controls())
@@ -467,7 +479,9 @@ class CamcorderView(CameraView):
     self._pressed = None
     if pressed is None or hit_name(mouse_pos, self._controls()) != pressed:
       return
-    if pressed == "feed":
+    if pressed == "dismiss_error":
+      self._recorder.dismiss_error()
+    elif pressed == "feed":
       self._switch_camera()
     elif pressed == "playback":
       self._snapshot_countdown.cancel()
@@ -495,11 +509,14 @@ class CamcorderView(CameraView):
     message = self._recorder.error
     if not message:
       return
-    banner = rl.Rectangle(self._feed.x + 12, self._feed.y + self._feed.height - 68,
-                          self._feed.width - 24, 56)
+    banner = self._error_banner
     rl.draw_rectangle_rounded(banner, 0.2, 6, rl.Color(120, 20, 20, 230))
     self._error_osd.set_text(message)
-    self._error_osd.render(banner)
+    message_rect = rl.Rectangle(banner.x + 8, banner.y, self._error_dismiss.x - banner.x - 12, banner.height)
+    self._error_osd.render(message_rect)
+    button_color = rl.Color(180, 58, 58, 255) if self._pressed == "dismiss_error" else rl.Color(155, 38, 38, 255)
+    rl.draw_rectangle_rounded(self._error_dismiss, 0.2, 6, button_color)
+    self._error_dismiss_label.render(self._error_dismiss)
 
   def draw_mode_pull_indicator(self):
     progress = self._mode_pull.progress
@@ -583,8 +600,7 @@ class CamcorderView(CameraView):
       _draw_record_icon(record_face)
     if self.frame is None:
       self._waiting.render(self._feed)
-    if not recording:
-      self._draw_error_osd()
+    self._draw_error_osd()
     if counting_down:
       self._draw_snapshot_countdown(now)
     elif self._snapshot_countdown.tick(now):

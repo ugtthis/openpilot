@@ -10,6 +10,15 @@ _STREAM_NAMES = {
   VisionStreamType.VISION_STREAM_WIDE_ROAD: "wideRoad",
   VisionStreamType.VISION_STREAM_CABIN: "cabin",
 }
+_NOTICE_TEXT = {
+  "storageFullSaved": "Storage full — clip saved",
+  "storageFull": "Storage full — delete clips to record",
+  "audioErrorSaved": "Audio error — clip saved",
+  "recordingErrorSaved": "Camera error — clip saved",
+  "recordingFailed": "Recording failed — try again",
+  "micDisconnected": "Mic disconnected — recording silence",
+  "micUnavailable": "Mic unavailable — reconnect it",
+}
 
 
 class CamcorderClient:
@@ -26,6 +35,8 @@ class CamcorderClient:
     self._requested_recording = False
     self._completed_clip: Clip | None = None
     self._error = ""
+    self._notice_code = "none"
+    self._dismissed_notice = ""
 
   @property
   def recording(self) -> bool:
@@ -38,6 +49,10 @@ class CamcorderClient:
   @property
   def error(self) -> str:
     return self._error
+
+  def dismiss_error(self) -> None:
+    self._dismissed_notice = self._notice_code
+    self._error = ""
 
   def set_warm(self, warm: bool, stream_type: VisionStreamType) -> None:
     stream_changed = stream_type != self._stream_type
@@ -59,6 +74,7 @@ class CamcorderClient:
     self.set_warm(True, stream_type)
     self._requested_recording = True
     self._completed_clip = None
+    self._dismissed_notice = self._notice_code
     self._error = ""
     self._send("start", stream_type, press_mono_ns or boot_time_ns())
     return True
@@ -81,7 +97,7 @@ class CamcorderClient:
       state = self._sm["camcorderState"]
       self._phase = str(state.phase)
       self._elapsed_s = float(state.elapsedS)
-      self._error = str(getattr(state, "error", ""))
+      self._update_notice(str(getattr(state, "notice", "none")))
       if self._pending is not None and int(state.sequence) >= self._sequence:
         self._pending = None
       if self._requested_recording and self._phase in ("idle", "warming", "failed") and state.clipId:
@@ -96,6 +112,14 @@ class CamcorderClient:
       self._publish_pending()
     clip, self._completed_clip = self._completed_clip, None
     return clip
+
+  def _update_notice(self, notice: str) -> None:
+    self._notice_code = notice
+    if notice == "none":
+      self._dismissed_notice = ""
+      self._error = ""
+    elif notice != self._dismissed_notice:
+      self._error = _NOTICE_TEXT.get(notice, "Recording error — try again")
 
   def _send(self, action: str, stream_type: VisionStreamType, request_mono_ns: int) -> None:
     self._sequence += 1
