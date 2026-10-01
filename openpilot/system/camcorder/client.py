@@ -25,6 +25,7 @@ class CamcorderClient:
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self._requested_recording = False
     self._completed_clip: Clip | None = None
+    self._error = ""
 
   @property
   def recording(self) -> bool:
@@ -33,6 +34,10 @@ class CamcorderClient:
   @property
   def elapsed_s(self) -> float:
     return self._elapsed_s
+
+  @property
+  def error(self) -> str:
+    return self._error
 
   def set_warm(self, warm: bool, stream_type: VisionStreamType) -> None:
     stream_changed = stream_type != self._stream_type
@@ -54,6 +59,7 @@ class CamcorderClient:
     self.set_warm(True, stream_type)
     self._requested_recording = True
     self._completed_clip = None
+    self._error = ""
     self._send("start", stream_type, press_mono_ns or boot_time_ns())
     return True
 
@@ -75,15 +81,16 @@ class CamcorderClient:
       state = self._sm["camcorderState"]
       self._phase = str(state.phase)
       self._elapsed_s = float(state.elapsedS)
+      self._error = str(getattr(state, "error", ""))
       if self._pending is not None and int(state.sequence) >= self._sequence:
         self._pending = None
-      if self._requested_recording and self._phase in ("idle", "warming") and state.clipId:
+      if self._requested_recording and self._phase in ("idle", "warming", "failed") and state.clipId:
         self._requested_recording = False
         self._completed_clip = load_clip(clips_root() / str(state.clipId))
         if not self._warm and self._lease_held:
           release_camcorder()
           self._lease_held = False
-      elif self._requested_recording and self._phase == "warming" and state.error:
+      elif self._requested_recording and self._phase in ("warming", "failed") and state.error:
         self._requested_recording = False
     if self._pending is not None:
       self._publish_pending()

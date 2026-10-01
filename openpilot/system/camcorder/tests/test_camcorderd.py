@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.system.camcorder.camcorderd import CamcorderDaemon
+from openpilot.system.camcorder.recorder import ClipRecorder
 
 
 class FakeRecorder:
@@ -12,6 +13,7 @@ class FakeRecorder:
     self.mic_sample_rate = 48000
     self.mic_channels = 2
     self.mic_error = ""
+    self.capture_error = ""
     self.ready = True
     self.starts = []
     self.stops = 0
@@ -63,3 +65,40 @@ def test_duplicate_or_old_commands_are_ignored():
 
   assert len(recorder.starts) == 1
   assert recorder.stops == 0
+
+
+def test_capture_failure_stops_and_publishes_the_salvaged_clip():
+  recorder = FakeRecorder()
+  daemon = CamcorderDaemon(recorder)
+  daemon.apply_control(control(1, "start"))
+  recorder.capture_error = "preview capture failed: disk write failed"
+
+  daemon.update()
+
+  assert recorder.stops == 1
+  assert daemon.phase == "warming"
+  assert daemon.clip_id == "saved-clip"
+  assert daemon.error == recorder.capture_error
+
+
+def test_finalization_salvages_other_tracks_when_one_writer_fails():
+  class BrokenHevc:
+    def finalize(self):
+      raise OSError("video write failed")
+
+  class Preview:
+    def finalize(self, master, audio):
+      assert master is None
+      assert audio == "audio"
+      return "clip"
+
+  mic = SimpleNamespace(finish=lambda stop_ns: "audio")
+  recorder = ClipRecorder(mic=mic)
+  recorder._warm = True
+  recorder._recording.set()
+  recorder._preview = Preview()
+  recorder._hevc = BrokenHevc()
+
+  assert recorder.stop(123) == "clip"
+  assert recorder.capture_error == "encoded video finalization failed: video write failed"
+  assert not recorder.recording

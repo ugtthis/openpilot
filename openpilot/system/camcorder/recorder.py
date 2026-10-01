@@ -35,6 +35,7 @@ class ClipRecorder:
     self._stop = threading.Event()
     self._preview_ready = threading.Event()
     self._finalizing = threading.Event()
+    self._recording = threading.Event()
     self._started_mono = 0.0
     self._stop_mono_ns = 0
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
@@ -47,10 +48,17 @@ class ClipRecorder:
     self._preroll_video: list[HevcPacket] = []
     # Newest pre-roll timestamp written; the take's own sockets repeat earlier packets.
     self._hevc_after_ns = 0
+    self._capture_error = ""
 
   @property
   def recording(self) -> bool:
-    return self._finalizing.is_set() or (self._preview_thread is not None and self._preview_thread.is_alive())
+    preview_alive = self._preview_thread is not None and self._preview_thread.is_alive()
+    return self._recording.is_set() or self._finalizing.is_set() or preview_alive
+
+  @property
+  def capture_error(self) -> str:
+    with self._lock:
+      return self._capture_error
 
   @property
   def elapsed_s(self) -> float:
@@ -111,6 +119,8 @@ class ClipRecorder:
     self._stop_mono_ns = 0
     self._preroll_video = []
     self._hevc_after_ns = 0
+    with self._lock:
+      self._capture_error = ""
     self._stream_type = stream_type
     self._started_mono = (recording_start_mono_ns or boot_time_ns()) / 1e9
     try:
@@ -122,8 +132,17 @@ class ClipRecorder:
       return False
     self._preview_thread = threading.Thread(target=self._capture_preview, name="camcorder-preview", daemon=True)
     self._hevc_thread = threading.Thread(target=self._capture_hevc, name="camcorder-hevc", daemon=True)
-    self._preview_thread.start()
-    self._hevc_thread.start()
+    self._recording.set()
+    try:
+      self._preview_thread.start()
+      self._hevc_thread.start()
+    except RuntimeError as exc:
+      self._set_capture_error(f"capture worker could not start: {exc}")
+      self._recording.clear()
+      self._stop.set()
+      self._join_threads()
+      self._release_leases()
+      return False
     return True
 
   def stop(self, stop_mono_ns: int | None = None) -> Clip | None:
@@ -138,15 +157,34 @@ class ClipRecorder:
         # Normal shutter stop: preserve the clip tail until capture has drained.
         self._release_leases()
       if not stopped:
-        cloudlog.error("camcorder recorder did not stop")
+        self._set_capture_error("capture workers did not stop")
+        self._recording.clear()
         return None
       with self._lock:
         preview, hevc = self._preview, self._hevc
         self._preview = None
         self._hevc = None
-      master = hevc.finalize() if hevc is not None else None
-      audio_info = self._mic.finish(self._stop_mono_ns)
-      return preview.finalize(master, audio_info) if preview is not None else None
+      master = None
+      audio_info = None
+      try:
+        if hevc is not None:
+          master = hevc.finalize()
+      except Exception as exc:
+        self._set_capture_error(f"encoded video finalization failed: {exc}")
+        cloudlog.exception("camcorder encoded video finalization failed")
+      try:
+        audio_info = self._mic.finish(self._stop_mono_ns)
+      except Exception as exc:
+        self._set_capture_error(f"audio finalization failed: {exc}")
+        cloudlog.exception("camcorder audio finalization failed")
+      try:
+        return preview.finalize(master, audio_info) if preview is not None else None
+      except Exception as exc:
+        self._set_capture_error(f"clip finalization failed: {exc}")
+        cloudlog.exception("camcorder clip finalization failed")
+        return None
+      finally:
+        self._recording.clear()
 
   def stop_async(self) -> None:
     """Abort for ignition without joining capture workers on the UI thread."""
@@ -239,9 +277,9 @@ class ClipRecorder:
         t_ms = int((time.monotonic() - self._started_mono) * 1000)
         with self._lock:
           preview.add_frame(rgb, t_ms)
-    except Exception:
-      cloudlog.exception("camcorder preview recorder failed")
-      self._stop.set()
+    except Exception as exc:
+      self._set_capture_error(f"preview capture failed: {exc}")
+      cloudlog.exception("camcorder preview capture failed")
     finally:
       del client
 
@@ -261,9 +299,9 @@ class ClipRecorder:
         self._write_hevc([getattr(event, service) for event in messages])
       if self._preview_ready.is_set():
         self._drain_hevc_tail(sock, service)
-    except Exception:
-      # Keep the RGB preview even if the native master is incomplete.
-      cloudlog.exception("camcorder native recorder failed")
+    except Exception as exc:
+      self._set_capture_error(f"encoded video capture failed: {exc}")
+      cloudlog.exception("camcorder encoded video capture failed")
 
   def _write_hevc(self, encoded_frames) -> int:
     with self._lock:
@@ -280,6 +318,12 @@ class ClipRecorder:
       if encoded.idx.timestampEof > self._hevc_after_ns:
         hevc.add_encoded(encoded)
     return int(encoded_frames[-1].idx.timestampEof) if encoded_frames else 0
+
+  def _set_capture_error(self, error: str) -> None:
+    with self._lock:
+      if not self._capture_error:
+        self._capture_error = error
+    self._stop.set()
 
   def _drain_hevc_tail(self, sock, service: str) -> None:
     from openpilot.cereal import messaging

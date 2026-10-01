@@ -53,16 +53,30 @@ class CamcorderDaemon:
           self.phase = "failed"
           self.error = "recorder could not start"
       elif action == "stop" and self.recorder.recording:
-        self.phase = "finalizing"
-        clip = self.recorder.stop(int(control.requestMonoTime))
-        self.clip_id = clip.clip_id if clip is not None else ""
-        self.audio_gap_count = clip.audio_gap_count if clip is not None else 0
-        self.audio_gap_frame_count = clip.audio_gap_frame_count if clip is not None else 0
-        self.phase = "warming"
+        self._finish_recording(int(control.requestMonoTime))
     except Exception as exc:
       self.phase = "failed"
       self.error = str(exc)
       cloudlog.exception("camcorder command failed")
+
+  def update(self) -> None:
+    if self.phase == "recording" and self.recorder.capture_error:
+      self._finish_recording()
+      return
+    if not self.recorder.recording and self.phase not in ("failed", "finalizing"):
+      self.recorder.set_warm(True, self.stream_type)
+      self.phase = "idle" if self.recorder.ready else "warming"
+
+  def _finish_recording(self, stop_mono_ns: int | None = None) -> None:
+    self.phase = "finalizing"
+    clip = self.recorder.stop(stop_mono_ns)
+    self.clip_id = clip.clip_id if clip is not None else ""
+    self.audio_gap_count = clip.audio_gap_count if clip is not None else 0
+    self.audio_gap_frame_count = clip.audio_gap_frame_count if clip is not None else 0
+    self.error = self.recorder.capture_error
+    if clip is None and not self.error:
+      self.error = "recording stopped without a usable clip"
+    self.phase = "warming"
 
   def state_message(self):
     msg = messaging.new_message("camcorderState", valid=True)
@@ -91,9 +105,7 @@ class CamcorderDaemon:
         sm.update(0)
         if sm.updated["camcorderControl"]:
           self.apply_control(sm["camcorderControl"])
-        if not self.recorder.recording and self.phase not in ("failed", "finalizing"):
-          self.recorder.set_warm(True, self.stream_type)
-          self.phase = "idle" if self.recorder.ready else "warming"
+        self.update()
         pm.send("camcorderState", self.state_message())
         rk.keep_time()
     finally:

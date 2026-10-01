@@ -331,6 +331,10 @@ class CamcorderView(CameraView):
                                  text_color=OSD_COLOR,
                                  alignment=TextAlignment.LEFT,
                                  alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._error_osd = UnifiedLabel("", 24, FontWeight.ROMAN,
+                                   text_color=rl.WHITE,
+                                   alignment=TextAlignment.CENTER,
+                                   alignment_vertical=TextAlignmentVertical.MIDDLE)
     self._countdown_label = UnifiedLabel("", 96, FontWeight.DISPLAY,
                                          text_color=rl.WHITE,
                                          alignment=TextAlignment.CENTER,
@@ -487,6 +491,16 @@ class CamcorderView(CameraView):
     self._rec_osd.set_text(format_timecode(elapsed))
     self._rec_osd.render(rl.Rectangle(chip.x + 22, chip.y, chip.width - 26, chip.height))
 
+  def _draw_error_osd(self):
+    message = self._recorder.error
+    if not message:
+      return
+    banner = rl.Rectangle(self._feed.x + 12, self._feed.y + self._feed.height - 68,
+                          self._feed.width - 24, 56)
+    rl.draw_rectangle_rounded(banner, 0.2, 6, rl.Color(120, 20, 20, 230))
+    self._error_osd.set_text(message)
+    self._error_osd.render(banner)
+
   def draw_mode_pull_indicator(self):
     progress = self._mode_pull.progress
     if progress <= 0.0:
@@ -569,6 +583,8 @@ class CamcorderView(CameraView):
       _draw_record_icon(record_face)
     if self.frame is None:
       self._waiting.render(self._feed)
+    if not recording:
+      self._draw_error_osd()
     if counting_down:
       self._draw_snapshot_countdown(now)
     elif self._snapshot_countdown.tick(now):

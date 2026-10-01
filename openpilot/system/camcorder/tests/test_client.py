@@ -97,3 +97,23 @@ def test_leaving_the_page_keeps_the_lease_until_stop_finishes():
   release.assert_called_once()
   load.assert_called_once_with(Path("/clips/saved"))
   assert not client.recording
+
+
+def test_failed_recording_returns_a_salvaged_clip_and_the_error():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  client._phase = "idle"
+  clip = object()
+  with (
+    patch("openpilot.system.camcorder.client.acquire_camcorder"),
+    patch("openpilot.system.camcorder.client.clips_root", return_value=Path("/clips")),
+    patch("openpilot.system.camcorder.client.load_clip", return_value=clip),
+  ):
+    assert client.start(WIDE, 100)
+    sm.updated["camcorderState"] = True
+    sm.state = SimpleNamespace(sequence=1, phase="warming", elapsedS=0.0, clipId="salvaged",
+                               error="preview capture failed")
+    assert client.update() is clip
+
+  assert not client.recording
+  assert client.error == "preview capture failed"
