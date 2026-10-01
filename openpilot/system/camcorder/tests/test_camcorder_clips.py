@@ -8,7 +8,7 @@ from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
 from openpilot.system.camcorder.clip_storage import (
   CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, ClipReader, ClipWriter, center_crop, delete_all_clips, delete_clip,
-  extract_clip_rgb, format_timecode, list_clips, preview_size, scale_rgb,
+  extract_clip_rgb, format_timecode, list_clips, load_clip, preview_size, scale_rgb,
 )
 from openpilot.system.camcorder.hevc_writer import HevcWriter
 
@@ -225,6 +225,22 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert audio is not None
     assert (audio.frame_count, audio.gap_count) == (100, 0)
     writer.abort()
+
+  def test_audio_writer_measures_the_mic_clock_against_boot_time(self):
+    writer = ClipWriter("wide")
+    writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+    audio_writer = AudioWriter(writer.path)
+    packet = np.ones(50, dtype=np.int16).tobytes()
+    # A "1000 Hz" mic that really delivers 1001 samples per boot-clock second.
+    for i in range(100):
+      audio_writer.add_packet(packet, sample_rate=1000, log_mono_ns=round(i * 50e9 / 1001))
+    audio = audio_writer.finalize()
+    assert audio is not None
+    assert abs(audio.measured_sample_rate - 1001) < 0.1
+
+    clip = writer.finalize(audio=audio)
+    assert clip is not None
+    assert load_clip(clip.path).audio_measured_sample_rate == audio.measured_sample_rate
 
   def test_audio_playback_sync_and_mute(self):
     writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)

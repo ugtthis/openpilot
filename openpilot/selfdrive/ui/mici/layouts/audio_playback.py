@@ -82,7 +82,7 @@ class ClipAudioPlayer:
   def sync(self, playhead_s: float, playing: bool) -> None:
     """Apply a clip-timeline discontinuity without resetting every callback."""
     with self._lock:
-      self._cursor = round((playhead_s - self._audio_offset_s) * self._clip.audio_sample_rate)
+      self._cursor = round((playhead_s - self._audio_offset_s) * self._clip.audio_measured_sample_rate)
       self._playing = playing
 
   def _callback(self, outdata, frames, _time_info, _status) -> None:

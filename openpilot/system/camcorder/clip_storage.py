@@ -41,6 +41,8 @@ _AUDIO_PARTIAL = "audio.s16le.partial"
 # ADC-start timestamps do not include process scheduling jitter. Allow small
 # hardware-clock noise, but detect even one missing 50 ms capture block.
 _AUDIO_GAP_TOLERANCE_NS = 10_000_000
+# Real mic clocks are within a few hundred ppm; anything further is a bad timestamp.
+_AUDIO_MAX_CLOCK_ERROR = 0.01
 
 
 def clips_root() -> Path:
@@ -98,6 +100,7 @@ class Clip:
   video_start_mono_ns: int = 0
   audio: str | None = None
   audio_sample_rate: int = 0
+  audio_measured_sample_rate: float = 0.0
   audio_channels: int = 0
   audio_frame_count: int = 0
   audio_start_mono_ns: int = 0
@@ -142,6 +145,7 @@ class AudioInfo:
   device_name: str = ""
   overflow_count: int = 0
   error: str = ""
+  measured_sample_rate: float = 0.0
 
 
 class AudioWriter:
@@ -211,7 +215,18 @@ class AudioWriter:
     self._partial.replace(self._path)
     return AudioInfo(self._path.name, self._sample_rate, self._channels,
                      self._frame_count, self._first_log_mono_ns,
-                     self._gap_count, self._gap_frame_count)
+                     self._gap_count, self._gap_frame_count,
+                     measured_sample_rate=self._measured_sample_rate())
+
+  def _measured_sample_rate(self) -> float:
+    """Samples per second of boot clock, so long takes don't drift against video."""
+    span_ns = self._end_ns - self._first_log_mono_ns
+    if span_ns <= 0:
+      return float(self._sample_rate)
+    measured = self._frame_count * 1e9 / span_ns
+    if abs(measured / self._sample_rate - 1) > _AUDIO_MAX_CLOCK_ERROR:
+      return float(self._sample_rate)
+    return measured
 
   def abort(self) -> None:
     if not self._file.closed:
@@ -381,6 +396,7 @@ class ClipWriter:
       payload.update({
         "audio": audio.filename,
         "audio_sample_rate": audio.sample_rate,
+        "audio_measured_sample_rate": audio.measured_sample_rate or audio.sample_rate,
         "audio_channels": audio.channels,
         "audio_frame_count": audio.frame_count,
         "audio_start_mono_ns": audio.first_log_mono_ns,
@@ -426,6 +442,7 @@ def load_clip(path: Path) -> Clip | None:
       video_start_mono_ns=int(meta.get("video_start_mono_ns", 0)),
       audio=str(meta["audio"]) if meta.get("audio") else None,
       audio_sample_rate=int(meta.get("audio_sample_rate", 0)),
+      audio_measured_sample_rate=float(meta.get("audio_measured_sample_rate") or meta.get("audio_sample_rate", 0)),
       audio_channels=int(meta.get("audio_channels", 0)),
       audio_frame_count=int(meta.get("audio_frame_count", 0)),
       audio_start_mono_ns=int(meta.get("audio_start_mono_ns", 0)),
