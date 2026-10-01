@@ -351,6 +351,9 @@ class CamcorderView(CameraView):
     # capture does not depend on visibility or event ordering for safety.
     return camcorder_available(bool(ui_state.is_body), ui_state.ignition, ui_state.panda_type)
 
+  def set_warm(self, on_screen: bool) -> None:
+    self._recorder.set_warm(on_screen and self._capture_allowed())
+
   def on_ignition_transition(self) -> None:
     if not ui_state.ignition:
       return

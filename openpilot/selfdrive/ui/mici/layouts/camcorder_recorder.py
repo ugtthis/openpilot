@@ -41,6 +41,7 @@ class ClipRecorder:
     self._audio: AudioWriter | None = None
     self._lock = threading.Lock()
     self._stop_lock = threading.Lock()
+    self._warm = False
 
   @property
   def recording(self) -> bool:
@@ -51,6 +52,26 @@ class ClipRecorder:
     if not self.recording:
       return 0.0
     return max(0.0, time.monotonic() - self._started_mono)
+
+  def set_warm(self, warm: bool) -> None:
+    """Keep encoderd and micd running while the camcorder is on screen.
+
+    Spawning both on the shutter press cost every take its first ~0.7 s.
+    """
+    warm = warm and not ui_state.ignition
+    if warm == self._warm:
+      return
+    self._warm = warm
+    if warm:
+      try:
+        acquire_encoder()
+        acquire_mic()
+      except OSError:
+        self._warm = False
+        self._release_leases()
+        cloudlog.exception("camcorder could not warm up recording services")
+    elif not self.recording:
+      self._release_leases()
 
   def start(self, stream_type: VisionStreamType) -> bool:
     # Recorder-level backstop: never acquire offroad capture processes based
@@ -66,8 +87,7 @@ class ClipRecorder:
       acquire_encoder()
       acquire_mic()
     except OSError:
-      release_encoder()
-      release_mic()
+      self._release_leases()
       cloudlog.exception("camcorder could not request recording services")
       return False
     self._preview_thread = threading.Thread(target=self._capture_preview, name="camcorder-preview", daemon=True)
@@ -88,8 +108,7 @@ class ClipRecorder:
       stopped = self._join_threads()
       if release_after:
         # Normal shutter stop: preserve the clip tail until capture has drained.
-        release_encoder()
-        release_mic()
+        self._release_leases()
       if not stopped:
         cloudlog.error("camcorder recorder did not stop")
         return None
@@ -106,8 +125,8 @@ class ClipRecorder:
     """Abort for ignition without joining capture workers on the UI thread."""
     self._stop_mono_ns = time.monotonic_ns()
     self._stop.set()
-    release_encoder()
-    release_mic()
+    self._warm = False
+    self._release_leases()
     self._finalizing.set()
     try:
       threading.Thread(target=self._finish_stop_async, name="camcorder-stop", daemon=True).start()
@@ -126,8 +145,7 @@ class ClipRecorder:
   def _discard_stale(self) -> bool:
     self._stop.set()
     stopped = self._join_threads(timeout=1.0)
-    release_encoder()
-    release_mic()
+    self._release_leases()
     if not stopped:
       cloudlog.error("stale camcorder threads did not stop")
       return False
@@ -142,6 +160,12 @@ class ClipRecorder:
         self._preview.abort()
         self._preview = None
     return True
+
+  def _release_leases(self) -> None:
+    if self._warm:
+      return
+    release_encoder()
+    release_mic()
 
   def _join_threads(self, timeout: float = 2.0) -> bool:
     deadline = time.monotonic() + timeout

@@ -1,4 +1,5 @@
 import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
@@ -239,6 +240,102 @@ def test_async_stop_thread_failure_remains_fail_safe():
   release_encoder.assert_called_once()
   release_mic.assert_called_once()
   log_exception.assert_called_once()
+
+
+class _TakeThread:
+  """Looks like a running capture thread until the recorder joins it."""
+
+  def __init__(self):
+    self.alive = True
+
+  def join(self, timeout=None):
+    self.alive = False
+
+  def is_alive(self):
+    return self.alive
+
+
+@contextmanager
+def _recorded_leases(ignition: bool = False):
+  events: list[str] = []
+  recorder_module = "openpilot.selfdrive.ui.mici.layouts.camcorder_recorder"
+  with (
+    patch.object(ui_state, "ignition", ignition),
+    patch(f"{recorder_module}.acquire_encoder", side_effect=lambda: events.append("acquire")),
+    patch(f"{recorder_module}.acquire_mic", side_effect=lambda: events.append("acquire mic")),
+    patch(f"{recorder_module}.release_encoder", side_effect=lambda: events.append("release")),
+    patch(f"{recorder_module}.release_mic", side_effect=lambda: events.append("release mic")),
+  ):
+    yield events
+
+
+def test_warm_camcorder_holds_leases_across_a_take():
+  recorder = ClipRecorder()
+  with _recorded_leases() as events:
+    recorder.set_warm(True)
+    recorder.set_warm(True)
+    recorder._preview_thread = cast(Any, _TakeThread())
+    recorder.stop()
+    assert events == ["acquire", "acquire mic"]
+
+    recorder.set_warm(False)
+  assert events == ["acquire", "acquire mic", "release", "release mic"]
+
+
+def test_leaving_the_camcorder_mid_take_keeps_leases_until_stop():
+  recorder = ClipRecorder()
+  with _recorded_leases() as events:
+    recorder.set_warm(True)
+    recorder._preview_thread = cast(Any, _TakeThread())
+    recorder.set_warm(False)
+    assert events == ["acquire", "acquire mic"]
+
+    recorder.stop()
+  assert events == ["acquire", "acquire mic", "release", "release mic"]
+
+
+def test_camcorder_does_not_warm_up_with_ignition_on():
+  recorder = ClipRecorder()
+  with _recorded_leases(ignition=True) as events:
+    recorder.set_warm(True)
+  assert events == []
+
+
+def test_ignition_stop_releases_warm_leases():
+  recorder = ClipRecorder()
+  with _recorded_leases() as events:
+    recorder.set_warm(True)
+    recorder.stop_async()
+    deadline = time.monotonic() + 2.0
+    while recorder._finalizing.is_set() and time.monotonic() < deadline:
+      time.sleep(0.01)
+  assert events == ["acquire", "acquire mic", "release", "release mic"]
+
+
+def test_camcorder_warms_up_only_while_settled_on_screen():
+  warm = []
+  layout = cast(Any, object.__new__(MiciMainLayout))
+  layout._setup = True
+  layout._rect = SimpleNamespace(x=0.0, width=536.0)
+  layout._swipe_left_page = SimpleNamespace(showing_camcorder=True, rect=SimpleNamespace(x=0.0))
+  layout._camcorder_view = SimpleNamespace(set_warm=warm.append)
+
+  def tick(active=layout, awake=True):
+    with (
+      patch("openpilot.selfdrive.ui.mici.layouts.main.gui_app.get_active_widget", return_value=active),
+      patch.object(type(device), "awake", property(lambda _self: awake)),
+    ):
+      layout._update_camcorder_warmup()
+
+  tick()
+  layout._swipe_left_page.rect.x = 400.0
+  tick()
+  layout._swipe_left_page.rect.x = 0.0
+  tick(active=object())
+  tick(awake=False)
+  layout._swipe_left_page.showing_camcorder = False
+  tick()
+  assert warm == [True, False, False, False, False]
 
 
 class _AudioSink:
