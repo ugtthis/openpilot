@@ -9,7 +9,7 @@ from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
 from openpilot.system.camcorder.clip_storage import (
   CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, ClipReader, ClipWriter, center_crop, delete_all_clips, delete_clip,
-  extract_clip_rgb, format_timecode, list_clips, load_clip, preview_size, scale_rgb,
+  extract_clip_rgb, format_timecode, list_clips, load_clip, preview_size, recover_interrupted_clips, scale_rgb,
 )
 from openpilot.system.camcorder.hevc_writer import HevcWriter
 
@@ -302,6 +302,43 @@ class TestCamcorderClips(OpenpilotTestCase):
       assert (master.width, master.height, master.frame_count) == (1344, 760, 2)
       assert master.first_timestamp_ns == 1234
       assert (path / "video.hevc").read_bytes() == b"headerkeydelta"
+
+  def test_interrupted_take_recovers_only_fully_written_media(self):
+    writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
+    frame = np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8)
+    writer.add_frame(frame, 0)
+    writer.add_frame(frame, 50)
+
+    hevc = HevcWriter(writer.path)
+    hevc.add_packet(b"header", b"key", True, 1344, 760, 1_000_000_000)
+    hevc.add_packet(b"", b"delta", False, 1344, 760, 1_050_000_000)
+
+    audio_writer = AudioWriter(writer.path)
+    audio_writer.add_packet(np.arange(10, dtype=np.int16).tobytes(), 100, 1_000_000_000)
+
+    # Emulate a killed process and torn writes after the last journaled units.
+    writer._close_files()
+    hevc._close()
+    audio_writer._file.close()
+    frames_path = writer.path / "frames.bin"
+    frames_path.write_bytes(frames_path.read_bytes()[:-1])
+    with open(writer.path / "video.hevc.partial", "ab") as file:
+      file.write(b"torn")
+    with open(writer.path / "audio.s16le.partial", "ab") as file:
+      file.write(b"\0")
+
+    recovered = recover_interrupted_clips(writer.path.parent)
+
+    assert len(recovered) == 1
+    clip = recovered[0]
+    assert clip.frame_count == 1
+    assert clip.native_frame_count == 2
+    assert clip.audio_frame_count == 10
+    assert clip.audio_error == "recording was interrupted"
+    assert (clip.path / "video.hevc").read_bytes() == b"headerkeydelta"
+    assert (clip.path / "audio.s16le").stat().st_size == 20
+    meta = json.loads((clip.path / "clip.json").read_text())
+    assert meta["status"] == "ready" and meta["recovered"]
 
   def test_hevc_writer_counts_dropped_frames(self):
     with TemporaryDirectory() as directory:

@@ -21,7 +21,8 @@ import numpy as np
 
 from openpilot.common.hardware import PC
 from openpilot.common.hardware.hw import Paths
-from openpilot.system.camcorder.hevc_writer import MasterInfo
+from openpilot.system.camcorder.journal import read_json, write_json_atomic
+from openpilot.system.camcorder.hevc_writer import MasterInfo, cleanup_hevc_journal, recover_hevc
 from openpilot.system.audio_utils import PCM_SAMPLE_BYTES
 
 # Must match camcorder_style.FEED_ASPECT so the take matches the live crop.
@@ -38,6 +39,7 @@ _FRAMES_BIN = "frames.bin"
 _INDEX_BIN = "index.bin"
 _AUDIO_PCM = "audio.s16le"
 _AUDIO_PARTIAL = "audio.s16le.partial"
+_AUDIO_INFO = "audio.info"
 # ADC-start timestamps do not include process scheduling jitter. Allow small
 # hardware-clock noise, but detect even one missing 50 ms capture block.
 _AUDIO_GAP_TOLERANCE_NS = 10_000_000
@@ -96,6 +98,7 @@ class Clip:
   master: str | None = None
   native_width: int = 0
   native_height: int = 0
+  native_frame_count: int = 0
   recording_start_mono_ns: int = 0
   video_start_mono_ns: int = 0
   audio: str | None = None
@@ -154,7 +157,8 @@ class AudioWriter:
   def __init__(self, clip_path: Path):
     self._path = clip_path / _AUDIO_PCM
     self._partial = clip_path / _AUDIO_PARTIAL
-    self._file = open(self._partial, "wb")
+    self._info_path = clip_path / _AUDIO_INFO
+    self._file = open(self._partial, "wb", buffering=0)
     self._sample_rate = 0
     self._channels = 1
     self._frame_count = 0
@@ -178,6 +182,11 @@ class AudioWriter:
       self._sample_rate = sample_rate
       self._channels = channels
       self._first_log_mono_ns = log_mono_ns
+      write_json_atomic(self._info_path, {
+        "sample_rate": sample_rate,
+        "channels": channels,
+        "first_log_mono_ns": log_mono_ns,
+      })
     elif log_mono_ns - self._end_ns > _AUDIO_GAP_TOLERANCE_NS:
       # Compare against the previous block, not the nominal rate: mic clocks are
       # off by hundreds of ppm, which is drift for the exporter, not lost audio.
@@ -208,9 +217,12 @@ class AudioWriter:
     self._gap_frame_count += missing
 
   def finalize(self) -> AudioInfo | None:
+    if self._sample_rate:
+      self._file.truncate(self._frame_count * PCM_SAMPLE_BYTES * self._channels)
     self._file.close()
     if self._frame_count <= 0:
       self._partial.unlink(missing_ok=True)
+      self._info_path.unlink(missing_ok=True)
       return None
     self._partial.replace(self._path)
     return AudioInfo(self._path.name, self._sample_rate, self._channels,
@@ -233,6 +245,38 @@ class AudioWriter:
       self._file.close()
     self._partial.unlink(missing_ok=True)
     self._path.unlink(missing_ok=True)
+    self._info_path.unlink(missing_ok=True)
+
+
+def recover_audio(clip_path: Path) -> AudioInfo | None:
+  partial = clip_path / _AUDIO_PARTIAL
+  output = clip_path / _AUDIO_PCM
+  source = output if output.is_file() else partial
+  info_path = clip_path / _AUDIO_INFO
+  info = read_json(info_path)
+  if info is None or not source.is_file():
+    return None
+  try:
+    sample_rate = int(info["sample_rate"])
+    channels = int(info["channels"])
+    first_log_mono_ns = int(info["first_log_mono_ns"])
+    if sample_rate <= 0 or channels <= 0:
+      return None
+    frame_size = PCM_SAMPLE_BYTES * channels
+    frame_count = source.stat().st_size // frame_size
+    if frame_count <= 0:
+      return None
+    with open(source, "r+b") as file:
+      file.truncate(frame_count * frame_size)
+    if source == partial:
+      partial.replace(output)
+    return AudioInfo(output.name, sample_rate, channels, frame_count, first_log_mono_ns,
+                     error="recording was interrupted", measured_sample_rate=float(sample_rate))
+  except (KeyError, OSError, TypeError, ValueError):
+    return None
+  finally:
+    partial.unlink(missing_ok=True)
+    info_path.unlink(missing_ok=True)
 
 
 def _new_clip_id(root: Path, when: datetime) -> str:
@@ -291,6 +335,36 @@ def scale_rgb(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
   return np.ascontiguousarray(rgb[ys][:, xs])
 
 
+def _master_metadata(master: MasterInfo) -> dict:
+  return {
+    "codec": "hevc",
+    "master": master.filename,
+    "native_width": master.width,
+    "native_height": master.height,
+    "native_frame_count": master.frame_count,
+    "video_start_mono_ns": master.first_timestamp_ns,
+    "video_gap_count": master.gap_count,
+    "video_dropped_frame_count": master.dropped_frame_count,
+  }
+
+
+def _audio_metadata(audio: AudioInfo) -> dict:
+  return {
+    "audio": audio.filename,
+    "audio_sample_rate": audio.sample_rate,
+    "audio_measured_sample_rate": audio.measured_sample_rate or audio.sample_rate,
+    "audio_channels": audio.channels,
+    "audio_frame_count": audio.frame_count,
+    "audio_start_mono_ns": audio.first_log_mono_ns,
+    "audio_timestamp": "adc_start_boottime",
+    "audio_gap_count": audio.gap_count,
+    "audio_gap_frame_count": audio.gap_frame_count,
+    "audio_device_name": audio.device_name,
+    "audio_overflow_count": audio.overflow_count,
+    "audio_error": audio.error,
+  }
+
+
 class ClipWriter:
   def __init__(self, camera: str, width: int = CLIP_WIDTH, height: int = CLIP_HEIGHT,
                fps: int = CLIP_FPS, started_at: datetime | None = None,
@@ -306,6 +380,7 @@ class ClipWriter:
     self.recording_start_mono_ns = recording_start_mono_ns
     self.frame_count = 0
     self._last_t_ms = 0
+    self._last_complete_offset = 0
     self._frames = None
     self._index = None
     root = clips_root()
@@ -314,8 +389,8 @@ class ClipWriter:
     self.path = root / self.clip_id
     self.path.mkdir()
     try:
-      self._frames = open(self.path / _FRAMES_BIN, "wb")
-      self._index = open(self.path / _INDEX_BIN, "wb")
+      self._frames = open(self.path / _FRAMES_BIN, "wb", buffering=0)
+      self._index = open(self.path / _INDEX_BIN, "wb", buffering=0)
       self._write_meta("recording")
     except OSError:
       self._close_files()
@@ -329,18 +404,25 @@ class ClipWriter:
       raise ValueError(f"expected {(self.height, self.width, 3)}, got {rgb.shape}")
     blob = zlib.compress(np.ascontiguousarray(rgb).tobytes(), _ZLIB_LEVEL)
     offset = self._frames.tell()
-    self._index.write(_INDEX.pack(offset, t_ms))
     self._frames.write(_SIZE.pack(len(blob)))
     self._frames.write(blob)
+    self._index.write(_INDEX.pack(offset, t_ms))
+    self._last_complete_offset = self._frames.tell()
     self.frame_count += 1
     self._last_t_ms = t_ms
 
   def finalize(self, master: MasterInfo | None = None, audio: AudioInfo | None = None) -> Clip | None:
+    if self._frames is not None:
+      self._frames.truncate(self._last_complete_offset)
+    if self._index is not None:
+      self._index.truncate(self.frame_count * _INDEX.size)
     self._close_files()
     if self.frame_count <= 0:
       self.abort()
       return None
     self._write_meta("ready", master, audio)
+    cleanup_hevc_journal(self.path)
+    (self.path / _AUDIO_INFO).unlink(missing_ok=True)
     return load_clip(self.path)
 
   def abort(self):
@@ -382,32 +464,10 @@ class ClipWriter:
     if self.recording_start_mono_ns:
       payload["recording_start_mono_ns"] = self.recording_start_mono_ns
     if master is not None:
-      payload.update({
-        "codec": "hevc",
-        "master": master.filename,
-        "native_width": master.width,
-        "native_height": master.height,
-        "native_frame_count": master.frame_count,
-        "video_start_mono_ns": master.first_timestamp_ns,
-        "video_gap_count": master.gap_count,
-        "video_dropped_frame_count": master.dropped_frame_count,
-      })
+      payload.update(_master_metadata(master))
     if audio is not None:
-      payload.update({
-        "audio": audio.filename,
-        "audio_sample_rate": audio.sample_rate,
-        "audio_measured_sample_rate": audio.measured_sample_rate or audio.sample_rate,
-        "audio_channels": audio.channels,
-        "audio_frame_count": audio.frame_count,
-        "audio_start_mono_ns": audio.first_log_mono_ns,
-        "audio_timestamp": "adc_start_boottime",
-        "audio_gap_count": audio.gap_count,
-        "audio_gap_frame_count": audio.gap_frame_count,
-        "audio_device_name": audio.device_name,
-        "audio_overflow_count": audio.overflow_count,
-        "audio_error": audio.error,
-      })
-    (self.path / _CLIP_JSON).write_text(json.dumps(payload), encoding="utf-8")
+      payload.update(_audio_metadata(audio))
+    write_json_atomic(self.path / _CLIP_JSON, payload)
 
 
 def load_clip(path: Path) -> Clip | None:
@@ -438,6 +498,7 @@ def load_clip(path: Path) -> Clip | None:
       master=str(meta["master"]) if meta.get("master") else None,
       native_width=int(meta.get("native_width", 0)),
       native_height=int(meta.get("native_height", 0)),
+      native_frame_count=int(meta.get("native_frame_count", 0)),
       recording_start_mono_ns=int(meta.get("recording_start_mono_ns", 0)),
       video_start_mono_ns=int(meta.get("video_start_mono_ns", 0)),
       audio=str(meta["audio"]) if meta.get("audio") else None,
@@ -455,6 +516,89 @@ def load_clip(path: Path) -> Clip | None:
     )
   except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError):
     return None
+
+
+def _recover_preview(path: Path) -> tuple[int, int] | None:
+  frames_path = path / _FRAMES_BIN
+  index_path = path / _INDEX_BIN
+  if not frames_path.is_file() or not index_path.is_file():
+    return None
+  try:
+    raw_index = index_path.read_bytes()
+    frames_size = frames_path.stat().st_size
+    valid_count = 0
+    valid_end = 0
+    last_t_ms = 0
+    with open(frames_path, "rb") as frames:
+      for offset in range(0, len(raw_index) - _INDEX.size + 1, _INDEX.size):
+        frame_offset, t_ms = _INDEX.unpack_from(raw_index, offset)
+        if frame_offset != valid_end or t_ms < last_t_ms or frame_offset + _SIZE.size > frames_size:
+          break
+        frames.seek(frame_offset)
+        (size,) = _SIZE.unpack(frames.read(_SIZE.size))
+        frame_end = frame_offset + _SIZE.size + size
+        if size <= 0 or frame_end > frames_size:
+          break
+        valid_count += 1
+        valid_end = frame_end
+        last_t_ms = t_ms
+    if valid_count <= 0:
+      return None
+    with open(frames_path, "r+b") as frames:
+      frames.truncate(valid_end)
+    with open(index_path, "r+b") as index:
+      index.truncate(valid_count * _INDEX.size)
+    return valid_count, last_t_ms
+  except (OSError, struct.error):
+    return None
+
+
+def _recover_interrupted_clip(path: Path, meta: dict) -> Clip | None:
+  preview = _recover_preview(path)
+  if preview is None:
+    return None
+  frame_count, last_t_ms = preview
+  fps = int(meta.get("fps", CLIP_FPS))
+  if fps <= 0:
+    return None
+  master = recover_hevc(path)
+  audio = recover_audio(path)
+  meta.update({
+    "status": "ready",
+    "frame_count": frame_count,
+    "duration_s": max(last_t_ms / 1000.0, frame_count / float(fps)),
+    "recovered": True,
+    "recovery_error": "recording was interrupted",
+  })
+  if master is not None:
+    meta.update(_master_metadata(master))
+  if audio is not None:
+    meta["format_version"] = 4
+    meta.update(_audio_metadata(audio))
+  write_json_atomic(path / _CLIP_JSON, meta)
+  return load_clip(path)
+
+
+def recover_interrupted_clips(root: Path | None = None) -> list[Clip]:
+  root = root or clips_root()
+  if not root.is_dir():
+    return []
+  recovered = []
+  for path in root.iterdir():
+    if not path.is_dir() or (meta := read_json(path / _CLIP_JSON)) is None:
+      continue
+    if meta.get("status") == "ready":
+      cleanup_hevc_journal(path)
+      (path / _AUDIO_INFO).unlink(missing_ok=True)
+      continue
+    if meta.get("status") != "recording":
+      continue
+    try:
+      if clip := _recover_interrupted_clip(path, meta):
+        recovered.append(clip)
+    except (OSError, TypeError, ValueError, ZeroDivisionError):
+      continue
+  return recovered
 
 
 def list_clips() -> list[Clip]:

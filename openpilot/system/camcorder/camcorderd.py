@@ -9,6 +9,7 @@ from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.realtime import Ratekeeper
 from openpilot.common.swaglog import cloudlog
+from openpilot.system.camcorder.clip_storage import recover_interrupted_clips
 from openpilot.system.camcorder.recorder import ClipRecorder
 
 _STREAMS = {
@@ -114,6 +115,8 @@ class CamcorderDaemon:
 
 
 def main() -> None:
+  for clip in recover_interrupted_clips():
+    cloudlog.warning(f"recovered interrupted camcorder clip: {clip.clip_id}")
   CamcorderDaemon().run()
 
 
