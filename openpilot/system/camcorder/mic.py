@@ -4,7 +4,6 @@ import queue
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -88,7 +87,7 @@ def adc_start_ns(time_info, frames: int, sample_rate: int, now_ns: int | None = 
 
 
 class CamcorderMic:
-  def __init__(self, on_write_error: Callable[[str], None] | None = None):
+  def __init__(self):
     self._lock = threading.Lock()
     self._stop = threading.Event()
     self._packet_ready = threading.Event()
@@ -104,8 +103,8 @@ class CamcorderMic:
     self.channels = 0
     self.overflow_count = 0
     self.error = ""
+    self.write_error = ""
     self._retry_after = 0.0
-    self._on_write_error = on_write_error
 
   @property
   def running(self) -> bool:
@@ -121,6 +120,7 @@ class CamcorderMic:
       return
     self._stop.clear()
     self.error = ""
+    self.write_error = ""
     with self._lock:
       self._buffer.clear()  # pre-roll from a previous stream may be stale or another device
     self._thread = threading.Thread(target=self._capture, name="camcorder-mic", daemon=True)
@@ -244,8 +244,7 @@ class CamcorderMic:
     except Exception as exc:
       error = f"audio write failed: {exc}"
       self.error = error
-      if self._on_write_error is not None:
-        self._on_write_error(error)
+      self.write_error = error
       raise RuntimeError(error) from exc
 
   def _select_recording_channels(self) -> tuple[int, ...]:

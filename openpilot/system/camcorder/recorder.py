@@ -33,7 +33,7 @@ class ClipRecorder:
   def __init__(self, capture_allowed: Callable[[], bool] = lambda: True, mic: CamcorderMic | None = None,
                storage: StorageMonitor | None = None):
     self._capture_allowed = capture_allowed
-    self._mic = mic or CamcorderMic(on_write_error=lambda error: self._set_capture_error(error, "audio"))
+    self._mic = mic or CamcorderMic()
     self._storage = storage or StorageMonitor()
     self._preview_thread: threading.Thread | None = None
     self._hevc_thread: threading.Thread | None = None
@@ -98,7 +98,11 @@ class ClipRecorder:
     return self._preroll.ready and self._mic.ready
 
   def poll(self) -> None:
-    if self._recording.is_set() and not self._storage.available():
+    if not self._recording.is_set():
+      return
+    if getattr(self._mic, "write_error", ""):
+      self._set_capture_error(self._mic.write_error, "audio")
+    elif not self._storage.available():
       self._set_capture_error("storage full", "storage")
 
   def set_warm(self, warm: bool, stream_type: VisionStreamType) -> None:

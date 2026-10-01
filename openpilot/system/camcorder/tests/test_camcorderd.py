@@ -115,3 +115,14 @@ def test_finalization_salvages_other_tracks_when_one_writer_fails():
   assert recorder.stop(123) == "clip"
   assert recorder.capture_error == "encoded video finalization failed: video write failed"
   assert not recorder.recording
+
+
+def test_recorder_poll_promotes_audio_write_failures_without_a_cross_thread_callback():
+  mic = SimpleNamespace(write_error="audio write failed: disk full")
+  recorder = ClipRecorder(mic=mic)
+  recorder._recording.set()
+
+  recorder.poll()
+
+  assert recorder.capture_error == mic.write_error
+  assert recorder.capture_failure == "audio"

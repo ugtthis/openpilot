@@ -193,12 +193,11 @@ def test_audio_write_failure_stops_the_take_instead_of_dropping_the_track():
     def add_packet(self, *args):
       raise OSError("disk full")
 
-  errors = []
-  mic = CamcorderMic(on_write_error=errors.append)
+  mic = CamcorderMic()
   mic._writer = BrokenWriter()
 
   with pytest.raises(RuntimeError, match="audio write failed: disk full"):
     mic._write(packet(0))
 
-  assert errors == ["audio write failed: disk full"]
-  assert mic.error == errors[0]
+  assert mic.write_error == "audio write failed: disk full"
+  assert mic.error == mic.write_error
