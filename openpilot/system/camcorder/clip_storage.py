@@ -104,6 +104,9 @@ class Clip:
   audio_timestamp: str = ""
   audio_gap_count: int = 0
   audio_gap_frame_count: int = 0
+  audio_device_name: str = ""
+  audio_overflow_count: int = 0
+  audio_error: str = ""
 
   @property
   def time_label(self) -> str:
@@ -136,6 +139,9 @@ class AudioInfo:
   first_log_mono_ns: int
   gap_count: int = 0
   gap_frame_count: int = 0
+  device_name: str = ""
+  overflow_count: int = 0
+  error: str = ""
 
 
 class AudioWriter:
@@ -179,13 +185,28 @@ class AudioWriter:
     if late_ns <= _AUDIO_GAP_TOLERANCE_NS:
       return
     missing = late_ns * self._sample_rate // 1_000_000_000
+    self._write_silence(missing)
+    self._frame_count += missing
+    self._gap_count += 1
+    self._gap_frame_count += missing
+
+  def _write_silence(self, frames: int) -> None:
     frame_size = PCM_SAMPLE_BYTES * self._channels
     silence = bytes(self._sample_rate * frame_size)
-    remaining = missing
+    remaining = frames
     while remaining > 0:
       count = min(remaining, self._sample_rate)
       self._file.write(silence[:count * frame_size])
       remaining -= count
+
+  def pad_to(self, end_ns: int) -> None:
+    if not self._sample_rate:
+      return
+    written_end_ns = self._first_log_mono_ns + self._frame_count * 1_000_000_000 // self._sample_rate
+    missing = max(0, (end_ns - written_end_ns) * self._sample_rate // 1_000_000_000)
+    if not missing:
+      return
+    self._write_silence(missing)
     self._frame_count += missing
     self._gap_count += 1
     self._gap_frame_count += missing
@@ -374,6 +395,9 @@ class ClipWriter:
         "audio_timestamp": "adc_start_boottime",
         "audio_gap_count": audio.gap_count,
         "audio_gap_frame_count": audio.gap_frame_count,
+        "audio_device_name": audio.device_name,
+        "audio_overflow_count": audio.overflow_count,
+        "audio_error": audio.error,
       })
     (self.path / _CLIP_JSON).write_text(json.dumps(payload), encoding="utf-8")
 
@@ -416,6 +440,9 @@ def load_clip(path: Path) -> Clip | None:
       audio_timestamp=str(meta.get("audio_timestamp", "")),
       audio_gap_count=int(meta.get("audio_gap_count", 0)),
       audio_gap_frame_count=int(meta.get("audio_gap_frame_count", 0)),
+      audio_device_name=str(meta.get("audio_device_name", "")),
+      audio_overflow_count=int(meta.get("audio_overflow_count", 0)),
+      audio_error=str(meta.get("audio_error", "")),
     )
   except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError):
     return None

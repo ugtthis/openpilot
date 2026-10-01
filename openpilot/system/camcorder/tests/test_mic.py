@@ -66,3 +66,19 @@ def test_direct_mic_preroll_is_bounded():
   for start_ms in range(0, 10_000, 50):
     mic._handle(packet(start_ms))
   assert mic._buffer[0].start_ns >= 4_950_000_000
+
+
+def test_unplugged_mic_pads_silence_to_the_stop_time_and_marks_the_error():
+  mic = CamcorderMic()
+  mic.device_name = "DJI USB Audio"
+  mic.error = "device unplugged"
+  mic._handle(packet(0))
+  mic._handle(packet(50))
+
+  with TemporaryDirectory() as directory:
+    mic.attach(Path(directory), start_ns=0)
+    audio = mic.finish(stop_ns=200_000_000)
+
+  assert audio is not None
+  assert (audio.frame_count, audio.gap_count, audio.gap_frame_count) == (20, 1, 10)
+  assert (audio.device_name, audio.error) == ("DJI USB Audio", "device unplugged")

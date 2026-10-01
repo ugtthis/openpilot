@@ -4,7 +4,7 @@ import queue
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -125,7 +125,12 @@ class CamcorderMic:
     with self._lock:
       writer, self._writer = self._writer, None
       self._write_after_ns = 0
-    return writer.finalize() if writer is not None else None
+    if writer is None:
+      return None
+    writer.pad_to(stop_ns)
+    info = writer.finalize()
+    return replace(info, device_name=self.device_name, overflow_count=self.overflow_count,
+                   error=self.error) if info is not None else None
 
   def stop(self) -> None:
     self._stop.set()
