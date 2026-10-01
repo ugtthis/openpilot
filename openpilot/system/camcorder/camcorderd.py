@@ -51,7 +51,7 @@ class CamcorderDaemon:
           self.audio_gap_frame_count = 0
         else:
           self.phase = "failed"
-          self.error = "recorder could not start"
+          self.error = self.recorder.capture_error or "recorder could not start"
       elif action == "stop" and self.recorder.recording:
         self._finish_recording(int(control.requestMonoTime))
     except Exception as exc:

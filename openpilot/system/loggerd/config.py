@@ -4,6 +4,8 @@ from openpilot.common.hardware.hw import Paths
 
 CAMERA_FPS = 20
 SEGMENT_LENGTH = 60
+MIN_STORAGE_BYTES = 5 * 1024 * 1024 * 1024
+MIN_STORAGE_PERCENT = 10
 
 def get_available_percent(default: float) -> float:
   try:

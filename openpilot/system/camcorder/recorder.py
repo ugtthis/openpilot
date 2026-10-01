@@ -12,6 +12,7 @@ from openpilot.system.camcorder.clip_storage import (
   Clip, ClipWriter, extract_clip_rgb, preview_size,
 )
 from openpilot.system.camcorder.hevc_writer import HevcWriter
+from openpilot.system.camcorder.storage import RecordingStorage
 from openpilot.system.camcorder.timing import boot_time_ns
 from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_encoder
 
@@ -27,9 +28,11 @@ _VIDEO_TAIL_TIMEOUT_S = 0.5
 
 
 class ClipRecorder:
-  def __init__(self, capture_allowed: Callable[[], bool] = lambda: True, mic: CamcorderMic | None = None):
+  def __init__(self, capture_allowed: Callable[[], bool] = lambda: True, mic: CamcorderMic | None = None,
+               storage: RecordingStorage | None = None):
     self._capture_allowed = capture_allowed
     self._mic = mic or CamcorderMic()
+    self._storage = storage or RecordingStorage()
     self._preview_thread: threading.Thread | None = None
     self._hevc_thread: threading.Thread | None = None
     self._stop = threading.Event()
@@ -124,9 +127,12 @@ class ClipRecorder:
     self._stream_type = stream_type
     self._started_mono = (recording_start_mono_ns or boot_time_ns()) / 1e9
     try:
+      self._storage.acquire()
       acquire_encoder()
       self._mic.start()
-    except OSError:
+    except (OSError, RuntimeError) as exc:
+      self._storage.release()
+      self._set_capture_error(str(exc))
       self._release_leases()
       cloudlog.exception("camcorder could not request recording services")
       return False
@@ -152,6 +158,9 @@ class ClipRecorder:
 
   def _finish_stop(self, release_after: bool) -> Clip | None:
     with self._stop_lock:
+      # Return the emergency allocation before buffered writes and metadata are
+      # flushed. This makes an ENOSPC take salvageable.
+      self._storage.release()
       stopped = self._join_threads()
       if release_after:
         # Normal shutter stop: preserve the clip tail until capture has drained.
@@ -323,6 +332,7 @@ class ClipRecorder:
     with self._lock:
       if not self._capture_error:
         self._capture_error = error
+    self._storage.release()
     self._stop.set()
 
   def _drain_hevc_tail(self, sock, service: str) -> None:

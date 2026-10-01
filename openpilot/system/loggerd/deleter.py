@@ -4,12 +4,11 @@ import shutil
 import threading
 from openpilot.common.hardware.hw import Paths
 from openpilot.common.swaglog import cloudlog
-from openpilot.system.loggerd.config import get_available_bytes, get_available_percent
+from openpilot.system.loggerd.config import (
+  MIN_STORAGE_BYTES, MIN_STORAGE_PERCENT, get_available_bytes, get_available_percent,
+)
 from openpilot.system.loggerd.uploader import listdir_by_creation
 from openpilot.system.loggerd.xattr_cache import getxattr
-
-MIN_BYTES = 5 * 1024 * 1024 * 1024
-MIN_PERCENT = 10
 
 DELETE_LAST = ['boot', 'crash']
 
@@ -46,8 +45,8 @@ def get_preserved_segments(dirs_by_creation: list[str]) -> set[str]:
 
 
 def deleter_step() -> tuple[bool, str | None]:
-  out_of_bytes = get_available_bytes(default=MIN_BYTES + 1) < MIN_BYTES
-  out_of_percent = get_available_percent(default=MIN_PERCENT + 1) < MIN_PERCENT
+  out_of_bytes = get_available_bytes(default=MIN_STORAGE_BYTES + 1) < MIN_STORAGE_BYTES
+  out_of_percent = get_available_percent(default=MIN_STORAGE_PERCENT + 1) < MIN_STORAGE_PERCENT
   out_of_space = out_of_percent or out_of_bytes
   if not out_of_space:
     return False, None
