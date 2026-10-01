@@ -24,7 +24,9 @@ class ClipAudioPlayer:
     self._stream = None
     self._muted = False
     self._playing = False
-    self._cursor = 0
+    self._cursor = 0.0
+    source_rate = clip.audio_measured_sample_rate or clip.audio_sample_rate
+    self._source_step = source_rate / clip.audio_sample_rate if clip.audio_sample_rate else 1.0
     start_ns = clip.recording_start_mono_ns or clip.video_start_mono_ns
     self._audio_offset_s = ((clip.audio_start_mono_ns - start_ns) / 1e9
                             if clip.audio_start_mono_ns and start_ns else 0.0)
@@ -82,7 +84,8 @@ class ClipAudioPlayer:
   def sync(self, playhead_s: float, playing: bool) -> None:
     """Apply a clip-timeline discontinuity without resetting every callback."""
     with self._lock:
-      self._cursor = round((playhead_s - self._audio_offset_s) * self._clip.audio_measured_sample_rate)
+      source_rate = self._clip.audio_measured_sample_rate or self._clip.audio_sample_rate
+      self._cursor = (playhead_s - self._audio_offset_s) * source_rate
       self._playing = playing
 
   def _callback(self, outdata, frames, _time_info, _status) -> None:
@@ -95,12 +98,17 @@ class ClipAudioPlayer:
       playing = self._playing
       source_start = self._cursor
       if playing:
-        self._cursor += frames
+        self._cursor += frames * self._source_step
     if not playing:
       return
 
-    destination_start = max(0, -source_start)
-    source_start = max(0, source_start)
-    count = min(frames - destination_start, len(samples) - source_start)
-    if not muted and count > 0:
-      outdata[destination_start:destination_start + count] = samples[source_start:source_start + count]
+    positions = source_start + np.arange(frames) * self._source_step
+    valid = (positions >= 0) & (positions < len(samples))
+    if muted or not valid.any():
+      return
+    positions = positions[valid]
+    left = positions.astype(np.int64)
+    right = np.minimum(left + 1, len(samples) - 1)
+    fraction = (positions - left)[:, None]
+    left_samples = samples[left].astype(np.float32)
+    outdata[valid] = left_samples + (samples[right].astype(np.float32) - left_samples) * fraction

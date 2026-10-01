@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -266,6 +267,26 @@ class TestCamcorderClips(OpenpilotTestCase):
     player.set_muted(False)
     player._callback(output, 4, None, None)
     np.testing.assert_array_equal(output[:, 0], samples[8:12])
+    player._samples = None
+
+  def test_audio_playback_follows_the_measured_mic_clock(self):
+    writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
+    writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+    audio_writer = AudioWriter(writer.path)
+    samples = (np.arange(20) * 10).astype(np.int16)
+    audio_writer.add_packet(samples.tobytes(), sample_rate=10, log_mono_ns=1_200_000_000)
+    audio = audio_writer.finalize()
+    clip = writer.finalize(audio=audio)
+    assert clip is not None
+
+    player = ClipAudioPlayer(replace(clip, audio_measured_sample_rate=11))
+    player._samples = samples.reshape(-1, 1)
+    player.sync(playhead_s=0.2, playing=True)
+    output = np.zeros((5, 1), dtype=np.int16)
+    player._callback(output, 5, None, None)
+
+    np.testing.assert_array_equal(output[:, 0], [0, 11, 22, 33, 44])
+    assert player._cursor == 5.5
     player._samples = None
 
   def test_hevc_writer_starts_at_keyframe_and_publishes_atomically(self):
