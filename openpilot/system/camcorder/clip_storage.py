@@ -609,7 +609,8 @@ def recover_interrupted_clips(root: Path | None = None) -> list[Clip]:
       cleanup_hevc_journal(path)
       (path / _AUDIO_INFO).unlink(missing_ok=True)
       continue
-    if meta.get("status") != "recording":
+    # The UI writes photos itself and may still be writing this one.
+    if meta.get("status") != "recording" or meta.get("media_type") == "photo":
       continue
     try:
       if clip := _recover_interrupted_clip(path, meta):
