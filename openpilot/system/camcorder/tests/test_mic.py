@@ -13,10 +13,11 @@ from openpilot.system.camcorder.mic import CamcorderMic, MicPacket, adc_start_ns
 
 
 class SoundDevice:
-  def __init__(self, devices, default=(0, None), silent=False):
+  def __init__(self, devices, default=(0, None), silent=False, stream_started=None):
     self._devices = devices
     self.default = SimpleNamespace(device=default)
     self.silent = silent
+    self.stream_started = stream_started
 
   def query_devices(self):
     return self._devices
@@ -28,6 +29,8 @@ class SoundDevice:
     pass
 
   def InputStream(self, callback, channels, **kwargs):
+    if self.stream_started is not None:
+      self.stream_started.set()
     if self.silent:
       return contextlib.nullcontext()  # never calls back, like an unplugged ALSA device
     return LiveStream(callback, channels)
@@ -131,6 +134,7 @@ def test_unplugged_mic_pads_silence_to_the_stop_time_and_marks_the_error():
 
 def test_stalled_stream_fails_so_the_mic_can_restart(monkeypatch):
   monkeypatch.setitem(sys.modules, "sounddevice", SoundDevice([device("DJI USB Audio", 2, 48000)], silent=True))
+  monkeypatch.setattr(mic_module, "usb_audio_present", lambda: False)
   monkeypatch.setattr(mic_module, "STALL_TIMEOUT_S", 0.1)
   mic = CamcorderMic()
   mic.start()
@@ -139,6 +143,28 @@ def test_stalled_stream_fails_so_the_mic_can_restart(monkeypatch):
 
   assert not mic.running and not mic.ready
   assert mic.error == "microphone stream stalled"
+
+
+def test_unplugging_usb_audio_during_a_take_reports_disconnection(monkeypatch):
+  usb = threading.Event()
+  usb.set()
+  stream_started = threading.Event()
+  monkeypatch.setitem(sys.modules, "sounddevice",
+                      SoundDevice([device("DJI USB Audio", 2, 48000)], silent=True, stream_started=stream_started))
+  monkeypatch.setattr(mic_module, "usb_audio_present", usb.is_set)
+  monkeypatch.setattr(mic_module, "STALL_TIMEOUT_S", 0.1)
+  mic = CamcorderMic()
+  mic.start()
+  assert stream_started.wait(1.0)
+  with TemporaryDirectory() as directory:
+    mic.attach(Path(directory), start_ns=0)
+    usb.clear()
+    assert mic._thread is not None
+    mic._thread.join(timeout=2.0)
+    mic.abort()
+
+  assert not mic.running
+  assert mic.error == "Microphone disconnected"
 
 
 def test_plugging_in_usb_audio_reselects_the_input_between_takes(monkeypatch):

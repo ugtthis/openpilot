@@ -211,7 +211,8 @@ class CamcorderMic:
           except queue.Empty:
             # ALSA often stops calling back on unplug instead of raising.
             if time.monotonic() - last_packet > STALL_TIMEOUT_S:
-              raise RuntimeError("microphone stream stalled") from None
+              error = "Microphone disconnected" if usb_present and not usb_audio_present() else "microphone stream stalled"
+              raise RuntimeError(error) from None
             continue
           last_packet = time.monotonic()
           self._handle(packet)
