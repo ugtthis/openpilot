@@ -9,7 +9,7 @@ from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.realtime import Ratekeeper
 from openpilot.common.swaglog import cloudlog
-from openpilot.system.camcorder.clip_storage import recover_interrupted_clips
+from openpilot.system.camcorder.clip_storage import Clip, recover_interrupted_clips
 from openpilot.system.camcorder.recorder import ClipRecorder
 
 _STREAMS = {
@@ -29,14 +29,14 @@ def failure_notice(failure: str, clip_saved: bool) -> str:
 
 
 class CamcorderDaemon:
-  def __init__(self, recorder: ClipRecorder | None = None):
+  def __init__(self, recorder: ClipRecorder | None = None, recovered_clip: Clip | None = None):
     self.recorder = recorder or ClipRecorder()
     self.stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self.sequence = 0
     self.phase = "warming"
-    self.clip_id = ""
+    self.clip_id = recovered_clip.clip_id if recovered_clip is not None else ""
     self.error = ""
-    self.notice = "none"
+    self.notice = "recordingRecovered" if recovered_clip is not None else "none"
     self.audio_gap_count = 0
     self.audio_gap_frame_count = 0
 
@@ -136,9 +136,11 @@ class CamcorderDaemon:
 
 
 def main() -> None:
-  for clip in recover_interrupted_clips():
+  recovered = recover_interrupted_clips()
+  for clip in recovered:
     cloudlog.warning(f"recovered interrupted camcorder clip: {clip.clip_id}")
-  CamcorderDaemon().run()
+  latest = max(recovered, key=lambda clip: clip.started_at, default=None)
+  CamcorderDaemon(recovered_clip=latest).run()
 
 
 if __name__ == "__main__":

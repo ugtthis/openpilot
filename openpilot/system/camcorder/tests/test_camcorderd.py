@@ -47,6 +47,15 @@ def test_failure_notices_describe_what_was_saved():
   assert failure_notice("recording", False) == "recordingFailed"
 
 
+def test_restarted_daemon_publishes_the_recovered_clip():
+  daemon = CamcorderDaemon(FakeRecorder(), recovered_clip=SimpleNamespace(clip_id="recovered"))
+
+  state = daemon.state_message().camcorderState
+
+  assert state.clipId == "recovered"
+  assert str(state.notice) == "recordingRecovered"
+
+
 def test_start_and_stop_commands_publish_the_saved_clip():
   recorder = FakeRecorder()
   daemon = CamcorderDaemon(recorder)

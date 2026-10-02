@@ -122,3 +122,60 @@ def test_failed_recording_returns_a_salvaged_clip_and_the_error():
   assert client.error == ""
   assert client.update() is None
   assert client.error == ""
+
+
+def test_daemon_restart_returns_the_recovered_clip_to_the_existing_ui():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  client._phase = "idle"
+  clip = object()
+  with (
+    patch("openpilot.system.camcorder.client.acquire_camcorder"),
+    patch("openpilot.system.camcorder.client.clips_root", return_value=Path("/clips")),
+    patch("openpilot.system.camcorder.client.load_clip", return_value=clip),
+  ):
+    assert client.start(WIDE, 100)
+    sm.updated["camcorderState"] = True
+    sm.state = SimpleNamespace(sequence=1, phase="recording", elapsedS=2.0, clipId="",
+                               error="", notice="none")
+    assert client.update() is None
+
+    sm.state = SimpleNamespace(sequence=0, phase="warming", elapsedS=0.0, clipId="recovered",
+                               error="", notice="recordingRecovered")
+    assert client.update() is clip
+
+  assert not client.recording
+  assert client.error == "Recorder restarted — clip recovered"
+
+
+def test_daemon_restart_without_a_clip_clears_stale_recording_state():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  client._phase = "idle"
+  with patch("openpilot.system.camcorder.client.acquire_camcorder"):
+    assert client.start(WIDE, 100)
+  sm.updated["camcorderState"] = True
+  sm.state = SimpleNamespace(sequence=1, phase="recording", elapsedS=2.0, clipId="",
+                             error="", notice="none")
+  client.update()
+
+  sm.state = SimpleNamespace(sequence=0, phase="warming", elapsedS=0.0, clipId="",
+                             error="", notice="none")
+  assert client.update() is None
+
+  assert not client.recording
+  assert client.error == "Recorder restarted — no clip recovered"
+
+
+def test_missing_daemon_state_does_not_leave_the_shutter_latched():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  client._phase = "recording"
+  client._requested_recording = True
+  client._last_state_update = 1.0
+
+  with patch("openpilot.system.camcorder.client.time.monotonic", return_value=10.0):
+    client.update()
+
+  assert not client.recording
+  assert client.error == "Recorder unavailable — reopen camera"

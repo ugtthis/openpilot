@@ -1,5 +1,7 @@
 """Non-blocking UI client for the managed camcorder recorder."""
 
+import time
+
 from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.system.camcorder.clip_storage import Clip, clips_root, load_clip
@@ -18,7 +20,9 @@ _NOTICE_TEXT = {
   "recordingFailed": "Recording failed — try again",
   "micDisconnected": "Mic disconnected — recording silence",
   "micUnavailable": "Mic unavailable — reconnect it",
+  "recordingRecovered": "Recorder restarted — clip recovered",
 }
+_STATE_TIMEOUT_S = 3.0
 
 
 class CamcorderClient:
@@ -37,6 +41,8 @@ class CamcorderClient:
     self._error = ""
     self._notice_code = "none"
     self._dismissed_notice = ""
+    self._local_error = ""
+    self._last_state_update = time.monotonic()
 
   @property
   def recording(self) -> bool:
@@ -52,6 +58,7 @@ class CamcorderClient:
 
   def dismiss_error(self) -> None:
     self._dismissed_notice = self._notice_code
+    self._local_error = ""
     self._error = ""
 
   def set_warm(self, warm: bool, stream_type: VisionStreamType) -> None:
@@ -75,6 +82,7 @@ class CamcorderClient:
     self._requested_recording = True
     self._completed_clip = None
     self._dismissed_notice = self._notice_code
+    self._local_error = ""
     self._error = ""
     self._send("start", stream_type, press_mono_ns or boot_time_ns())
     return True
@@ -95,6 +103,9 @@ class CamcorderClient:
     self._sm.update(0)
     if self._sm.updated["camcorderState"]:
       state = self._sm["camcorderState"]
+      daemon_restarted = (self._pending is None and self._requested_recording and
+                          int(state.sequence) < self._sequence)
+      self._last_state_update = time.monotonic()
       self._phase = str(state.phase)
       self._elapsed_s = float(state.elapsedS)
       self._update_notice(str(getattr(state, "notice", "none")))
@@ -108,6 +119,16 @@ class CamcorderClient:
           self._lease_held = False
       elif self._requested_recording and self._phase in ("warming", "failed") and state.error:
         self._requested_recording = False
+      if daemon_restarted and not state.clipId:
+        self._requested_recording = False
+        self._local_error = "Recorder restarted — no clip recovered"
+        self._error = self._local_error
+    elif (self._requested_recording and self._pending is None and
+          time.monotonic() - self._last_state_update > _STATE_TIMEOUT_S):
+      self._requested_recording = False
+      self._phase = "failed"
+      self._local_error = "Recorder unavailable — reopen camera"
+      self._error = self._local_error
     if self._pending is not None:
       self._publish_pending()
     clip, self._completed_clip = self._completed_clip, None
@@ -117,8 +138,9 @@ class CamcorderClient:
     self._notice_code = notice
     if notice == "none":
       self._dismissed_notice = ""
-      self._error = ""
+      self._error = self._local_error
     elif notice != self._dismissed_notice:
+      self._local_error = ""
       self._error = _NOTICE_TEXT.get(notice, "Recording error — try again")
 
   def _send(self, action: str, stream_type: VisionStreamType, request_mono_ns: int) -> None:

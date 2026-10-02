@@ -58,6 +58,7 @@ struct CamcorderState @0xaedffd8f31e7b55d {
     recordingFailed @5;
     micDisconnected @6;
     micUnavailable @7;
+    recordingRecovered @8;
   }
 }
 
