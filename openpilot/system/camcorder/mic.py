@@ -202,6 +202,10 @@ class CamcorderMic:
         cloudlog.info(f"camcorder mic started: {device=}")
         last_packet = time.monotonic()
         while not self._stop.is_set():
+          # Switch mics only between takes; a clip keeps one device and format.
+          if self._writer is None and usb_audio_present() != usb_present:
+            cloudlog.info("camcorder mic hot-plugged, reselecting input")
+            break
           try:
             packet = self._packets.get(timeout=0.1)
           except queue.Empty:
@@ -211,10 +215,6 @@ class CamcorderMic:
             continue
           last_packet = time.monotonic()
           self._handle(packet)
-          # Switch mics only between takes; a clip keeps one device and format.
-          if self._writer is None and usb_audio_present() != usb_present:
-            cloudlog.info("camcorder mic hot-plugged, reselecting input")
-            break
         while not self._packets.empty():
           self._handle(self._packets.get())
     except Exception as exc:

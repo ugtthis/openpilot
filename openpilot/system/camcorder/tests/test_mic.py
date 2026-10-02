@@ -157,6 +157,20 @@ def test_plugging_in_usb_audio_reselects_the_input_between_takes(monkeypatch):
   mic.stop()
 
 
+def test_unplugging_usb_audio_between_takes_switches_inputs_without_an_error(monkeypatch):
+  usb = threading.Event()
+  usb.set()
+  monkeypatch.setitem(sys.modules, "sounddevice", SoundDevice([device("DJI USB Audio", 2, 48000)], silent=True))
+  monkeypatch.setattr(mic_module, "usb_audio_present", usb.is_set)
+  mic = CamcorderMic()
+  mic.start()
+  assert mic._thread is not None
+  usb.clear()
+  mic._thread.join(timeout=2.0)
+
+  assert not mic.running and mic.error == ""
+
+
 def test_builtin_capture_drops_hardware_channels_that_are_exactly_silent():
   mic = CamcorderMic()
   mic.device_name = "sdm845-tavil-snd-card"
