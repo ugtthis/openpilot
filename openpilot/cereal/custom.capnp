@@ -40,6 +40,9 @@ struct CamcorderState @0xaedffd8f31e7b55d {
   audioGapFrameCount @8 :UInt64;
   micName @9 :Text;
   notice @10 :Notice;
+  # Changes whenever camcorderd restarts, so clients can tell a new recorder
+  # from a slow one.
+  sessionId @11 :UInt64;
 
   enum Phase {
     idle @0;

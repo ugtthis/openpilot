@@ -11,6 +11,7 @@ from openpilot.common.realtime import Ratekeeper
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.camcorder.clip_storage import Clip, recover_interrupted_clips
 from openpilot.system.camcorder.recorder import ClipRecorder
+from openpilot.system.camcorder.timing import boot_time_ns
 
 _STREAMS = {
   "wideRoad": VisionStreamType.VISION_STREAM_WIDE_ROAD,
@@ -31,6 +32,7 @@ def failure_notice(failure: str, clip_saved: bool) -> str:
 class CamcorderDaemon:
   def __init__(self, recorder: ClipRecorder | None = None, recovered_clip: Clip | None = None):
     self.recorder = recorder or ClipRecorder()
+    self.session_id = boot_time_ns()
     self.stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self.sequence = 0
     self.phase = "warming"
@@ -100,6 +102,7 @@ class CamcorderDaemon:
   def state_message(self):
     msg = messaging.new_message("camcorderState", valid=True)
     state = msg.camcorderState
+    state.sessionId = self.session_id
     state.sequence = self.sequence
     state.phase = self.phase
     state.clipId = self.clip_id

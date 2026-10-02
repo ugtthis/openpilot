@@ -22,7 +22,9 @@ _NOTICE_TEXT = {
   "micUnavailable": "Mic unavailable — reconnect it",
   "recordingRecovered": "Recorder restarted — clip recovered",
 }
-_STATE_TIMEOUT_S = 3.0
+# A restarted camcorderd announces a new session well before this. The timeout
+# only unlatches the UI when the recorder never comes back.
+_STATE_TIMEOUT_S = 10.0
 
 
 class CamcorderClient:
@@ -42,6 +44,7 @@ class CamcorderClient:
     self._notice_code = "none"
     self._dismissed_notice = ""
     self._local_error = ""
+    self._session_id = 0
     self._last_state_update = time.monotonic()
 
   @property
@@ -103,36 +106,47 @@ class CamcorderClient:
     self._sm.update(0)
     if self._sm.updated["camcorderState"]:
       state = self._sm["camcorderState"]
-      daemon_restarted = (self._pending is None and self._requested_recording and
-                          int(state.sequence) < self._sequence)
       self._last_state_update = time.monotonic()
+      if self._session_id and state.sessionId != self._session_id:
+        self._reconnect(recovered=bool(state.clipId))
+      self._session_id = state.sessionId
       self._phase = str(state.phase)
       self._elapsed_s = float(state.elapsedS)
-      self._update_notice(str(getattr(state, "notice", "none")))
+      self._update_notice(str(state.notice))
       if self._pending is not None and int(state.sequence) >= self._sequence:
         self._pending = None
       if self._requested_recording and self._phase in ("idle", "warming", "failed") and state.clipId:
-        self._requested_recording = False
+        self._end_take()
         self._completed_clip = load_clip(clips_root() / str(state.clipId))
-        if not self._warm and self._lease_held:
-          release_camcorder()
-          self._lease_held = False
       elif self._requested_recording and self._phase in ("warming", "failed") and state.error:
-        self._requested_recording = False
-      if daemon_restarted and not state.clipId:
-        self._requested_recording = False
-        self._local_error = "Recorder restarted — no clip recovered"
-        self._error = self._local_error
-    elif (self._requested_recording and self._pending is None and
-          time.monotonic() - self._last_state_update > _STATE_TIMEOUT_S):
-      self._requested_recording = False
+        self._end_take()
+    elif self._requested_recording and time.monotonic() - self._last_state_update > _STATE_TIMEOUT_S:
       self._phase = "failed"
-      self._local_error = "Recorder unavailable — reopen camera"
-      self._error = self._local_error
+      self._abandon_take("Recorder unavailable — reopen camera")
     if self._pending is not None:
       self._publish_pending()
     clip, self._completed_clip = self._completed_clip, None
     return clip
+
+  def _reconnect(self, recovered: bool) -> None:
+    """camcorderd restarted: the old take and any command sent to it are gone."""
+    self._pending = None
+    if self._requested_recording and not recovered:
+      self._abandon_take("Recorder restarted — no clip recovered")
+    if self._warm:
+      self._send("idle", self._stream_type, boot_time_ns())
+
+  def _end_take(self) -> None:
+    self._requested_recording = False
+    if not self._warm and self._lease_held:
+      release_camcorder()
+      self._lease_held = False
+
+  def _abandon_take(self, message: str) -> None:
+    self._end_take()
+    self._pending = None
+    self._local_error = message
+    self._error = message
 
   def _update_notice(self, notice: str) -> None:
     self._notice_code = notice

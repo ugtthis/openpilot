@@ -54,6 +54,7 @@ def test_restarted_daemon_publishes_the_recovered_clip():
 
   assert state.clipId == "recovered"
   assert str(state.notice) == "recordingRecovered"
+  assert state.sessionId == daemon.session_id > 0
 
 
 def test_start_and_stop_commands_publish_the_saved_clip():

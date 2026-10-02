@@ -6,6 +6,12 @@ from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.system.camcorder.client import CamcorderClient
 
 WIDE = VisionStreamType.VISION_STREAM_WIDE_ROAD
+CABIN = VisionStreamType.VISION_STREAM_CABIN
+
+
+def state(**fields):
+  defaults = {"sessionId": 1, "sequence": 0, "phase": "idle", "elapsedS": 0.0, "clipId": "", "error": "", "notice": "none"}
+  return SimpleNamespace(**(defaults | fields))
 
 
 class PubMaster:
@@ -15,11 +21,19 @@ class PubMaster:
   def send(self, service, message):
     self.messages.append((service, message))
 
+  @property
+  def last_command(self):
+    return self.messages[-1][1].camcorderControl
+
 
 class SubMaster:
   def __init__(self):
     self.updated = {"camcorderState": False}
-    self.state = SimpleNamespace(sequence=0, phase="idle", elapsedS=0.0, clipId="")
+    self.state = state()
+
+  def publish(self, **fields):
+    self.updated["camcorderState"] = True
+    self.state = state(**fields)
 
   def update(self, timeout):
     pass
@@ -27,6 +41,27 @@ class SubMaster:
   def __getitem__(self, service):
     assert service == "camcorderState"
     return self.state
+
+
+def recording_client(stream=WIDE):
+  """A client whose take was acknowledged by recorder session 1."""
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  sm.publish(phase="idle")
+  with patch("openpilot.system.camcorder.client.acquire_camcorder"):
+    client.update()
+    assert client.start(stream, 100)
+  sm.publish(sequence=1, phase="recording", elapsedS=2.0)
+  client.update()
+  assert client.recording
+  return client, pm, sm
+
+
+def patch_clip_loading(clip):
+  return (
+    patch("openpilot.system.camcorder.client.clips_root", return_value=Path("/clips")),
+    patch("openpilot.system.camcorder.client.load_clip", return_value=clip),
+  )
 
 
 def test_commands_repeat_until_the_daemon_acknowledges_them():
@@ -37,15 +72,13 @@ def test_commands_repeat_until_the_daemon_acknowledges_them():
     assert client.start(WIDE, 123)
 
   assert len(pm.messages) == 1
-  command = pm.messages[-1][1].camcorderControl
-  assert command.action == "start"
-  assert command.requestMonoTime == 123
+  assert pm.last_command.action == "start"
+  assert pm.last_command.requestMonoTime == 123
 
   client.update()
   assert len(pm.messages) == 2
 
-  sm.updated["camcorderState"] = True
-  sm.state = SimpleNamespace(sequence=1, phase="recording", elapsedS=2.5, clipId="")
+  sm.publish(sequence=1, phase="recording", elapsedS=2.5)
   client.update()
   assert len(pm.messages) == 2
   assert client.recording
@@ -66,11 +99,10 @@ def test_camera_switch_returns_to_warming_until_the_new_stream_is_ready():
   client = CamcorderClient(pm, sm)
   client._phase = "idle"
   with patch("openpilot.system.camcorder.client.acquire_camcorder"):
-    client.set_warm(True, VisionStreamType.VISION_STREAM_CABIN)
-    assert not client.start(VisionStreamType.VISION_STREAM_CABIN, 123)
-  command = pm.messages[-1][1].camcorderControl
-  assert command.action == "idle"
-  assert command.stream == "cabin"
+    client.set_warm(True, CABIN)
+    assert not client.start(CABIN, 123)
+  assert pm.last_command.action == "idle"
+  assert pm.last_command.stream == "cabin"
 
 
 def test_leaving_the_page_keeps_the_lease_until_stop_finishes():
@@ -78,19 +110,18 @@ def test_leaving_the_page_keeps_the_lease_until_stop_finishes():
   client = CamcorderClient(pm, sm)
   client._phase = "idle"
   clip = object()
+  clips_root, load_clip = patch_clip_loading(clip)
   with (
     patch("openpilot.system.camcorder.client.acquire_camcorder") as acquire,
     patch("openpilot.system.camcorder.client.release_camcorder") as release,
-    patch("openpilot.system.camcorder.client.clips_root", return_value=Path("/clips")),
-    patch("openpilot.system.camcorder.client.load_clip", return_value=clip) as load,
+    clips_root, load_clip as load,
   ):
     client.start(WIDE, 100)
     client.set_warm(False, WIDE)
     release.assert_not_called()
     client.stop(200)
 
-    sm.updated["camcorderState"] = True
-    sm.state = SimpleNamespace(sequence=2, phase="warming", elapsedS=0.0, clipId="saved")
+    sm.publish(sequence=2, phase="warming", clipId="saved")
     assert client.update() is clip
 
   acquire.assert_called_once()
@@ -104,15 +135,11 @@ def test_failed_recording_returns_a_salvaged_clip_and_the_error():
   client = CamcorderClient(pm, sm)
   client._phase = "idle"
   clip = object()
-  with (
-    patch("openpilot.system.camcorder.client.acquire_camcorder"),
-    patch("openpilot.system.camcorder.client.clips_root", return_value=Path("/clips")),
-    patch("openpilot.system.camcorder.client.load_clip", return_value=clip),
-  ):
+  clips_root, load_clip = patch_clip_loading(clip)
+  with patch("openpilot.system.camcorder.client.acquire_camcorder"), clips_root, load_clip:
     assert client.start(WIDE, 100)
-    sm.updated["camcorderState"] = True
-    sm.state = SimpleNamespace(sequence=1, phase="warming", elapsedS=0.0, clipId="salvaged",
-                               error="preview capture failed", notice="recordingErrorSaved")
+    sm.publish(sequence=1, phase="warming", clipId="salvaged",
+               error="preview capture failed", notice="recordingErrorSaved")
     assert client.update() is clip
 
   assert not client.recording
@@ -124,57 +151,63 @@ def test_failed_recording_returns_a_salvaged_clip_and_the_error():
   assert client.error == ""
 
 
-def test_daemon_restart_returns_the_recovered_clip_to_the_existing_ui():
-  pm, sm = PubMaster(), SubMaster()
-  client = CamcorderClient(pm, sm)
-  client._phase = "idle"
+def test_recorder_restart_returns_the_recovered_clip_to_the_existing_ui():
+  client, pm, sm = recording_client()
   clip = object()
-  with (
-    patch("openpilot.system.camcorder.client.acquire_camcorder"),
-    patch("openpilot.system.camcorder.client.clips_root", return_value=Path("/clips")),
-    patch("openpilot.system.camcorder.client.load_clip", return_value=clip),
-  ):
-    assert client.start(WIDE, 100)
-    sm.updated["camcorderState"] = True
-    sm.state = SimpleNamespace(sequence=1, phase="recording", elapsedS=2.0, clipId="",
-                               error="", notice="none")
-    assert client.update() is None
+  clips_root, load_clip = patch_clip_loading(clip)
 
-    sm.state = SimpleNamespace(sequence=0, phase="warming", elapsedS=0.0, clipId="recovered",
-                               error="", notice="recordingRecovered")
+  sm.publish(sessionId=2, phase="warming", clipId="recovered", notice="recordingRecovered")
+  with clips_root, load_clip:
     assert client.update() is clip
 
   assert not client.recording
   assert client.error == "Recorder restarted — clip recovered"
 
 
-def test_daemon_restart_without_a_clip_clears_stale_recording_state():
-  pm, sm = PubMaster(), SubMaster()
-  client = CamcorderClient(pm, sm)
-  client._phase = "idle"
-  with patch("openpilot.system.camcorder.client.acquire_camcorder"):
-    assert client.start(WIDE, 100)
-  sm.updated["camcorderState"] = True
-  sm.state = SimpleNamespace(sequence=1, phase="recording", elapsedS=2.0, clipId="",
-                             error="", notice="none")
-  client.update()
+def test_recorder_restart_without_a_clip_unlatches_even_after_stop_was_pressed():
+  client, pm, sm = recording_client()
+  client.stop(200)
+  assert pm.last_command.action == "stop"
 
-  sm.state = SimpleNamespace(sequence=0, phase="warming", elapsedS=0.0, clipId="",
-                             error="", notice="none")
+  sm.publish(sessionId=2, phase="warming")
   assert client.update() is None
 
   assert not client.recording
   assert client.error == "Recorder restarted — no clip recovered"
 
 
-def test_missing_daemon_state_does_not_leave_the_shutter_latched():
-  pm, sm = PubMaster(), SubMaster()
-  client = CamcorderClient(pm, sm)
-  client._phase = "recording"
-  client._requested_recording = True
-  client._last_state_update = 1.0
+def test_recorder_restart_rewarms_the_camera_the_ui_is_showing():
+  client, pm, sm = recording_client(CABIN)
+  client.set_warm(True, CABIN)
 
-  with patch("openpilot.system.camcorder.client.time.monotonic", return_value=10.0):
+  sm.publish(sessionId=2, phase="warming", clipId="recovered")
+  clips_root, load_clip = patch_clip_loading(object())
+  with clips_root, load_clip:
+    client.update()
+
+  assert pm.last_command.action == "idle"
+  assert pm.last_command.stream == "cabin"
+
+
+def test_slow_recorder_is_not_mistaken_for_a_dead_one():
+  client, pm, sm = recording_client()
+  sm.updated["camcorderState"] = False
+  last_update = client._last_state_update
+
+  with patch("openpilot.system.camcorder.client.time.monotonic", return_value=last_update + 5.0):
+    client.update()
+
+  assert client.recording
+  assert client.error == ""
+
+
+def test_recorder_that_never_returns_does_not_leave_the_shutter_latched():
+  client, pm, sm = recording_client()
+  client.stop(200)
+  sm.updated["camcorderState"] = False
+  last_update = client._last_state_update
+
+  with patch("openpilot.system.camcorder.client.time.monotonic", return_value=last_update + 11.0):
     client.update()
 
   assert not client.recording
