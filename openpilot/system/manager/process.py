@@ -16,6 +16,9 @@ from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 
+# Restartable processes that crash on startup are retried at most this often.
+RESTART_INTERVAL_S = 5.0
+
 
 def launcher(proc: str, name: str) -> None:
   try:
@@ -163,6 +166,7 @@ class PythonProcess(ManagerProcess):
     self.sigkill = sigkill
     self.restart = restart
     self.launcher = launcher
+    self.last_start = -RESTART_INTERVAL_S
 
   def start(self) -> None:
     # In case we only tried a non blocking stop we need to stop it before restarting
@@ -172,12 +176,15 @@ class PythonProcess(ManagerProcess):
     if self.proc is not None:
       if not self.restart or self.proc.exitcode is None:
         return
+      if time.monotonic() - self.last_start < RESTART_INTERVAL_S:
+        return
       cloudlog.warning(f"restarting exited process {self.name} ({self.proc.exitcode})")
       self.stop()
 
     cloudlog.info(f"starting python {self.module}")
     self.proc = Process(name=self.name, target=self.launcher, args=(self.module, self.name))
     self.proc.start()
+    self.last_start = time.monotonic()
     self.shutting_down = False
 
 
