@@ -138,9 +138,10 @@ class CamcorderMic:
         if packet.end_ns > start_ns:
           self._write(packet)
 
-  def finish(self, stop_ns: int) -> AudioInfo | None:
+  def finish(self, end_ns: int) -> AudioInfo | None:
+    """Wait for audio through end_ns, then close the take's track exactly there."""
     deadline = time.monotonic() + STOP_TIMEOUT_S
-    while self.running and self._last_end_ns < stop_ns and time.monotonic() < deadline:
+    while self.running and self._last_end_ns < end_ns and time.monotonic() < deadline:
       self._packet_ready.wait(min(0.05, max(0.0, deadline - time.monotonic())))
       self._packet_ready.clear()
     with self._lock:
@@ -148,8 +149,7 @@ class CamcorderMic:
       self._write_after_ns = 0
     if writer is None:
       return None
-    writer.pad_to(stop_ns)
-    info = writer.finalize()
+    info = writer.finalize(end_ns)
     return replace(info, device_name=self.device_name, overflow_count=self.overflow_count,
                    error=self.error) if info is not None else None
 

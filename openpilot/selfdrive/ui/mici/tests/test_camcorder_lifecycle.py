@@ -146,7 +146,7 @@ class _FakeMic:
   def stop(self):
     self.stopped = True
 
-  def finish(self, stop_ns):
+  def finish(self, end_ns):
     return self.audio
 
   def abort(self):
@@ -232,7 +232,7 @@ def test_ignition_stop_still_saves_the_take():
 
   recorder = ClipRecorder(mic=cast(Any, _FakeMic("audio")))
   recorder._preview = cast(Any, Writer("clip"))
-  recorder._hevc = cast(Any, Writer("master"))
+  recorder._hevc = cast(Any, Writer(None))
   preview = recorder._preview
 
   with patch("openpilot.system.camcorder.recorder.release_encoder"):
@@ -242,7 +242,7 @@ def test_ignition_stop_still_saves_the_take():
       time.sleep(0.01)
 
   assert not recorder._finalizing.is_set()
-  assert preview.finalized_with == ("master", "audio")
+  assert preview.finalized_with == (None, "audio", recorder._stop_mono_ns)
 
 
 def test_async_stop_thread_failure_remains_fail_safe():
@@ -427,20 +427,22 @@ def test_take_writes_video_preroll_then_skips_what_its_own_socket_repeats():
     assert (Path(directory) / "video.hevc").read_bytes() == b"H1000" + b"1050" + b"1100" + b"1150"
 
 
-def test_stop_drains_encoded_video_through_the_stop_press():
+def test_stop_drains_encoded_video_until_a_frame_after_the_press():
   service = "wideRoadEncodeData"
   with TemporaryDirectory() as directory:
     recorder = ClipRecorder(mic=cast(Any, _FakeMic()))
     recorder._preview = cast(Any, SimpleNamespace(path=Path(directory)))
     recorder._write_hevc([_encoded(1000, keyframe=True)])
     recorder._stop_mono_ns = 1_050_000_000
-    batches = [[SimpleNamespace(wideRoadEncodeData=_encoded(1050))]]
+    batches = [[SimpleNamespace(wideRoadEncodeData=_encoded(1050))],
+               [SimpleNamespace(wideRoadEncodeData=_encoded(1100))]]
 
     with patch("openpilot.cereal.messaging.drain_sock", side_effect=lambda *_args, **_kwargs: batches.pop(0)):
       recorder._drain_hevc_tail(object(), service)
 
+    assert batches == []
     assert recorder._hevc is not None
-    master = recorder._hevc.finalize()
+    master = recorder._hevc.finalize(recorder._stop_mono_ns)
     assert master is not None and master.frame_count == 2
 
 

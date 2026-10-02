@@ -195,17 +195,20 @@ class ClipRecorder:
       audio_info = None
       try:
         if hevc is not None:
-          master = hevc.finalize()
+          master = hevc.finalize(self._stop_mono_ns)
       except Exception as exc:
         self._set_capture_error(f"encoded video finalization failed: {exc}")
         cloudlog.exception("camcorder encoded video finalization failed")
+      # Workers keep writing until they notice the stop, so every track is cut to
+      # one end: the press, extended to finish the last video frame shown across it.
+      end_ns = max(self._stop_mono_ns, master.end_ns if master is not None else 0)
       try:
-        audio_info = self._mic.finish(self._stop_mono_ns)
+        audio_info = self._mic.finish(end_ns)
       except Exception as exc:
         self._set_capture_error(f"audio finalization failed: {exc}", "audio")
         cloudlog.exception("camcorder audio finalization failed")
       try:
-        return preview.finalize(master, audio_info) if preview is not None else None
+        return preview.finalize(master, audio_info, end_ns) if preview is not None else None
       except Exception as exc:
         self._set_capture_error(f"clip finalization failed: {exc}")
         cloudlog.exception("camcorder clip finalization failed")
@@ -359,6 +362,7 @@ class ClipRecorder:
     deadline = time.monotonic() + _VIDEO_TAIL_TIMEOUT_S
     while self._stop_mono_ns and time.monotonic() < deadline:
       events = messaging.drain_sock(sock, wait_for_one=False)
-      if events and self._write_hevc([getattr(event, service) for event in events]) >= self._stop_mono_ns:
+      # Only a frame after the press proves every frame up to it has arrived.
+      if events and self._write_hevc([getattr(event, service) for event in events]) > self._stop_mono_ns:
         return
       time.sleep(0.005)

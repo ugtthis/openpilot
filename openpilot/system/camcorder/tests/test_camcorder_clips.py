@@ -305,6 +305,46 @@ class TestCamcorderClips(OpenpilotTestCase):
       assert master.first_timestamp_ns == 1234
       assert (path / "video.hevc").read_bytes() == b"headerkeydelta"
 
+  def test_hevc_master_keeps_only_frames_captured_by_the_end(self):
+    with TemporaryDirectory() as directory:
+      path = Path(directory)
+      writer = HevcWriter(path)
+      for timestamp_ms in (1000, 1050, 1100, 1150):
+        writer.add_packet(b"H" if timestamp_ms == 1000 else b"", str(timestamp_ms).encode(),
+                          timestamp_ms == 1000, 1344, 760, timestamp_ns=timestamp_ms * 1_000_000)
+      master = writer.finalize(end_ns=1_120_000_000)
+      assert master is not None
+      assert master.frame_count == 3
+      assert master.end_ns == 1_150_000_000
+      assert (path / "video.hevc").read_bytes() == b"H100010501100"
+
+  def test_audio_ends_exactly_at_the_clip_end(self):
+    with TemporaryDirectory() as directory:
+      packet = np.ones(5, dtype=np.int16).tobytes()
+      trimmed = AudioWriter(Path(directory))
+      trimmed.add_packet(packet, sample_rate=100, log_mono_ns=0)
+      trimmed.add_packet(packet, sample_rate=100, log_mono_ns=50_000_000)
+      audio = trimmed.finalize(end_ns=70_000_000)
+      assert audio is not None
+      assert (audio.frame_count, audio.gap_count) == (7, 0)
+
+      padded = AudioWriter(Path(directory))
+      padded.add_packet(packet, sample_rate=100, log_mono_ns=0)
+      audio = padded.finalize(end_ns=100_000_000)
+      assert audio is not None
+      assert (audio.frame_count, audio.gap_count, audio.gap_frame_count) == (10, 1, 5)
+
+  def test_preview_keeps_only_frames_received_by_the_clip_end(self):
+    writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
+    frame = np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8)
+    for t_ms in (0, 50, 100, 150):
+      writer.add_frame(frame, t_ms)
+    clip = writer.finalize(end_ns=1_120_000_000)
+    assert clip is not None
+    assert clip.frame_count == 3
+    with ClipReader(clip) as reader:
+      assert reader.frame(2).shape == (CLIP_HEIGHT, CLIP_WIDTH, 3)
+
   def test_interrupted_take_recovers_only_fully_written_media(self):
     writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
     frame = np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8)

@@ -189,7 +189,7 @@ class AudioWriter:
     elif log_mono_ns - self._end_ns > _AUDIO_GAP_TOLERANCE_NS:
       # Compare against the previous block, not the nominal rate: mic clocks are
       # off by hundreds of ppm, which is drift for the exporter, not lost audio.
-      self.pad_to(log_mono_ns)
+      self._pad_to(log_mono_ns)
     self._file.write(data)
     self._frame_count += frames
     self._end_ns = log_mono_ns + frames * 1_000_000_000 // sample_rate
@@ -205,9 +205,7 @@ class AudioWriter:
       self._file.write(silence[:count * frame_size])
       remaining -= count
 
-  def pad_to(self, end_ns: int) -> None:
-    if not self._sample_rate:
-      return
+  def _pad_to(self, end_ns: int) -> None:
     missing = max(0, (end_ns - self._end_ns) * self._sample_rate // 1_000_000_000)
     if not missing:
       return
@@ -217,8 +215,19 @@ class AudioWriter:
     self._gap_count += 1
     self._gap_frame_count += missing
 
-  def finalize(self) -> AudioInfo | None:
+  def _end_at(self, end_ns: int) -> None:
+    if end_ns >= self._end_ns:
+      self._pad_to(end_ns)
+      return
+    excess = (self._end_ns - end_ns) * self._sample_rate // 1_000_000_000
+    self._frame_count = max(0, self._frame_count - excess)
+    self._end_ns = end_ns
+
+  def finalize(self, end_ns: int | None = None) -> AudioInfo | None:
+    """Publish the track, trimmed or silence-padded to end exactly at end_ns."""
     if self._sample_rate:
+      if end_ns is not None:
+        self._end_at(end_ns)
       self._file.truncate(self._frame_count * PCM_SAMPLE_BYTES * self._channels)
       self._sync.sync()
       self._write_info()
@@ -392,7 +401,6 @@ class ClipWriter:
     self.recording_start_mono_ns = recording_start_mono_ns
     self.frame_count = 0
     self._last_t_ms = 0
-    self._last_complete_offset = 0
     self._frames = None
     self._index = None
     root = clips_root()
@@ -420,22 +428,20 @@ class ClipWriter:
     self._frames.write(_SIZE.pack(len(blob)))
     self._frames.write(blob)
     self._index.write(_INDEX.pack(offset, t_ms))
-    self._last_complete_offset = self._frames.tell()
     self.frame_count += 1
     self._last_t_ms = t_ms
     self._sync.maybe_sync()
 
-  def finalize(self, master: MasterInfo | None = None, audio: AudioInfo | None = None) -> Clip | None:
-    if self._frames is not None:
-      self._frames.truncate(self._last_complete_offset)
-    if self._index is not None:
-      self._index.truncate(self.frame_count * _INDEX.size)
-    if self._frames is not None and self._index is not None:
-      self._sync.sync()
+  def finalize(self, master: MasterInfo | None = None, audio: AudioInfo | None = None,
+               end_ns: int | None = None) -> Clip | None:
+    """Publish the clip with the preview frames received by end_ns."""
     self._close_files()
-    if self.frame_count <= 0:
+    end_ms = None if end_ns is None else (end_ns - self.recording_start_mono_ns) // 1_000_000
+    preview = _publish_preview(self.path, end_ms) if self.frame_count else None
+    if preview is None:
       self.abort()
       return None
+    self.frame_count, self._last_t_ms = preview
     self._write_meta("ready", master, audio)
     cleanup_hevc_journal(self.path)
     (self.path / _AUDIO_INFO).unlink(missing_ok=True)
@@ -536,43 +542,46 @@ def load_clip(path: Path) -> Clip | None:
     return None
 
 
-def _recover_preview(path: Path) -> tuple[int, int] | None:
+def _publish_preview(path: Path, end_ms: int | None = None) -> tuple[int, int] | None:
+  """Truncate the preview to its complete frames received by end_ms; returns (count, last t_ms)."""
   frames_path = path / _FRAMES_BIN
   index_path = path / _INDEX_BIN
   if not frames_path.is_file() or not index_path.is_file():
     return None
-  try:
-    raw_index = index_path.read_bytes()
-    frames_size = frames_path.stat().st_size
-    valid_count = 0
-    valid_end = 0
-    last_t_ms = 0
-    with open(frames_path, "rb") as frames:
-      for offset in range(0, len(raw_index) - _INDEX.size + 1, _INDEX.size):
-        frame_offset, t_ms = _INDEX.unpack_from(raw_index, offset)
-        if frame_offset != valid_end or t_ms < last_t_ms or frame_offset + _SIZE.size > frames_size:
-          break
-        frames.seek(frame_offset)
-        (size,) = _SIZE.unpack(frames.read(_SIZE.size))
-        frame_end = frame_offset + _SIZE.size + size
-        if size <= 0 or frame_end > frames_size:
-          break
-        valid_count += 1
-        valid_end = frame_end
-        last_t_ms = t_ms
-    if valid_count <= 0:
-      return None
-    with open(frames_path, "r+b") as frames:
-      frames.truncate(valid_end)
-    with open(index_path, "r+b") as index:
-      index.truncate(valid_count * _INDEX.size)
-    return valid_count, last_t_ms
-  except (OSError, struct.error):
+  raw_index = index_path.read_bytes()
+  frames_size = frames_path.stat().st_size
+  valid_count = 0
+  valid_end = 0
+  last_t_ms = 0
+  with open(frames_path, "rb") as frames:
+    for offset in range(0, len(raw_index) - _INDEX.size + 1, _INDEX.size):
+      frame_offset, t_ms = _INDEX.unpack_from(raw_index, offset)
+      if frame_offset != valid_end or t_ms < last_t_ms or frame_offset + _SIZE.size > frames_size:
+        break
+      if end_ms is not None and t_ms > end_ms:
+        break
+      frames.seek(frame_offset)
+      (size,) = _SIZE.unpack(frames.read(_SIZE.size))
+      frame_end = frame_offset + _SIZE.size + size
+      if size <= 0 or frame_end > frames_size:
+        break
+      valid_count += 1
+      valid_end = frame_end
+      last_t_ms = t_ms
+  if valid_count <= 0:
     return None
+  for file_path, size in ((frames_path, valid_end), (index_path, valid_count * _INDEX.size)):
+    with open(file_path, "r+b") as file:
+      file.truncate(size)
+      os.fsync(file.fileno())
+  return valid_count, last_t_ms
 
 
 def _recover_interrupted_clip(path: Path, meta: dict) -> Clip | None:
-  preview = _recover_preview(path)
+  try:
+    preview = _publish_preview(path)
+  except (OSError, struct.error):
+    return None
   if preview is None:
     return None
   frame_count, last_t_ms = preview

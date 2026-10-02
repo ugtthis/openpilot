@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.system.camcorder.camcorderd import CamcorderDaemon, failure_notice
+from openpilot.system.camcorder.hevc_writer import MasterInfo
 from openpilot.system.camcorder.recorder import ClipRecorder
 
 
@@ -104,18 +105,55 @@ def test_capture_failure_stops_and_publishes_the_salvaged_clip():
   assert daemon.notice == "recordingErrorSaved"
 
 
+def _track_ends(stop_ns: int, last_video_ns: int) -> dict[str, int]:
+  ends = {}
+
+  class Hevc:
+    def finalize(self, end_ns):
+      ends["video"] = end_ns
+      return MasterInfo("video.hevc", 1344, 760, 3, 1_000_000_000, last_timestamp_ns=last_video_ns)
+
+  class Preview:
+    def finalize(self, master, audio, end_ns):
+      ends["preview"] = end_ns
+      return "clip"
+
+  def finish(end_ns):
+    ends["audio"] = end_ns
+    return "audio"
+
+  recorder = ClipRecorder(mic=SimpleNamespace(finish=finish))
+  recorder._warm = True
+  recorder._recording.set()
+  recorder._preview = Preview()
+  recorder._hevc = Hevc()
+  assert recorder.stop(stop_ns) == "clip"
+  return ends
+
+
+def test_every_track_ends_where_the_last_video_frame_does():
+  ends = _track_ends(stop_ns=1_120_000_000, last_video_ns=1_100_000_000)
+  assert ends == {"video": 1_120_000_000, "audio": 1_150_000_000, "preview": 1_150_000_000}
+
+
+def test_a_stalled_encoder_does_not_cut_audio_before_the_press():
+  ends = _track_ends(stop_ns=1_120_000_000, last_video_ns=900_000_000)
+  assert ends == {"video": 1_120_000_000, "audio": 1_120_000_000, "preview": 1_120_000_000}
+
+
 def test_finalization_salvages_other_tracks_when_one_writer_fails():
   class BrokenHevc:
-    def finalize(self):
+    def finalize(self, end_ns):
       raise OSError("video write failed")
 
   class Preview:
-    def finalize(self, master, audio):
+    def finalize(self, master, audio, end_ns):
       assert master is None
       assert audio == "audio"
+      assert end_ns == 123
       return "clip"
 
-  mic = SimpleNamespace(finish=lambda stop_ns: "audio")
+  mic = SimpleNamespace(finish=lambda end_ns: "audio")
   recorder = ClipRecorder(mic=mic)
   recorder._warm = True
   recorder._recording.set()

@@ -99,11 +99,11 @@ def test_direct_mic_writes_preroll_overlap_then_live_packets():
     path = Path(directory)
     mic.attach(path, start_ns=75_000_000)
     mic._handle(packet(150))
-    audio = mic.finish(stop_ns=175_000_000)
+    audio = mic.finish(end_ns=175_000_000)
 
     assert audio is not None
-    assert (audio.first_log_mono_ns, audio.frame_count, audio.channels) == (50_000_000, 15, 1)
-    assert (path / "audio.s16le").stat().st_size == 30
+    assert (audio.first_log_mono_ns, audio.frame_count, audio.channels) == (50_000_000, 13, 1)
+    assert (path / "audio.s16le").stat().st_size == 26
 
 
 def test_direct_mic_preroll_is_bounded():
@@ -122,7 +122,7 @@ def test_unplugged_mic_pads_silence_to_the_stop_time_and_marks_the_error():
 
   with TemporaryDirectory() as directory:
     mic.attach(Path(directory), start_ns=0)
-    audio = mic.finish(stop_ns=200_000_000)
+    audio = mic.finish(end_ns=200_000_000)
 
   assert audio is not None
   assert (audio.frame_count, audio.gap_count, audio.gap_frame_count) == (20, 1, 10)
@@ -181,7 +181,7 @@ def test_builtin_capture_drops_hardware_channels_that_are_exactly_silent():
   with TemporaryDirectory() as directory:
     path = Path(directory)
     mic.attach(path, start_ns=0)
-    audio = mic.finish(stop_ns=50_000_000)
+    audio = mic.finish(end_ns=50_000_000)
     recorded = np.fromfile(path / "audio.s16le", dtype="<i2")
 
   assert audio is not None and audio.channels == 1
@@ -197,7 +197,7 @@ def test_usb_capture_keeps_all_advertised_channels():
 
   with TemporaryDirectory() as directory:
     mic.attach(Path(directory), start_ns=0)
-    audio = mic.finish(stop_ns=50_000_000)
+    audio = mic.finish(end_ns=50_000_000)
 
   assert audio is not None and audio.channels == 2
 
