@@ -155,12 +155,13 @@ class NativeProcess(ManagerProcess):
 
 
 class PythonProcess(ManagerProcess):
-  def __init__(self, name, module, should_run, enabled=True, sigkill=False):
+  def __init__(self, name, module, should_run, enabled=True, sigkill=False, restart=False):
     self.name = name
     self.module = module
     self.should_run = should_run
     self.enabled = enabled
     self.sigkill = sigkill
+    self.restart = restart
     self.launcher = launcher
 
   def start(self) -> None:
@@ -169,7 +170,10 @@ class PythonProcess(ManagerProcess):
       self.stop()
 
     if self.proc is not None:
-      return
+      if not self.restart or self.proc.exitcode is None:
+        return
+      cloudlog.warning(f"restarting exited process {self.name} ({self.proc.exitcode})")
+      self.stop()
 
     cloudlog.info(f"starting python {self.module}")
     self.proc = Process(name=self.name, target=self.launcher, args=(self.module, self.name))

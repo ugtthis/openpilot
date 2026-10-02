@@ -92,7 +92,7 @@ procs = [
   PythonProcess("proclogd", "openpilot.system.proclogd", only_onroad, enabled=platform.system() != "Darwin"),
   PythonProcess("journald", "openpilot.system.journald", only_onroad, platform.system() != "Darwin"),
   PythonProcess("micd", "openpilot.system.micd", microphone_capture),
-  PythonProcess("camcorderd", "openpilot.system.camcorder.camcorderd", camcorder_capture),
+  PythonProcess("camcorderd", "openpilot.system.camcorder.camcorderd", camcorder_capture, restart=True),
   PythonProcess("timed", "openpilot.system.timed", always_run, enabled=not PC),
 
   PythonProcess("modeld", "openpilot.selfdrive.modeld.modeld", only_onroad),
