@@ -1,4 +1,12 @@
-"""Stop camcorder writes before they consume loggerd's storage floor."""
+"""Keep camcorder clips inside their own budget and out of loggerd's storage floor.
+
+A take may write only while both hold:
+  - the camcorder library stays under CAMCORDER_QUOTA_BYTES
+  - free space stays above loggerd's floor plus a stop margin
+
+loggerd and deleter are untouched. deleter never removes camcorder clips, so the
+quota is what keeps videos from slowly crowding out drives.
+"""
 
 import os
 import time
@@ -8,6 +16,7 @@ from pathlib import Path
 from openpilot.system.camcorder.clip_storage import clips_root
 from openpilot.system.loggerd.config import MIN_STORAGE_BYTES, MIN_STORAGE_PERCENT
 
+CAMCORDER_QUOTA_BYTES = 20 * 1024 * 1024 * 1024
 CHECK_INTERVAL_S = 1.0
 STOP_MARGIN_BYTES = 256 * 1024 * 1024
 STOP_MARGIN_PERCENT = 1
@@ -23,56 +32,68 @@ class StorageFullError(RuntimeError):
   pass
 
 
-def recordable_bytes(stat) -> int:
-  """Bytes a take may still write before recording stops; negative below the floor."""
+def library_bytes(root: Path) -> int:
+  """Disk space used by everything under the camcorder folder, including unfinished takes."""
+  used = 0
+  for dirpath, _, filenames in os.walk(root):
+    for name in filenames:
+      try:
+        used += os.lstat(os.path.join(dirpath, name)).st_blocks * 512
+      except FileNotFoundError:
+        pass
+  return used
+
+
+def recordable_bytes(stat, used_bytes: int) -> int:
+  """Bytes a take may still write; negative once the floor or the quota is reached."""
   total_bytes = stat.f_blocks * stat.f_frsize
   floor_bytes = max(MIN_STORAGE_BYTES + STOP_MARGIN_BYTES,
                     total_bytes * (MIN_STORAGE_PERCENT + STOP_MARGIN_PERCENT) // 100)
-  return stat.f_bavail * stat.f_frsize - floor_bytes
+  above_floor = stat.f_bavail * stat.f_frsize - floor_bytes
+  under_quota = CAMCORDER_QUOTA_BYTES - used_bytes
+  return min(above_floor, under_quota)
 
 
-def has_recording_space(stat) -> bool:
-  return recordable_bytes(stat) >= 0
-
-
-def remaining_recording_s(root: Path | None = None) -> float:
-  root = root or clips_root()
-  while not root.exists() and root != root.parent:
-    root = root.parent
+def measure_recordable_bytes(root: Path) -> int:
+  disk = root
+  while not disk.exists() and disk != disk.parent:
+    disk = disk.parent
   try:
-    return max(0, recordable_bytes(os.statvfs(root))) / TAKE_BYTES_PER_S
+    return recordable_bytes(os.statvfs(disk), library_bytes(root))
   except OSError:
-    return 0.0
+    return -1
 
 
 class StorageMonitor:
-  """Throttle filesystem checks while preserving room for finalization."""
+  """Measure recordable space at most once per interval; takes and the time-left chip share it."""
 
   def __init__(self, root: Path | None = None, check_interval_s: float = CHECK_INTERVAL_S,
                clock: Callable[[], float] = time.monotonic):
     self.root = root
     self.check_interval_s = check_interval_s
     self._clock = clock
-    self._last_check = 0.0
+    self._last_check: float | None = None
+    self._recordable_bytes = 0
 
   def start(self) -> None:
     root = self.root or clips_root()
     root.mkdir(parents=True, exist_ok=True)
     (root / ".finalize-reserve").unlink(missing_ok=True)  # remove the old reservation scheme
-    if not self._has_space(root):
-      raise StorageFullError("not enough free storage to record")
-    self._last_check = self._clock()
+    if self._measure() < 0:
+      raise StorageFullError("not enough storage to record")
 
   def available(self) -> bool:
-    now = self._clock()
-    if now - self._last_check < self.check_interval_s:
-      return True
-    self._last_check = now
-    return self._has_space(self.root or clips_root())
+    return self._recordable() >= 0
 
-  @staticmethod
-  def _has_space(root: Path) -> bool:
-    try:
-      return has_recording_space(os.statvfs(root))
-    except OSError:
-      return False
+  def remaining_s(self) -> float:
+    return max(0, self._recordable()) / TAKE_BYTES_PER_S
+
+  def _recordable(self) -> int:
+    if self._last_check is None or self._clock() - self._last_check >= self.check_interval_s:
+      self._measure()
+    return self._recordable_bytes
+
+  def _measure(self) -> int:
+    self._last_check = self._clock()
+    self._recordable_bytes = measure_recordable_bytes(self.root or clips_root())
+    return self._recordable_bytes

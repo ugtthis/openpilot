@@ -11,7 +11,7 @@ from openpilot.common.realtime import Ratekeeper
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.camcorder.clip_storage import Clip, recover_interrupted_clips
 from openpilot.system.camcorder.recorder import ClipRecorder
-from openpilot.system.camcorder.storage import remaining_recording_s
+from openpilot.system.camcorder.storage import StorageMonitor
 from openpilot.system.camcorder.timing import boot_time_ns
 
 _STREAMS = {
@@ -33,6 +33,7 @@ def failure_notice(failure: str, clip_saved: bool) -> str:
 class CamcorderDaemon:
   def __init__(self, recorder: ClipRecorder | None = None, recovered_clip: Clip | None = None):
     self.recorder = recorder or ClipRecorder()
+    self.storage = StorageMonitor()
     self.session_id = boot_time_ns()
     self.stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self.sequence = 0
@@ -113,7 +114,7 @@ class CamcorderDaemon:
     state.error = self.error
     notice = self.notice
     state.elapsedS = self.recorder.elapsed_s
-    state.remainingS = remaining_recording_s()
+    state.remainingS = self.storage.remaining_s()
     state.audioSampleRate = self.recorder.mic_sample_rate
     state.audioChannels = self.recorder.mic_channels
     state.audioGapCount = self.audio_gap_count
