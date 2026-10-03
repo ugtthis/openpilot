@@ -4,9 +4,9 @@ from types import SimpleNamespace
 import pytest
 
 from openpilot.system.camcorder import storage as storage_module
+from openpilot.system.camcorder.library import CAMCORDER_QUOTA_BYTES, CAMCORDER_RESERVE_BYTES, library_bytes, unused_reserve_bytes
 from openpilot.system.camcorder.storage import (
-  CAMCORDER_QUOTA_BYTES, STOP_MARGIN_BYTES, STOP_MARGIN_PERCENT, TAKE_BYTES_PER_S, StorageMonitor, library_bytes,
-  measure_recordable_bytes, recordable_bytes,
+  STOP_MARGIN_BYTES, STOP_MARGIN_PERCENT, TAKE_BYTES_PER_S, StorageMonitor, measure_recordable_bytes, recordable_bytes,
 )
 from openpilot.system.loggerd.config import MIN_STORAGE_BYTES, MIN_STORAGE_PERCENT
 
@@ -52,6 +52,36 @@ def test_library_bytes_counts_every_file_under_the_camcorder_folder(tmp_path: Pa
 
   assert library_bytes(tmp_path) >= 15_000
   assert library_bytes(tmp_path / "missing") == 0
+
+
+def test_recording_uses_up_the_deleter_reserve_one_for_one(tmp_path: Path):
+  assert unused_reserve_bytes(tmp_path) == CAMCORDER_RESERVE_BYTES
+
+  (tmp_path / "clip-a").mkdir()
+  (tmp_path / "clip-a" / "video.hevc").write_bytes(b"x" * 1_000_000)
+  assert unused_reserve_bytes(tmp_path) == CAMCORDER_RESERVE_BYTES - library_bytes(tmp_path)
+
+
+def test_full_reserve_leaves_nothing_held_back(tmp_path: Path, monkeypatch):
+  monkeypatch.setattr("openpilot.system.camcorder.library.library_bytes", lambda root: CAMCORDER_RESERVE_BYTES + 1)
+  assert unused_reserve_bytes(tmp_path) == 0
+
+
+def test_reserve_fits_inside_the_quota():
+  assert 0 < CAMCORDER_RESERVE_BYTES <= CAMCORDER_QUOTA_BYTES
+
+
+@pytest.mark.parametrize("used_bytes", [0, 3 * GIB, CAMCORDER_RESERVE_BYTES])
+def test_deleter_reserve_leaves_camcorder_the_reserve_minus_its_stop_margin(used_bytes: int):
+  total = 100 * GIB
+  stock_floor = max(MIN_STORAGE_BYTES, total * MIN_STORAGE_PERCENT // 100)
+  stop_margin = max(MIN_STORAGE_BYTES + STOP_MARGIN_BYTES, total * (MIN_STORAGE_PERCENT + STOP_MARGIN_PERCENT) // 100) - stock_floor
+  # free space once drives fill the disk and the deleter holds back the unused reserve
+  deleter_steady_free = stock_floor + max(0, CAMCORDER_RESERVE_BYTES - used_bytes)
+
+  recordable = recordable_bytes(stat(total, deleter_steady_free), used_bytes)
+
+  assert recordable == CAMCORDER_RESERVE_BYTES - used_bytes - stop_margin
 
 
 def test_recordable_bytes_measured_before_the_first_clip_folder_exists(tmp_path: Path, monkeypatch):

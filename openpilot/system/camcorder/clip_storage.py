@@ -21,10 +21,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from openpilot.common.hardware import PC
-from openpilot.common.hardware.hw import Paths
 from openpilot.system.camcorder.journal import PeriodicSync, read_json, write_json_atomic
 from openpilot.system.camcorder.hevc_writer import MasterInfo, cleanup_hevc_journal, recover_hevc
+from openpilot.system.camcorder.library import clips_root
 from openpilot.system.audio_utils import PCM_SAMPLE_BYTES
 
 # Must match camcorder_style.FEED_ASPECT so the take matches the live crop.
@@ -49,15 +48,6 @@ _AUDIO_INFO = "audio.info"
 _AUDIO_GAP_TOLERANCE_NS = 10_000_000
 # Real mic clocks are within a few hundred ppm; anything further is a bad timestamp.
 _AUDIO_MAX_CLOCK_ERROR = 0.01
-
-
-def clips_root() -> Path:
-  override = os.environ.get("CAMCORDER_CLIPS")
-  if override:
-    return Path(override)
-  if PC:
-    return Path(Paths.comma_home()) / "media" / "0" / "camcorder"
-  return Path("/data/media/0/camcorder")
 
 
 def format_timecode(seconds: float) -> str:

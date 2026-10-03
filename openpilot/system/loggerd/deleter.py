@@ -4,6 +4,7 @@ import shutil
 import threading
 from openpilot.common.hardware.hw import Paths
 from openpilot.common.swaglog import cloudlog
+from openpilot.system.camcorder.library import unused_reserve_bytes
 from openpilot.system.loggerd.config import (
   MIN_STORAGE_BYTES, MIN_STORAGE_PERCENT, get_available_bytes, get_available_percent,
 )
@@ -45,8 +46,10 @@ def get_preserved_segments(dirs_by_creation: list[str]) -> set[str]:
 
 
 def deleter_step() -> tuple[bool, str | None]:
-  out_of_bytes = get_available_bytes(default=MIN_STORAGE_BYTES + 1) < MIN_STORAGE_BYTES
-  out_of_percent = get_available_percent(default=MIN_STORAGE_PERCENT + 1) < MIN_STORAGE_PERCENT
+  # free space held for camcorder clips counts as used, so drives make room for them
+  reserved = unused_reserve_bytes()
+  out_of_bytes = get_available_bytes(default=MIN_STORAGE_BYTES + 1, reserved_bytes=reserved) < MIN_STORAGE_BYTES
+  out_of_percent = get_available_percent(default=MIN_STORAGE_PERCENT + 1, reserved_bytes=reserved) < MIN_STORAGE_PERCENT
   out_of_space = out_of_percent or out_of_bytes
   if not out_of_space:
     return False, None

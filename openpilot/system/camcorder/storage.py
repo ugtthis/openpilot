@@ -4,8 +4,9 @@ A take may write only while both hold:
   - the camcorder library stays under CAMCORDER_QUOTA_BYTES
   - free space stays above loggerd's floor plus a stop margin
 
-loggerd and deleter are untouched. deleter never removes camcorder clips, so the
-quota is what keeps videos from slowly crowding out drives.
+deleter never removes camcorder clips. It holds back the unused part of
+CAMCORDER_RESERVE_BYTES instead, so the first CAMCORDER_RESERVE_BYTES of clips
+(minus the stop margin below) always have room even when drives fill the disk.
 """
 
 import os
@@ -13,10 +14,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from openpilot.system.camcorder.clip_storage import clips_root
+from openpilot.system.camcorder.library import CAMCORDER_QUOTA_BYTES, clips_root, library_bytes
 from openpilot.system.loggerd.config import MIN_STORAGE_BYTES, MIN_STORAGE_PERCENT
 
-CAMCORDER_QUOTA_BYTES = 20 * 1024 * 1024 * 1024
 CHECK_INTERVAL_S = 1.0
 STOP_MARGIN_BYTES = 256 * 1024 * 1024
 STOP_MARGIN_PERCENT = 1
@@ -30,18 +30,6 @@ TAKE_BYTES_PER_S = HEVC_BYTES_PER_S + PREVIEW_BYTES_PER_S + AUDIO_BYTES_PER_S
 
 class StorageFullError(RuntimeError):
   pass
-
-
-def library_bytes(root: Path) -> int:
-  """Disk space used by everything under the camcorder folder, including unfinished takes."""
-  used = 0
-  for dirpath, _, filenames in os.walk(root):
-    for name in filenames:
-      try:
-        used += os.lstat(os.path.join(dirpath, name)).st_blocks * 512
-      except FileNotFoundError:
-        pass
-  return used
 
 
 def recordable_bytes(stat, used_bytes: int) -> int:
