@@ -1,4 +1,6 @@
 import json
+import struct
+import zlib
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -152,6 +154,40 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert photo.duration_s == 0.0
     with ClipReader(photo) as reader:
       assert reader.frame(0).shape == (CLIP_HEIGHT, CLIP_WIDTH, 3)
+
+  def test_video_previews_are_compact_jpeg_while_photos_stay_lossless(self):
+    rows = np.linspace(0, 255, CLIP_HEIGHT, dtype=np.uint8)[:, None]
+    cols = np.linspace(0, 255, CLIP_WIDTH, dtype=np.uint8)[None, :]
+    image = np.dstack([np.broadcast_to(rows, (CLIP_HEIGHT, CLIP_WIDTH)),
+                       np.broadcast_to(cols, (CLIP_HEIGHT, CLIP_WIDTH)),
+                       np.full((CLIP_HEIGHT, CLIP_WIDTH), 128, dtype=np.uint8)])
+    media = {}
+    for media_type in ("video", "photo"):
+      writer = ClipWriter("wide", media_type=media_type)
+      writer.add_frame(image, 0)
+      clip = writer.finalize()
+      assert clip is not None
+      with ClipReader(clip) as reader:
+        media[media_type] = (reader.frame(0).astype(int), (clip.path / "frames.bin").read_bytes()[4:6])
+
+    video, video_magic = media["video"]
+    photo, photo_magic = media["photo"]
+    assert video_magic == b"\xff\xd8"
+    assert np.abs(video - image).mean() < 2
+    assert photo_magic != b"\xff\xd8"
+    np.testing.assert_array_equal(photo, image)
+
+  def test_reader_still_plays_zlib_video_previews(self):
+    image = np.full((CLIP_HEIGHT, CLIP_WIDTH, 3), 77, dtype=np.uint8)
+    writer = ClipWriter("wide")
+    writer.add_frame(image, 0)
+    clip = writer.finalize()
+    assert clip is not None
+    legacy = zlib.compress(image.tobytes(), 1)
+    (clip.path / "frames.bin").write_bytes(struct.pack("<I", len(legacy)) + legacy)
+
+    with ClipReader(clip) as reader:
+      np.testing.assert_array_equal(reader.frame(0), image)
 
   def test_audio_metadata_round_trip(self):
     writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)

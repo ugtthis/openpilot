@@ -50,6 +50,9 @@ dependencies = [
 
   # ui
   "comma-deps-raylib",
+
+  # camcorder playback previews
+  "pillow",
 ]
 
 [project.optional-dependencies]

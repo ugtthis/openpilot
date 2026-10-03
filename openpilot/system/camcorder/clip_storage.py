@@ -1,13 +1,14 @@
 """On-device clip format: RGB preview frames plus clip.json metadata.
 
   clip.json     status must be "ready" to appear in the list
-  frames.bin    [uint32 size][zlib rgb8]...
+  frames.bin    [uint32 size][jpeg or zlib rgb8]...
   index.bin     [uint64 offset][uint32 t_ms]...
   video.hevc    native hardware-encoded master, written by HevcWriter
   audio.s16le   native-channel int16 PCM captured directly by camcorderd
 """
 
 import bisect
+import io
 import json
 import os
 import shutil
@@ -18,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 from openpilot.common.hardware import PC
 from openpilot.common.hardware.hw import Paths
@@ -32,6 +34,8 @@ CLIP_FPS = 20
 CLIP_ASPECT = CLIP_WIDTH / CLIP_HEIGHT
 
 _ZLIB_LEVEL = 1
+_JPEG_QUALITY = 90
+_JPEG_MAGIC = b"\xff\xd8"
 _INDEX = struct.Struct("<QI")
 _SIZE = struct.Struct("<I")
 _CLIP_JSON = "clip.json"
@@ -423,7 +427,7 @@ class ClipWriter:
       raise RuntimeError("writer is closed")
     if rgb.shape != (self.height, self.width, 3):
       raise ValueError(f"expected {(self.height, self.width, 3)}, got {rgb.shape}")
-    blob = zlib.compress(np.ascontiguousarray(rgb).tobytes(), _ZLIB_LEVEL)
+    blob = _encode_frame(rgb, lossless=self.media_type == "photo")
     offset = self._frames.tell()
     self._frames.write(_SIZE.pack(len(blob)))
     self._frames.write(blob)
@@ -699,5 +703,19 @@ class ClipReader:
     blob = self._frames.read(size)
     if len(blob) != size:
       raise ValueError("truncated clip")
-    rgb = np.frombuffer(zlib.decompress(blob), dtype=np.uint8)
-    return rgb.reshape(self.clip.height, self.clip.width, 3).copy()
+    return _decode_frame(blob).reshape(self.clip.height, self.clip.width, 3).copy()
+
+
+def _encode_frame(rgb: np.ndarray, lossless: bool) -> bytes:
+  # A photo's frame is the deliverable; a video's preview only stands in for its HEVC master.
+  if lossless:
+    return zlib.compress(np.ascontiguousarray(rgb).tobytes(), _ZLIB_LEVEL)
+  jpeg = io.BytesIO()
+  Image.fromarray(rgb).save(jpeg, "JPEG", quality=_JPEG_QUALITY)
+  return jpeg.getvalue()
+
+
+def _decode_frame(blob: bytes) -> np.ndarray:
+  if blob.startswith(_JPEG_MAGIC):
+    return np.asarray(Image.open(io.BytesIO(blob)).convert("RGB"))
+  return np.frombuffer(zlib.decompress(blob), dtype=np.uint8)
