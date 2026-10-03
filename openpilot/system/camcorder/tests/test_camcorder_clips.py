@@ -70,6 +70,17 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert out.shape == (20, 32, 3)
     assert out[10, 1, 0] > out[10, 16, 0]
 
+  def test_cabin_enhancement_applies_the_driver_view_tone_curve(self):
+    buf, stride, uv_offset = _make_nv12(256, 2)
+    buf[:uv_offset].reshape(-1, stride)[:, :256] = np.arange(256, dtype=np.uint8)
+    plain = extract_clip_rgb(buf, 256, 2, stride, uv_offset, out_w=256, out_h=2, crop_aspect=None)
+    enhanced = extract_clip_rgb(buf, 256, 2, stride, uv_offset, out_w=256, out_h=2, crop_aspect=None, enhance=True)
+
+    x = plain.astype(np.float32) * (1.0 / 255.0)
+    x = np.clip((x + 0.15 - 0.5) * 0.88 + 0.5, 0.0, 1.0)
+    x = x * x * (3.0 - 2.0 * x)
+    np.testing.assert_array_equal(enhanced, (np.power(x, 0.8) * 255.0).astype(np.uint8))
+
   def test_preview_size_preserves_processed_camera_aspect(self):
     assert preview_size(1344, 760) == (636, 360)
     assert preview_size(0, 0) == (CLIP_WIDTH, CLIP_HEIGHT)

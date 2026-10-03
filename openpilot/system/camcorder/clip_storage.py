@@ -346,12 +346,17 @@ def extract_clip_rgb(data, width: int, height: int, stride: int, uv_offset: int,
                   y - (88 * u) // 256 - (183 * v) // 256,
                   y + (454 * u) // 256), axis=-1)
   rgb = rgb.clip(0, 255).astype(np.uint8)
-  if enhance:
-    x = rgb.astype(np.float32) * (1.0 / 255.0)
-    x = np.clip((x + 0.15 - 0.5) * 0.88 + 0.5, 0.0, 1.0)
-    x = x * x * (3.0 - 2.0 * x)
-    rgb = (np.power(x, 0.8) * 255.0).astype(np.uint8)
-  return rgb
+  return _CABIN_TONE[rgb] if enhance else rgb
+
+
+def _cabin_tone_curve() -> np.ndarray:
+  x = np.arange(256, dtype=np.float32) * (1.0 / 255.0)
+  x = np.clip((x + 0.15 - 0.5) * 0.88 + 0.5, 0.0, 1.0)
+  x = x * x * (3.0 - 2.0 * x)
+  return (np.power(x, 0.8) * 255.0).astype(np.uint8)
+
+
+_CABIN_TONE = _cabin_tone_curve()
 
 
 def scale_rgb(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
