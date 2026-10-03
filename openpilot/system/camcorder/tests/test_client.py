@@ -10,7 +10,8 @@ CABIN = VisionStreamType.VISION_STREAM_CABIN
 
 
 def state(**fields):
-  defaults = {"sessionId": 1, "sequence": 0, "phase": "idle", "elapsedS": 0.0, "clipId": "", "error": "", "notice": "none"}
+  defaults = {"sessionId": 1, "sequence": 0, "phase": "idle", "elapsedS": 0.0, "remainingS": 3600.0,
+              "clipId": "", "error": "", "notice": "none"}
   return SimpleNamespace(**(defaults | fields))
 
 
@@ -83,6 +84,16 @@ def test_commands_repeat_until_the_daemon_acknowledges_them():
   assert len(pm.messages) == 2
   assert client.recording
   assert client.elapsed_s == 2.5
+
+
+def test_remaining_time_is_unknown_until_the_recorder_reports_it():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  assert client.remaining_s is None
+
+  sm.publish(remainingS=125.0)
+  client.update()
+  assert client.remaining_s == 125.0
 
 
 def test_recording_cannot_start_before_preroll_is_ready():

@@ -5,7 +5,8 @@ import pytest
 
 from openpilot.system.camcorder import storage as storage_module
 from openpilot.system.camcorder.storage import (
-  STOP_MARGIN_BYTES, STOP_MARGIN_PERCENT, StorageMonitor, has_recording_space,
+  STOP_MARGIN_BYTES, STOP_MARGIN_PERCENT, TAKE_BYTES_PER_S, StorageMonitor, has_recording_space, recordable_bytes,
+  remaining_recording_s,
 )
 from openpilot.system.loggerd.config import MIN_STORAGE_BYTES, MIN_STORAGE_PERCENT
 
@@ -24,6 +25,25 @@ def test_recording_space_preserves_loggerd_byte_and_percent_floors():
   assert not has_recording_space(stat(20 * GIB, MIN_STORAGE_BYTES + STOP_MARGIN_BYTES - BLOCK_SIZE))
   percent_floor = (MIN_STORAGE_PERCENT + STOP_MARGIN_PERCENT) / 100
   assert not has_recording_space(stat(100 * GIB, int(100 * GIB * percent_floor) - BLOCK_SIZE))
+
+
+def test_remaining_time_counts_only_space_above_the_stop_floor(tmp_path: Path, monkeypatch):
+  disk = stat(50 * GIB, 10 * GIB)
+  monkeypatch.setattr(storage_module.os, "statvfs", lambda root: disk)
+
+  assert remaining_recording_s(tmp_path) == recordable_bytes(disk) / TAKE_BYTES_PER_S
+  assert recordable_bytes(disk) < 10 * GIB - MIN_STORAGE_BYTES
+
+  disk = stat(50 * GIB, MIN_STORAGE_BYTES)
+  assert remaining_recording_s(tmp_path) == 0.0
+
+
+def test_remaining_time_is_known_before_the_first_clip_folder_exists(tmp_path: Path, monkeypatch):
+  checked = []
+  monkeypatch.setattr(storage_module.os, "statvfs", lambda root: checked.append(root) or stat(50 * GIB, 10 * GIB))
+
+  assert remaining_recording_s(tmp_path / "camcorder" / "not-yet-created") > 0
+  assert checked == [tmp_path]
 
 
 def test_storage_monitor_checks_at_most_once_per_second(tmp_path: Path, monkeypatch):

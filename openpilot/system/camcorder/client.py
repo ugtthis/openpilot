@@ -36,6 +36,7 @@ class CamcorderClient:
     self._pending = None
     self._phase = "warming"
     self._elapsed_s = 0.0
+    self._remaining_s: float | None = None
     self._warm = False
     self._lease_held = False
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
@@ -55,6 +56,11 @@ class CamcorderClient:
   @property
   def elapsed_s(self) -> float:
     return self._elapsed_s
+
+  @property
+  def remaining_s(self) -> float | None:
+    """Recording time left before storage stops a take, once camcorderd has reported it."""
+    return self._remaining_s
 
   @property
   def error(self) -> str:
@@ -113,6 +119,7 @@ class CamcorderClient:
       self._session_id = state.sessionId
       self._phase = str(state.phase)
       self._elapsed_s = float(state.elapsedS)
+      self._remaining_s = float(state.remainingS)
       self._update_notice(str(state.notice))
       if self._pending is not None and int(state.sequence) >= self._sequence:
         self._pending = None

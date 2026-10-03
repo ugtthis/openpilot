@@ -8,12 +8,20 @@ from unittest.mock import patch
 
 from openpilot.cereal import log
 from openpilot.cereal.visionipc import VisionStreamType
-from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView
+from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView, format_remaining
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout, SwipeLeftPage, camcorder_available
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.system.camcorder.preroll import _Run
 from openpilot.system.camcorder.recorder import ClipRecorder
 from openpilot.system.ui.widgets import Widget
+
+
+def test_remaining_time_reads_like_a_camera_counter():
+  assert format_remaining(0) == "<1m left"
+  assert format_remaining(59.9) == "<1m left"
+  assert format_remaining(23 * 60 + 59) == "23m left"
+  assert format_remaining(83 * 60) == "1h 23m left"
+  assert format_remaining(10 * 3600 + 5 * 60) == "10h 05m left"
 
 
 def test_camcorder_available_only_when_parked_and_state_is_known():

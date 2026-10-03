@@ -12,16 +12,37 @@ CHECK_INTERVAL_S = 1.0
 STOP_MARGIN_BYTES = 256 * 1024 * 1024
 STOP_MARGIN_PERCENT = 1
 
+# Budgeted above the measured 1.2-1.4 MB/s per take so the estimate errs short.
+HEVC_BYTES_PER_S = 5_000_000 // 8  # encoderd's main-camera bitrate
+PREVIEW_BYTES_PER_S = 750_000  # JPEG previews measured 0.46-0.59 MB/s
+AUDIO_BYTES_PER_S = 48_000 * 2 * 2  # 48 kHz stereo int16
+TAKE_BYTES_PER_S = HEVC_BYTES_PER_S + PREVIEW_BYTES_PER_S + AUDIO_BYTES_PER_S
+
 
 class StorageFullError(RuntimeError):
   pass
 
 
+def recordable_bytes(stat) -> int:
+  """Bytes a take may still write before recording stops; negative below the floor."""
+  total_bytes = stat.f_blocks * stat.f_frsize
+  floor_bytes = max(MIN_STORAGE_BYTES + STOP_MARGIN_BYTES,
+                    total_bytes * (MIN_STORAGE_PERCENT + STOP_MARGIN_PERCENT) // 100)
+  return stat.f_bavail * stat.f_frsize - floor_bytes
+
+
 def has_recording_space(stat) -> bool:
-  available_bytes = stat.f_bavail * stat.f_frsize
-  available_percent = 100.0 * stat.f_bavail / stat.f_blocks
-  return (available_bytes >= MIN_STORAGE_BYTES + STOP_MARGIN_BYTES and
-          available_percent >= MIN_STORAGE_PERCENT + STOP_MARGIN_PERCENT)
+  return recordable_bytes(stat) >= 0
+
+
+def remaining_recording_s(root: Path | None = None) -> float:
+  root = root or clips_root()
+  while not root.exists() and root != root.parent:
+    root = root.parent
+  try:
+    return max(0, recordable_bytes(os.statvfs(root))) / TAKE_BYTES_PER_S
+  except OSError:
+    return 0.0
 
 
 class StorageMonitor:

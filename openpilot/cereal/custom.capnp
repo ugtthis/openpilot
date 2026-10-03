@@ -43,6 +43,8 @@ struct CamcorderState @0xaedffd8f31e7b55d {
   # Changes whenever camcorderd restarts, so clients can tell a new recorder
   # from a slow one.
   sessionId @11 :UInt64;
+  # Estimated time a new or running take can continue before storage stops it.
+  remainingS @12 :Float32;
 
   enum Phase {
     idle @0;

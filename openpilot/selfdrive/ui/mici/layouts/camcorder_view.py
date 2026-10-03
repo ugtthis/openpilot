@@ -21,6 +21,8 @@ WIDE = VisionStreamType.VISION_STREAM_WIDE_ROAD
 CABIN = VisionStreamType.VISION_STREAM_CABIN
 FOLDER_ICON_SIZE = 40
 RECORD_TIMEOUT_S = 3600
+LOW_REMAINING_S = 5 * 60
+LOW_REMAINING_BACKGROUND = rl.Color(120, 20, 20, 230)
 SNAPSHOT_FLASH_S = 0.12
 SNAPSHOT_COUNTDOWN_S = 3.0
 SNAPSHOT_COUNTDOWN_POP_S = 0.18
@@ -95,6 +97,15 @@ def camcorder_available(is_body: bool, ignition: bool, panda_type: log.PandaStat
   closed because it also represents startup or a failed internal Panda.
   """
   return not is_body and not ignition and panda_type != log.PandaState.PandaType.unknown
+
+
+def format_remaining(seconds: float) -> str:
+  minutes = int(seconds // 60)
+  if minutes < 1:
+    return "<1m left"
+  if minutes < 60:
+    return f"{minutes}m left"
+  return f"{minutes // 60}h {minutes % 60:02d}m left"
 
 
 def _clamp01(value: float) -> float:
@@ -331,6 +342,10 @@ class CamcorderView(CameraView):
                                  text_color=OSD_COLOR,
                                  alignment=TextAlignment.LEFT,
                                  alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._remaining_osd = UnifiedLabel("", 22, FontWeight.DISPLAY,
+                                       text_color=OSD_COLOR,
+                                       alignment=TextAlignment.CENTER,
+                                       alignment_vertical=TextAlignmentVertical.MIDDLE)
     self._error_osd = UnifiedLabel("", 24, FontWeight.ROMAN,
                                    text_color=rl.WHITE,
                                    alignment=TextAlignment.CENTER,
@@ -505,6 +520,17 @@ class CamcorderView(CameraView):
     self._rec_osd.set_text(format_timecode(elapsed))
     self._rec_osd.render(rl.Rectangle(chip.x + 22, chip.y, chip.width - 26, chip.height))
 
+  def _draw_remaining_osd(self):
+    remaining = self._recorder.remaining_s
+    if remaining is None:
+      return
+    low = remaining < LOW_REMAINING_S
+    chip = rl.Rectangle(self._feed.x + self._feed.width - 158, self._feed.y + 8, 150, 28)
+    rl.draw_rectangle_rounded(chip, 0.3, 6, LOW_REMAINING_BACKGROUND if low else OSD_BACKGROUND)
+    self._remaining_osd.set_text_color(rl.WHITE if low else OSD_COLOR)
+    self._remaining_osd.set_text(format_remaining(remaining))
+    self._remaining_osd.render(chip)
+
   def _draw_error_osd(self):
     message = self._recorder.error
     if not message:
@@ -598,6 +624,8 @@ class CamcorderView(CameraView):
       _draw_snapshot_shutter(record_face)
     else:
       _draw_record_icon(record_face)
+    if not self._photo_mode:
+      self._draw_remaining_osd()
     if self.frame is None:
       self._waiting.render(self._feed)
     self._draw_error_osd()
