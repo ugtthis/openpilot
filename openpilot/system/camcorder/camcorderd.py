@@ -119,7 +119,8 @@ class CamcorderDaemon:
     state.audioChannels = self.recorder.mic_channels
     state.audioGapCount = self.audio_gap_count
     state.audioGapFrameCount = self.audio_gap_frame_count
-    state.micName = self.recorder.mic_name
+    # Name only a working input; on failure the error banner explains instead.
+    state.micName = "" if self.recorder.mic_error else self.recorder.mic_name
     if self.recorder.mic_error and not state.error:
       state.error = self.recorder.mic_error
       notice = "micDisconnected" if self.phase == "recording" else "micUnavailable"

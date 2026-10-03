@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from openpilot.system.camcorder import mic as mic_module
-from openpilot.system.camcorder.mic import CamcorderMic, MicPacket, adc_start_ns, select_input_device
+from openpilot.system.camcorder.mic import CamcorderMic, MicPacket, adc_start_ns, mic_label, select_input_device
 
 
 class SoundDevice:
@@ -69,6 +69,13 @@ def test_usb_input_wins_and_keeps_its_native_format():
     device("USB output", 0, 48000),
   ]))
   assert (selected.index, selected.name, selected.sample_rate, selected.channels) == (1, "DJI USB Audio", 48000, 2)
+
+
+def test_mic_label_names_the_same_input_selection_picks():
+  devices = [device("Built-in Mic", 1, 16000), device("DJI USB Audio", 2, 48000)]
+  assert mic_label(select_input_device(SoundDevice(devices)).name) == "USB mic"
+  assert mic_label(select_input_device(SoundDevice(devices[:1])).name) == "Built-in mic"
+  assert mic_label("") == ""
 
 
 def test_default_input_is_used_without_usb():

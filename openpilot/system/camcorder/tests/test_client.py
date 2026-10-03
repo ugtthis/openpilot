@@ -11,7 +11,7 @@ CABIN = VisionStreamType.VISION_STREAM_CABIN
 
 def state(**fields):
   defaults = {"sessionId": 1, "sequence": 0, "phase": "idle", "elapsedS": 0.0, "remainingS": 3600.0,
-              "clipId": "", "error": "", "notice": "none"}
+              "clipId": "", "error": "", "notice": "none", "micName": ""}
   return SimpleNamespace(**(defaults | fields))
 
 
@@ -94,6 +94,20 @@ def test_remaining_time_is_unknown_until_the_recorder_reports_it():
   sm.publish(remainingS=125.0)
   client.update()
   assert client.remaining_s == 125.0
+
+
+def test_mic_label_follows_the_recorder_and_clears_when_the_mic_stops_working():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  assert client.mic_label == ""
+
+  sm.publish(micName="DJI USB Audio")
+  client.update()
+  assert client.mic_label == "USB mic"
+
+  sm.publish(micName="")
+  client.update()
+  assert client.mic_label == ""
 
 
 def test_recording_cannot_start_before_preroll_is_ready():

@@ -38,6 +38,7 @@ struct CamcorderState @0xaedffd8f31e7b55d {
   audioChannels @6 :UInt16;
   audioGapCount @7 :UInt32;
   audioGapFrameCount @8 :UInt64;
+  # Input the current or next take records from; empty while no mic is working.
   micName @9 :Text;
   notice @10 :Notice;
   # Changes whenever camcorderd restarts, so clients can tell a new recorder

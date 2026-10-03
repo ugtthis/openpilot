@@ -60,6 +60,15 @@ def test_restarted_daemon_publishes_the_recovered_clip():
   assert state.sessionId == daemon.session_id > 0
 
 
+def test_only_a_working_mic_is_named():
+  recorder = FakeRecorder()
+  daemon = CamcorderDaemon(recorder)
+  assert daemon.state_message().camcorderState.micName == "test mic"
+
+  recorder.mic_error = "Microphone disconnected"
+  assert daemon.state_message().camcorderState.micName == ""
+
+
 def test_start_and_stop_commands_publish_the_saved_clip():
   recorder = FakeRecorder()
   daemon = CamcorderDaemon(recorder)

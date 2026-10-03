@@ -43,10 +43,22 @@ class MicPacket:
     return self.start_ns + self.frames * 1_000_000_000 // self.sample_rate
 
 
+def is_usb_mic(device_name: str) -> bool:
+  """USB inputs (e.g. the DJI receiver) win selection; every other input is the device's own mic."""
+  return USB_AUDIO_NAME in device_name.lower()
+
+
+def mic_label(device_name: str) -> str:
+  """What the camcorder screen calls the input a take records from; empty when there is none."""
+  if not device_name:
+    return ""
+  return "USB mic" if is_usb_mic(device_name) else "Built-in mic"
+
+
 def select_input_device(sd) -> MicDevice:
   devices = list(sd.query_devices())
   inputs = [(i, device) for i, device in enumerate(devices) if int(device["max_input_channels"]) > 0]
-  preferred = next(((i, d) for i, d in inputs if USB_AUDIO_NAME in str(d["name"]).lower()), None)
+  preferred = next(((i, d) for i, d in inputs if is_usb_mic(str(d["name"]))), None)
   if preferred is None:
     default = getattr(sd.default, "device", (None, None))
     default_index = default[0] if isinstance(default, (tuple, list)) else default
@@ -252,7 +264,7 @@ class CamcorderMic:
     if not self._buffer:
       return tuple(range(max(1, self.channels)))
     capture_channels = self._buffer[-1].channels
-    if USB_AUDIO_NAME in self.device_name.lower():
+    if is_usb_mic(self.device_name):
       return tuple(range(capture_channels))
     peaks = np.zeros(capture_channels, dtype=np.int64)
     for packet in self._buffer:

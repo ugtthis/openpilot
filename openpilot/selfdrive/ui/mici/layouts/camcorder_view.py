@@ -346,6 +346,10 @@ class CamcorderView(CameraView):
                                        text_color=OSD_COLOR,
                                        alignment=TextAlignment.CENTER,
                                        alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._mic_osd = UnifiedLabel("", 22, FontWeight.DISPLAY,
+                                 text_color=OSD_COLOR,
+                                 alignment=TextAlignment.CENTER,
+                                 alignment_vertical=TextAlignmentVertical.MIDDLE)
     self._error_osd = UnifiedLabel("", 24, FontWeight.ROMAN,
                                    text_color=rl.WHITE,
                                    alignment=TextAlignment.CENTER,
@@ -531,6 +535,17 @@ class CamcorderView(CameraView):
     self._remaining_osd.set_text(format_remaining(remaining))
     self._remaining_osd.render(chip)
 
+  def _draw_mic_osd(self):
+    label = self._recorder.mic_label
+    if not label:
+      return
+    # bottom-right of the viewport, lifted above the error banner while it shows
+    bottom = self._error_banner.y - 8 if self._recorder.error else self._feed.y + self._feed.height - 8
+    chip = rl.Rectangle(self._feed.x + self._feed.width - 158, bottom - 28, 150, 28)
+    rl.draw_rectangle_rounded(chip, 0.3, 6, OSD_BACKGROUND)
+    self._mic_osd.set_text(label)
+    self._mic_osd.render(chip)
+
   def _draw_error_osd(self):
     message = self._recorder.error
     if not message:
@@ -626,6 +641,7 @@ class CamcorderView(CameraView):
       _draw_record_icon(record_face)
     if not self._photo_mode:
       self._draw_remaining_osd()
+      self._draw_mic_osd()
     if self.frame is None:
       self._waiting.render(self._feed)
     self._draw_error_osd()

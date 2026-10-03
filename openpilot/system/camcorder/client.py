@@ -5,6 +5,7 @@ import time
 from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.system.camcorder.clip_storage import Clip, clips_root, load_clip
+from openpilot.system.camcorder.mic import mic_label
 from openpilot.system.camcorder.timing import boot_time_ns
 from openpilot.system.camcorder_lease import acquire_camcorder, release_camcorder
 
@@ -37,6 +38,7 @@ class CamcorderClient:
     self._phase = "warming"
     self._elapsed_s = 0.0
     self._remaining_s: float | None = None
+    self._mic_name = ""
     self._warm = False
     self._lease_held = False
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
@@ -61,6 +63,11 @@ class CamcorderClient:
   def remaining_s(self) -> float | None:
     """Recording time left before storage stops a take, once camcorderd has reported it."""
     return self._remaining_s
+
+  @property
+  def mic_label(self) -> str:
+    """Which mic the current or next take records from, e.g. "USB mic"; empty when none is working."""
+    return mic_label(self._mic_name)
 
   @property
   def error(self) -> str:
@@ -120,6 +127,7 @@ class CamcorderClient:
       self._phase = str(state.phase)
       self._elapsed_s = float(state.elapsedS)
       self._remaining_s = float(state.remainingS)
+      self._mic_name = str(state.micName)
       self._update_notice(str(state.notice))
       if self._pending is not None and int(state.sequence) >= self._sequence:
         self._pending = None
