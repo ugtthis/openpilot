@@ -2,6 +2,7 @@ import json
 import struct
 import zlib
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -10,7 +11,7 @@ import numpy as np
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
 from openpilot.system.camcorder.clip_storage import (
-  CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, ClipReader, ClipWriter, center_crop, delete_all_clips, delete_clip,
+  CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, Clip, ClipReader, ClipWriter, center_crop, delete_all_clips, delete_clip,
   extract_clip_rgb, format_timecode, list_clips, load_clip, preview_size, recover_interrupted_clips, scale_rgb,
 )
 from openpilot.system.camcorder.hevc_writer import HevcWriter
@@ -29,6 +30,23 @@ def _make_nv12(width: int, height: int, stride: int | None = None, y=128, u=128,
 
 
 class TestCamcorderClips(OpenpilotTestCase):
+  def test_timeline_gap_ignores_one_frame_of_tolerance(self):
+    clip = Clip("clip", Path("."), "wide", datetime(2026, 1, 1), 636, 360, 20, 200, 10.0,
+                native_frame_count=200, video_start_mono_ns=1_000_000_000,
+                audio_sample_rate=48_000, audio_measured_sample_rate=48_000,
+                audio_frame_count=480_000, audio_start_mono_ns=1_000_000_000)
+
+    assert not clip.has_timeline_gap
+    assert not replace(clip, audio_gap_frame_count=2_400).has_timeline_gap
+    assert replace(clip, audio_gap_frame_count=2_401).has_timeline_gap
+    assert replace(clip, audio_frame_count=482_401).has_timeline_gap
+
+  def test_any_dropped_video_frame_is_a_timeline_gap(self):
+    clip = Clip("clip", Path("."), "wide", datetime(2026, 1, 1), 636, 360, 20, 200, 10.0,
+                video_dropped_frame_count=1)
+
+    assert clip.has_timeline_gap
+
   def test_format_timecode(self):
     assert format_timecode(0) == "0:00"
     assert format_timecode(12.9) == "0:12"

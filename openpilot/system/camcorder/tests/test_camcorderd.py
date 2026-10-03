@@ -19,6 +19,7 @@ class FakeRecorder:
     self.ready = True
     self.starts = []
     self.stops = 0
+    self.timeline_gap = False
 
   def set_warm(self, warm, stream_type):
     pass
@@ -34,7 +35,8 @@ class FakeRecorder:
   def stop(self, request_mono_ns=None):
     self.stops += 1
     self.recording = False
-    return SimpleNamespace(clip_id="saved-clip", audio_gap_count=0, audio_gap_frame_count=0)
+    return SimpleNamespace(clip_id="saved-clip", audio_gap_count=0, audio_gap_frame_count=0,
+                           has_timeline_gap=self.timeline_gap)
 
 
 def control(sequence, action, stream="wideRoad", request_mono_time=123):
@@ -75,6 +77,18 @@ def test_start_and_stop_commands_publish_the_saved_clip():
   assert state.sequence == 2
   assert state.phase == "warming"
   assert state.clipId == "saved-clip"
+
+
+def test_saved_clip_with_a_timeline_gap_publishes_a_warning():
+  recorder = FakeRecorder()
+  recorder.timeline_gap = True
+  daemon = CamcorderDaemon(recorder)
+
+  daemon.apply_control(control(1, "start"))
+  daemon.apply_control(control(2, "stop"))
+
+  assert daemon.error == ""
+  assert daemon.notice == "timelineGapSaved"
 
 
 def test_duplicate_or_old_commands_are_ignored():

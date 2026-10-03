@@ -151,6 +151,20 @@ def test_failed_recording_returns_a_salvaged_clip_and_the_error():
   assert client.error == ""
 
 
+def test_saved_clip_with_a_timeline_gap_shows_a_dismissible_warning():
+  client, _, sm = recording_client()
+  clip = object()
+  clips_root, load_clip = patch_clip_loading(clip)
+
+  sm.publish(sequence=2, phase="warming", clipId="saved", notice="timelineGapSaved")
+  with clips_root, load_clip:
+    assert client.update() is clip
+
+  assert client.error == "Recording gap detected — clip saved"
+  client.dismiss_error()
+  assert client.error == ""
+
+
 def test_recorder_restart_returns_the_recovered_clip_to_the_existing_ui():
   client, pm, sm = recording_client()
   clip = object()

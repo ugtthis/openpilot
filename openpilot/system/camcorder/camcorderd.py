@@ -96,7 +96,10 @@ class CamcorderDaemon:
     self.error = self.recorder.capture_error
     if clip is None and not self.error:
       self.error = "recording stopped without a usable clip"
-    self.notice = failure_notice(self.recorder.capture_failure, clip is not None) if self.error else "none"
+    if self.error:
+      self.notice = failure_notice(self.recorder.capture_failure, clip is not None)
+    else:
+      self.notice = "timelineGapSaved" if clip is not None and clip.has_timeline_gap else "none"
     self.phase = "warming"
 
   def state_message(self):

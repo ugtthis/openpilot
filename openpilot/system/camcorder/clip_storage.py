@@ -105,6 +105,8 @@ class Clip:
   native_frame_count: int = 0
   recording_start_mono_ns: int = 0
   video_start_mono_ns: int = 0
+  video_gap_count: int = 0
+  video_dropped_frame_count: int = 0
   audio: str | None = None
   audio_sample_rate: int = 0
   audio_measured_sample_rate: float = 0.0
@@ -140,6 +142,25 @@ class Clip:
   def has_audio(self) -> bool:
     return (self.audio is not None and self.audio_sample_rate > 0 and self.audio_channels > 0 and
             self.audio_frame_count > 0 and (self.path / self.audio).is_file())
+
+  @property
+  def has_timeline_gap(self) -> bool:
+    if self.is_photo or self.fps <= 0:
+      return False
+    if self.video_dropped_frame_count > 0:
+      return True
+
+    frame_duration_s = 1 / self.fps
+    if self.audio_sample_rate > 0 and self.audio_gap_frame_count / self.audio_sample_rate > frame_duration_s:
+      return True
+    if not (self.video_start_mono_ns and self.native_frame_count and
+            self.audio_start_mono_ns and self.audio_frame_count and self.audio_sample_rate):
+      return False
+
+    video_end_s = self.video_start_mono_ns / 1e9 + (self.native_frame_count + self.video_dropped_frame_count) / self.fps
+    audio_rate = self.audio_measured_sample_rate or self.audio_sample_rate
+    audio_end_s = self.audio_start_mono_ns / 1e9 + self.audio_frame_count / audio_rate
+    return abs(audio_end_s - video_end_s) > frame_duration_s
 
 
 @dataclass(frozen=True)
@@ -532,6 +553,8 @@ def load_clip(path: Path) -> Clip | None:
       native_frame_count=int(meta.get("native_frame_count", 0)),
       recording_start_mono_ns=int(meta.get("recording_start_mono_ns", 0)),
       video_start_mono_ns=int(meta.get("video_start_mono_ns", 0)),
+      video_gap_count=int(meta.get("video_gap_count", 0)),
+      video_dropped_frame_count=int(meta.get("video_dropped_frame_count", 0)),
       audio=str(meta["audio"]) if meta.get("audio") else None,
       audio_sample_rate=int(meta.get("audio_sample_rate", 0)),
       audio_measured_sample_rate=float(meta.get("audio_measured_sample_rate") or meta.get("audio_sample_rate", 0)),

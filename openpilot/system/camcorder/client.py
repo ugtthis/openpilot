@@ -21,6 +21,7 @@ _NOTICE_TEXT = {
   "micDisconnected": "Mic disconnected — recording silence",
   "micUnavailable": "Mic unavailable — reconnect it",
   "recordingRecovered": "Recorder restarted — clip recovered",
+  "timelineGapSaved": "Recording gap detected — clip saved",
 }
 # A restarted camcorderd announces a new session well before this. The timeout
 # only unlatches the UI when the recorder never comes back.
