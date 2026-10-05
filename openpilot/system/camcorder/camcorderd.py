@@ -24,7 +24,7 @@ class CamcorderDaemon:
     self.session_id = boot_time_ns()
     self.stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self.sequence = 0
-    self.phase = "warming"
+    self.phase = "idle"
     self.clip_id = recovered_clip.clip_id if recovered_clip is not None else ""
     self.status = CaptureStatus.recovered() if recovered_clip is not None else CaptureStatus()
     self.audio_gap_count = 0
@@ -49,11 +49,11 @@ class CamcorderDaemon:
     action = str(control.action)
     try:
       if action == "idle" and not self.recorder.recording:
-        self.recorder.set_warm(True, self.stream_type)
+        self.recorder.set_warm(True)
       elif action == "start" and not self.recorder.recording:
         self.clip_id = ""
         self.status = CaptureStatus()
-        self.recorder.set_warm(True, self.stream_type)
+        self.recorder.set_warm(True)
         if self.recorder.start(self.stream_type, int(control.requestMonoTime)):
           self.phase = "recording"
           self.audio_gap_count = 0
@@ -87,8 +87,8 @@ class CamcorderDaemon:
       self._finish_recording()
       return
     if not self.recorder.recording and self.phase not in ("failed", "finalizing"):
-      self.recorder.set_warm(True, self.stream_type)
-      self.phase = "idle" if self.recorder.ready else "warming"
+      self.recorder.set_warm(True)
+      self.phase = "idle"
 
   def _finish_recording(self, stop_mono_ns: int | None = None) -> None:
     self.phase = "finalizing"
@@ -104,7 +104,7 @@ class CamcorderDaemon:
       self.status = CaptureStatus.from_failure(failure, clip is not None, detail)
     else:
       self.status = CaptureStatus.timeline_gap() if clip is not None and clip.has_timeline_gap else CaptureStatus()
-    self.phase = "warming"
+    self.phase = "idle"
 
   def state_message(self):
     msg = messaging.new_message("camcorderState", valid=True)
@@ -129,7 +129,7 @@ class CamcorderDaemon:
   def run(self) -> None:
     sm = messaging.SubMaster(["camcorderControl"])
     pm = messaging.PubMaster(["camcorderState"])
-    self.recorder.set_warm(True, self.stream_type)
+    self.recorder.set_warm(True)
     try:
       while True:
         # Wakes as soon as a command arrives so a take starts right after the tap; otherwise 10 Hz.
@@ -140,7 +140,7 @@ class CamcorderDaemon:
         pm.send("camcorderState", self.state_message())
     finally:
       self.recorder.stop()
-      self.recorder.set_warm(False, self.stream_type)
+      self.recorder.set_warm(False)
 
 
 def main() -> None:

@@ -22,12 +22,11 @@ class FakeRecorder:
     self.mic_error = ""
     self.capture_error = ""
     self.capture_failure = "none"
-    self.ready = True
     self.starts = []
     self.stops = 0
     self.timeline_gap = False
 
-  def set_warm(self, warm, stream_type):
+  def set_warm(self, warm):
     pass
 
   def poll(self):
@@ -117,12 +116,12 @@ def test_start_and_stop_commands_publish_the_saved_clip():
 
   daemon.apply_control(control(2, "stop", "cabin"))
   assert recorder.stops == 1
-  assert daemon.phase == "warming"
+  assert daemon.phase == "idle"
   assert daemon.clip_id == "saved-clip"
 
   state = daemon.state_message().camcorderState
   assert state.sequence == 2
-  assert state.phase == "warming"
+  assert state.phase == "idle"
   assert state.clipId == "saved-clip"
 
 
@@ -136,7 +135,7 @@ def test_photo_command_publishes_the_clip_without_entering_recording():
 
   take_photo.assert_called_once_with(VisionStreamType.VISION_STREAM_CABIN)
   assert daemon.clip_id == "photo"
-  assert daemon.phase == "warming"
+  assert daemon.phase == "idle"
   assert daemon.notice == "none"
   assert not recorder.recording
 
@@ -163,7 +162,7 @@ def test_failed_photo_does_not_block_the_next_video_take():
   ):
     daemon.apply_control(control(1, "photo"))
 
-  assert daemon.phase == "warming"
+  assert daemon.phase == "idle"
   assert daemon.notice == "recordingFailed"
 
   daemon.apply_control(control(2, "start"))
@@ -205,7 +204,7 @@ def test_capture_failure_stops_and_publishes_the_salvaged_clip():
   daemon.update()
 
   assert recorder.stops == 1
-  assert daemon.phase == "warming"
+  assert daemon.phase == "idle"
   assert daemon.clip_id == "saved-clip"
   assert daemon.error == recorder.capture_error
   assert daemon.notice == "recordingErrorSaved"
@@ -214,19 +213,6 @@ def test_capture_failure_stops_and_publishes_the_salvaged_clip():
   state = daemon.state_message().camcorderState
   assert str(state.notice) == "recordingErrorSaved"
   assert state.error == recorder.capture_error
-
-
-def test_start_does_not_wait_for_the_recorder_to_warm():
-  recorder = FakeRecorder()
-  recorder.ready = False
-  daemon = CamcorderDaemon(recorder)
-  daemon.clip_id = "previous"
-
-  daemon.apply_control(control(1, "start"))
-
-  assert daemon.phase == "recording"
-  assert daemon.clip_id == ""
-  assert recorder.starts == [(VisionStreamType.VISION_STREAM_WIDE_ROAD, 123)]
 
 
 def _track_ends(stop_ns: int, last_video_ns: int) -> dict[str, int]:

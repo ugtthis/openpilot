@@ -3,7 +3,7 @@
 Lifecycle state is guarded by ``_lock``:
 
 * IDLE has no warm capture services and no take.
-* WARMING keeps the mic and encoder pre-roll ready for a take.
+* WARMING keeps the mic and encoder running so a take starts on the next frame.
 * RECORDING lets the preview and HEVC workers own and write their tracks.
 * FINALIZING starts only after both workers have been asked to stop; the
   teardown thread owns the writers after they join.
@@ -26,7 +26,6 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.system.camcorder.cameras import camera_for_stream
 from openpilot.system.camcorder.capture_status import CaptureFailure
 from openpilot.system.camcorder.mic import CamcorderMic
-from openpilot.system.camcorder.preroll import HevcPacket, PreRoll
 from openpilot.system.camcorder.clip_storage import (
   Clip, ClipWriter, extract_clip_rgb, preview_size,
 )
@@ -74,10 +73,6 @@ class ClipRecorder:
     self._lock = threading.Lock()
     self._warm = False
     self._state = RecorderState.IDLE
-    self._preroll = PreRoll()
-    self._preroll_video: list[HevcPacket] = []
-    # Newest pre-roll timestamp written; the take's own sockets repeat earlier packets.
-    self._hevc_after_ns = 0
     self._capture_error = ""
     self._capture_failure = CaptureFailure.NONE
 
@@ -123,10 +118,6 @@ class ClipRecorder:
   def mic_error(self) -> str:
     return self._mic.error
 
-  @property
-  def ready(self) -> bool:
-    return self._preroll.ready and self._mic.ready
-
   def poll(self) -> None:
     with self._lock:
       if self._state != RecorderState.RECORDING:
@@ -136,7 +127,7 @@ class ClipRecorder:
     elif not self._storage.available():
       self._set_capture_error("storage full", CaptureFailure.STORAGE)
 
-  def set_warm(self, warm: bool, stream_type: VisionStreamType) -> None:
+  def set_warm(self, warm: bool) -> None:
     """Keep encoderd and direct mic capture warm while the camcorder is on screen.
 
     Spawning capture on the shutter press cost every take its first ~0.7 s.
@@ -164,11 +155,8 @@ class ClipRecorder:
     with self._lock:
       warm = self._warm
       active = self._state in (RecorderState.RECORDING, RecorderState.FINALIZING)
-    if not warm:
-      self._preroll.stop()
-    elif not active:
+    if warm and not active:
       self._mic.start()
-      self._preroll.start(camera_for_stream(stream_type).encode_service)
 
   def start(self, stream_type: VisionStreamType, recording_start_mono_ns: int | None = None) -> bool:
     # Recorder-level backstop: never acquire offroad capture processes based
@@ -180,8 +168,6 @@ class ClipRecorder:
     self._stop.clear()
     self._preview_ready.clear()
     self._stop_mono_ns = 0
-    self._preroll_video = []
-    self._hevc_after_ns = 0
     with self._lock:
       self._capture_error = ""
       self._capture_failure = CaptureFailure.NONE
@@ -238,7 +224,6 @@ class ClipRecorder:
       self._warm = False
       self._state = RecorderState.FINALIZING
     self._stop.set()
-    self._preroll.stop()
     self._release_leases()
     try:
       threading.Thread(target=self._finish_stop_async, name="camcorder-stop", daemon=True).start()
@@ -363,14 +348,11 @@ class ClipRecorder:
         with self._lock:
           if self._preview is None:
             press_ns = int(self._started_mono * 1e9)
-            # Overlaps the take's own subscriptions, which began at the press.
-            self._preroll_video = self._preroll.take(press_ns)
             width, height = preview_size(buf.width, buf.height)
             self._preview = ClipWriter(camera,
                                        width, height, preview_contains_full_frame=True,
                                        recording_start_mono_ns=press_ns)
-            video_start_ns = self._preroll_video[0].timestamp_ns if self._preroll_video else press_ns
-            self._mic.attach(self._preview.path, min(video_start_ns, press_ns))
+            self._mic.attach(self._preview.path, press_ns)
             self._preview_ready.set()
           preview = self._preview
         rgb = extract_clip_rgb(buf.data, buf.width, buf.height, buf.stride, buf.uv_offset,
@@ -428,14 +410,9 @@ class ClipRecorder:
         return 0
       if self._hevc is None:
         self._hevc = HevcWriter(self._preview.path)
-        for packet in self._preroll_video:
-          self._hevc.add_packet(packet.header, packet.data, packet.keyframe,
-                                packet.width, packet.height, packet.timestamp_ns)
-          self._hevc_after_ns = packet.timestamp_ns
       hevc = self._hevc
     for encoded in encoded_frames:
-      if encoded.idx.timestampEof > self._hevc_after_ns:
-        hevc.add_encoded(encoded)
+      hevc.add_encoded(encoded)
     return int(encoded_frames[-1].idx.timestampEof) if encoded_frames else 0
 
   def _set_capture_error(self, error: str, failure: CaptureFailure = CaptureFailure.RECORDING) -> None:

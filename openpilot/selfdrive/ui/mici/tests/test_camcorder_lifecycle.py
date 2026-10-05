@@ -12,7 +12,6 @@ from openpilot.selfdrive.ui.mici.layouts.camcorder_style import PressTracker
 from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView, format_remaining
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout, SwipeLeftPage, camcorder_available
 from openpilot.selfdrive.ui.ui_state import device, ui_state
-from openpilot.system.camcorder.preroll import _Run
 from openpilot.system.camcorder.recorder import ClipRecorder, RecorderState
 from openpilot.system.ui.widgets import Widget
 
@@ -150,7 +149,6 @@ class _FakeMic:
     self.channels = 2
     self.error = ""
     self.write_error = ""
-    self.ready = True
 
   def start(self):
     self.started = True
@@ -299,31 +297,17 @@ def _recorded_leases(ignition: bool = False):
     yield events
 
 
-class _FakePreRoll:
-  def __init__(self):
-    self.service: str | None = None
-
-  def start(self, service):
-    self.service = service
-
-  def stop(self):
-    self.service = None
-
-
 def _warmable_recorder() -> ClipRecorder:
-  recorder = ClipRecorder(lambda: not ui_state.ignition, cast(Any, _FakeMic()))
-  recorder._preroll = cast(Any, _FakePreRoll())
-  return recorder
+  return ClipRecorder(lambda: not ui_state.ignition, cast(Any, _FakeMic()))
 
 
 WIDE = VisionStreamType.VISION_STREAM_WIDE_ROAD
-CABIN = VisionStreamType.VISION_STREAM_CABIN
 
 
 def test_stop_during_warming_keeps_the_recorder_warm():
   recorder = _warmable_recorder()
   with _recorded_leases() as events:
-    recorder.set_warm(True, WIDE)
+    recorder.set_warm(True)
 
     assert recorder.state == RecorderState.WARMING
     assert recorder.stop() is None
@@ -413,24 +397,24 @@ def test_double_async_stop_is_single_flight():
 def test_warm_camcorder_holds_leases_across_a_take():
   recorder = _warmable_recorder()
   with _recorded_leases() as events:
-    recorder.set_warm(True, WIDE)
-    recorder.set_warm(True, WIDE)
+    recorder.set_warm(True)
+    recorder.set_warm(True)
     recorder._preview_thread = cast(Any, _TakeThread())
     recorder._state = RecorderState.RECORDING
     recorder.stop()
     assert events == ["acquire"]
 
-    recorder.set_warm(False, WIDE)
+    recorder.set_warm(False)
   assert events == ["acquire", "release"]
 
 
 def test_leaving_the_camcorder_mid_take_keeps_leases_until_stop():
   recorder = _warmable_recorder()
   with _recorded_leases() as events:
-    recorder.set_warm(True, WIDE)
+    recorder.set_warm(True)
     recorder._preview_thread = cast(Any, _TakeThread())
     recorder._state = RecorderState.RECORDING
-    recorder.set_warm(False, WIDE)
+    recorder.set_warm(False)
     assert events == ["acquire"]
 
     recorder.stop()
@@ -440,43 +424,19 @@ def test_leaving_the_camcorder_mid_take_keeps_leases_until_stop():
 def test_camcorder_does_not_warm_up_with_ignition_on():
   recorder = _warmable_recorder()
   with _recorded_leases(ignition=True) as events:
-    recorder.set_warm(True, WIDE)
+    recorder.set_warm(True)
   assert events == []
-  assert recorder._preroll.service is None
-
-
-def test_preroll_follows_the_camera_and_pauses_for_takes():
-  recorder = _warmable_recorder()
-  preroll = recorder._preroll
-  with _recorded_leases():
-    recorder.set_warm(True, WIDE)
-    assert preroll.service == "wideRoadEncodeData"
-    recorder.set_warm(True, CABIN)
-    assert preroll.service == "cabinEncodeData"
-
-    preroll.stop()  # a take hands the pre-roll over at its first preview frame
-    recorder._preview_thread = cast(Any, _TakeThread())
-    recorder._state = RecorderState.RECORDING
-    recorder.set_warm(True, CABIN)
-    assert preroll.service is None
-
-    recorder.stop()
-    recorder.set_warm(True, CABIN)
-    assert preroll.service == "cabinEncodeData"
-    recorder.set_warm(False, CABIN)
-  assert preroll.service is None
 
 
 def test_ignition_stop_releases_warm_leases():
   recorder = _warmable_recorder()
   with _recorded_leases() as events:
-    recorder.set_warm(True, WIDE)
+    recorder.set_warm(True)
     recorder.stop_async()
     deadline = time.monotonic() + 2.0
     while recorder.state == RecorderState.FINALIZING and time.monotonic() < deadline:
       time.sleep(0.01)
   assert events == ["acquire", "release"]
-  assert recorder._preroll.service is None
 
 
 def _encoded(timestamp_ms: int, keyframe: bool = False):
@@ -484,53 +444,18 @@ def _encoded(timestamp_ms: int, keyframe: bool = False):
                          idx=SimpleNamespace(flags=8 if keyframe else 0, timestampEof=timestamp_ms * 1_000_000))
 
 
-def test_preroll_starts_at_the_keyframe_before_the_press():
-  run = _Run("wideRoadEncodeData")
-  for timestamp_ms in range(0, 3000, 50):
-    run.add_video(_encoded(timestamp_ms, keyframe=timestamp_ms % 1000 == 0))
-
-  video = run.take(press_ns=2_400_000_000)
-
-  assert video[0].keyframe and video[0].timestamp_ns == 2_000_000_000
-  assert video[-1].timestamp_ns == 2_950_000_000
-
-
-def test_preroll_is_bounded():
-  run = _Run("wideRoadEncodeData")
-  for timestamp_ms in range(0, 10_000, 50):
-    run.add_video(_encoded(timestamp_ms, keyframe=timestamp_ms % 1000 == 0))
-
-  assert len(run.gops) == 3
-  assert run.gops[0][0].timestamp_ns == 7_000_000_000
-
-
-def test_preroll_without_an_earlier_keyframe_starts_at_the_first_one():
-  run = _Run("wideRoadEncodeData")
-  run.add_video(_encoded(900))  # mid-GOP frame before any keyframe is dropped
-  run.add_video(_encoded(1000, keyframe=True))
-
-  video = run.take(press_ns=500_000_000)
-
-  assert [packet.timestamp_ns for packet in video] == [1_000_000_000]
-
-
-def test_take_writes_video_preroll_then_skips_what_its_own_socket_repeats():
-  run = _Run("wideRoadEncodeData")
-  for timestamp_ms in (1000, 1050, 1100):
-    run.add_video(_encoded(timestamp_ms, keyframe=timestamp_ms == 1000))
-
+def test_take_video_starts_at_its_first_keyframe():
   with TemporaryDirectory() as directory:
     recorder = ClipRecorder(mic=cast(Any, _FakeMic()))
     recorder._preview = cast(Any, SimpleNamespace(path=Path(directory)))
-    recorder._preroll_video = run.take(press_ns=1_060_000_000)
 
-    recorder._write_hevc([_encoded(1050), _encoded(1100), _encoded(1150)])
+    recorder._write_hevc([_encoded(1000), _encoded(1050, keyframe=True), _encoded(1100)])
     assert recorder._hevc is not None
     master = recorder._hevc.finalize()
 
     assert master is not None
-    assert (master.first_timestamp_ns, master.frame_count) == (1_000_000_000, 4)
-    assert (Path(directory) / "video.hevc").read_bytes() == b"H1000" + b"1050" + b"1100" + b"1150"
+    assert (master.first_timestamp_ns, master.frame_count) == (1_050_000_000, 2)
+    assert (Path(directory) / "video.hevc").read_bytes() == b"H1050" + b"1100"
 
 
 def test_stop_drains_encoded_video_until_a_frame_after_the_press():
