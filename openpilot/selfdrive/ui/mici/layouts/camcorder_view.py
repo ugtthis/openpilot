@@ -5,6 +5,7 @@ import pyray as rl
 from openpilot.cereal import log
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
+from openpilot.system.camcorder.cameras import camera_for_stream
 from openpilot.system.camcorder.client import CamcorderClient
 from openpilot.system.camcorder.clip_storage import ClipWriter, center_crop, extract_clip_rgb, format_timecode
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
@@ -440,12 +441,13 @@ class CamcorderView(CameraView):
       return
     writer = None
     try:
+      camera = camera_for_stream(self.stream_type)
       rgb = extract_clip_rgb(self.frame.data, self.frame.width, self.frame.height,
                              self.frame.stride, self.frame.uv_offset,
                              out_w=self.frame.width, out_h=self.frame.height,
-                             flip_h=self._showing_cabin(), enhance=self._showing_cabin(),
+                             flip_h=camera.flip_h, enhance=camera.enhance,
                              crop_aspect=None)
-      writer = ClipWriter("cabin" if self._showing_cabin() else "wide",
+      writer = ClipWriter(camera,
                           self.frame.width, self.frame.height,
                           preview_contains_full_frame=True, media_type="photo")
       writer.add_frame(rgb, 0)
@@ -470,7 +472,7 @@ class CamcorderView(CameraView):
     if self.frame is None:
       return rl.Rectangle()
     x, y, w, h = center_crop(self.frame.width, self.frame.height)
-    if self._showing_cabin():
+    if camera_for_stream(self.stream_type).flip_h:
       w = -w
     return rl.Rectangle(x, y, w, h)
 
@@ -512,7 +514,7 @@ class CamcorderView(CameraView):
         self._toggle_record()
 
   def _update_texture_color_filtering(self):
-    self._enhance_driver_val[0] = int(self._showing_cabin())
+    self._enhance_driver_val[0] = int(camera_for_stream(self.stream_type).enhance)
     super()._update_texture_color_filtering()
 
   def _draw_rec_osd(self):

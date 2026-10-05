@@ -4,15 +4,12 @@ import time
 
 from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
+from openpilot.system.camcorder.cameras import camera_for_stream
 from openpilot.system.camcorder.clip_storage import Clip, clips_root, load_clip
 from openpilot.system.camcorder.mic import mic_label
 from openpilot.system.camcorder.timing import boot_time_ns
 from openpilot.system.camcorder_lease import acquire_camcorder, release_camcorder
 
-_STREAM_NAMES = {
-  VisionStreamType.VISION_STREAM_WIDE_ROAD: "wideRoad",
-  VisionStreamType.VISION_STREAM_CABIN: "cabin",
-}
 _NOTICE_TEXT = {
   "storageFullSaved": "Storage full — clip saved",
   "storageFull": "Storage full — delete clips to record",
@@ -178,7 +175,7 @@ class CamcorderClient:
     msg = messaging.new_message("camcorderControl", valid=True)
     msg.camcorderControl.sequence = self._sequence
     msg.camcorderControl.action = action
-    msg.camcorderControl.stream = _STREAM_NAMES[stream_type]
+    msg.camcorderControl.stream = camera_for_stream(stream_type).control_name
     msg.camcorderControl.requestMonoTime = request_mono_ns
     self._pending = msg
     self._publish_pending()

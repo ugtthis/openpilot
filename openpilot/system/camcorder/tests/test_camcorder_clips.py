@@ -10,6 +10,7 @@ import numpy as np
 
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
+from openpilot.system.camcorder.cameras import CABIN_CAMERA, CAMERAS, WIDE_ROAD_CAMERA
 from openpilot.system.camcorder.clip_storage import (
   CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, Clip, ClipReader, ClipWriter, center_crop, delete_all_clips, delete_clip,
   extract_clip_rgb, format_timecode, list_clips, load_clip, preview_size, recover_interrupted_clips, scale_rgb,
@@ -113,7 +114,7 @@ class TestCamcorderClips(OpenpilotTestCase):
 
   def test_write_list_and_read_clip(self):
     frames = [np.full((CLIP_HEIGHT, CLIP_WIDTH, 3), i * 20, dtype=np.uint8) for i in range(1, 4)]
-    writer = ClipWriter("wide")
+    writer = ClipWriter(WIDE_ROAD_CAMERA)
     for i, frame in enumerate(frames):
       writer.add_frame(frame, i * 50)
     clip = writer.finalize()
@@ -135,7 +136,7 @@ class TestCamcorderClips(OpenpilotTestCase):
       np.testing.assert_array_equal(reader.frame(99), frames[2])
 
   def test_delete_clip_removes_it_from_the_library(self):
-    writer = ClipWriter("wide")
+    writer = ClipWriter(WIDE_ROAD_CAMERA)
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
     clip = writer.finalize()
     assert clip is not None
@@ -144,7 +145,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert list_clips() == []
 
   def test_delete_all_clips_clears_the_library(self):
-    for camera in ("wide", "cabin"):
+    for camera in CAMERAS:
       writer = ClipWriter(camera)
       writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
       assert writer.finalize() is not None
@@ -153,21 +154,21 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert list_clips() == []
 
   def test_empty_writer_is_discarded(self):
-    writer = ClipWriter("cabin")
+    writer = ClipWriter(CABIN_CAMERA)
     path = writer.path
     assert writer.finalize() is None
     assert not path.exists()
     assert list_clips() == []
 
   def test_in_progress_clip_is_hidden(self):
-    writer = ClipWriter("wide")
+    writer = ClipWriter(WIDE_ROAD_CAMERA)
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
     assert list_clips() == []
     writer.abort()
     assert list_clips() == []
 
   def test_full_frame_preview_metadata_round_trip(self):
-    writer = ClipWriter("wide", 636, 360, preview_contains_full_frame=True)
+    writer = ClipWriter(WIDE_ROAD_CAMERA, 636, 360, preview_contains_full_frame=True)
     writer.add_frame(np.zeros((360, 636, 3), dtype=np.uint8), 0)
     clip = writer.finalize()
     assert clip is not None
@@ -175,7 +176,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert (clip.width, clip.height) == (636, 360)
 
   def test_photo_metadata_round_trip(self):
-    writer = ClipWriter("wide", media_type="photo")
+    writer = ClipWriter(WIDE_ROAD_CAMERA, media_type="photo")
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
     photo = writer.finalize()
     assert photo is not None
@@ -183,6 +184,13 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert photo.duration_s == 0.0
     with ClipReader(photo) as reader:
       assert reader.frame(0).shape == (CLIP_HEIGHT, CLIP_WIDTH, 3)
+
+  def test_writer_uses_camera_names_and_flags(self):
+    for camera in CAMERAS:
+      writer = ClipWriter(camera)
+      meta = json.loads((writer.path / "clip.json").read_text())
+      assert (meta["camera"], meta["flip_h"]) == (camera.clip_name, camera.flip_h)
+      writer.abort()
 
   def test_video_previews_are_compact_jpeg_while_photos_stay_lossless(self):
     rows = np.linspace(0, 255, CLIP_HEIGHT, dtype=np.uint8)[:, None]
@@ -192,7 +200,7 @@ class TestCamcorderClips(OpenpilotTestCase):
                        np.full((CLIP_HEIGHT, CLIP_WIDTH), 128, dtype=np.uint8)])
     media = {}
     for media_type in ("video", "photo"):
-      writer = ClipWriter("wide", media_type=media_type)
+      writer = ClipWriter(WIDE_ROAD_CAMERA, media_type=media_type)
       writer.add_frame(image, 0)
       clip = writer.finalize()
       assert clip is not None
@@ -208,7 +216,7 @@ class TestCamcorderClips(OpenpilotTestCase):
 
   def test_reader_still_plays_zlib_video_previews(self):
     image = np.full((CLIP_HEIGHT, CLIP_WIDTH, 3), 77, dtype=np.uint8)
-    writer = ClipWriter("wide")
+    writer = ClipWriter(WIDE_ROAD_CAMERA)
     writer.add_frame(image, 0)
     clip = writer.finalize()
     assert clip is not None
@@ -219,7 +227,7 @@ class TestCamcorderClips(OpenpilotTestCase):
       np.testing.assert_array_equal(reader.frame(0), image)
 
   def test_audio_metadata_round_trip(self):
-    writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
+    writer = ClipWriter(WIDE_ROAD_CAMERA, recording_start_mono_ns=1_000_000_000)
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
     audio_writer = AudioWriter(writer.path)
     samples = np.arange(20, dtype=np.int16)
@@ -240,7 +248,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     np.testing.assert_array_equal(np.fromfile(clip.path / str(clip.audio), dtype=np.int16), samples)
 
   def test_audio_writer_abort_removes_partial(self):
-    writer = ClipWriter("wide")
+    writer = ClipWriter(WIDE_ROAD_CAMERA)
     audio_writer = AudioWriter(writer.path)
     audio_writer.add_packet(np.zeros(10, dtype=np.int16).tobytes(), 16000, 1)
     audio_writer.abort()
@@ -249,7 +257,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     writer.abort()
 
   def test_audio_writer_fills_dropped_packets_with_silence(self):
-    writer = ClipWriter("wide")
+    writer = ClipWriter(WIDE_ROAD_CAMERA)
     audio_writer = AudioWriter(writer.path)
     packet = np.ones(5, dtype=np.int16).tobytes()
     audio_writer.add_packet(packet, sample_rate=100, log_mono_ns=0)
@@ -270,7 +278,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert (meta["audio_gap_count"], meta["audio_gap_frame_count"]) == (1, 5)
 
   def test_audio_writer_ignores_send_jitter(self):
-    writer = ClipWriter("wide")
+    writer = ClipWriter(WIDE_ROAD_CAMERA)
     audio_writer = AudioWriter(writer.path)
     packet = np.ones(5, dtype=np.int16).tobytes()
     for log_mono_ns in (0, 52_000_000, 99_000_000, 151_000_000):
@@ -281,7 +289,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     writer.abort()
 
   def test_audio_writer_treats_slow_mic_clock_as_drift_not_gaps(self):
-    writer = ClipWriter("wide")
+    writer = ClipWriter(WIDE_ROAD_CAMERA)
     audio_writer = AudioWriter(writer.path)
     packet = np.ones(5, dtype=np.int16).tobytes()
     # Each 50 ms block arrives 1 ms late: 2% slow, 20 ms behind after 20 blocks.
@@ -293,7 +301,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     writer.abort()
 
   def test_audio_writer_measures_the_mic_clock_against_boot_time(self):
-    writer = ClipWriter("wide")
+    writer = ClipWriter(WIDE_ROAD_CAMERA)
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
     audio_writer = AudioWriter(writer.path)
     packet = np.ones(50, dtype=np.int16).tobytes()
@@ -309,7 +317,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert load_clip(clip.path).audio_measured_sample_rate == audio.measured_sample_rate
 
   def test_audio_playback_sync_and_mute(self):
-    writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
+    writer = ClipWriter(WIDE_ROAD_CAMERA, recording_start_mono_ns=1_000_000_000)
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
     audio_writer = AudioWriter(writer.path)
     samples = np.arange(20, dtype=np.int16)
@@ -335,7 +343,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     player._samples = None
 
   def test_audio_device_clock_sets_the_video_playhead(self):
-    writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
+    writer = ClipWriter(WIDE_ROAD_CAMERA, recording_start_mono_ns=1_000_000_000)
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
     audio_writer = AudioWriter(writer.path)
     samples = (np.arange(20) * 10).astype(np.int16)
@@ -400,7 +408,7 @@ class TestCamcorderClips(OpenpilotTestCase):
       assert (audio.frame_count, audio.gap_count, audio.gap_frame_count) == (10, 1, 5)
 
   def test_preview_keeps_only_frames_received_by_the_clip_end(self):
-    writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
+    writer = ClipWriter(WIDE_ROAD_CAMERA, recording_start_mono_ns=1_000_000_000)
     frame = np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8)
     for t_ms in (0, 50, 100, 150):
       writer.add_frame(frame, t_ms)
@@ -411,7 +419,7 @@ class TestCamcorderClips(OpenpilotTestCase):
       assert reader.frame(2).shape == (CLIP_HEIGHT, CLIP_WIDTH, 3)
 
   def test_interrupted_take_recovers_only_fully_written_media(self):
-    writer = ClipWriter("wide", recording_start_mono_ns=1_000_000_000)
+    writer = ClipWriter(WIDE_ROAD_CAMERA, recording_start_mono_ns=1_000_000_000)
     frame = np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8)
     writer.add_frame(frame, 0)
     writer.add_frame(frame, 50)
@@ -452,7 +460,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert meta["status"] == "ready" and meta["recovered"]
 
   def test_recovery_leaves_a_photo_being_written_by_the_ui_alone(self):
-    writer = ClipWriter("wide", media_type="photo")
+    writer = ClipWriter(WIDE_ROAD_CAMERA, media_type="photo")
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
 
     assert recover_interrupted_clips(writer.path.parent) == []

@@ -9,15 +9,11 @@ from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.realtime import Ratekeeper
 from openpilot.common.swaglog import cloudlog
+from openpilot.system.camcorder.cameras import camera_for_control_name
 from openpilot.system.camcorder.clip_storage import Clip, recover_interrupted_clips
 from openpilot.system.camcorder.recorder import ClipRecorder
 from openpilot.system.camcorder.storage import StorageMonitor
 from openpilot.system.camcorder.timing import boot_time_ns
-
-_STREAMS = {
-  "wideRoad": VisionStreamType.VISION_STREAM_WIDE_ROAD,
-  "cabin": VisionStreamType.VISION_STREAM_CABIN,
-}
 
 
 def failure_notice(failure: str, clip_saved: bool) -> str:
@@ -49,7 +45,9 @@ class CamcorderDaemon:
     if sequence <= self.sequence:
       return
     self.sequence = sequence
-    self.stream_type = _STREAMS.get(str(control.stream), self.stream_type)
+    camera = camera_for_control_name(str(control.stream))
+    if camera is not None:
+      self.stream_type = camera.stream_type
     action = str(control.action)
     try:
       if action == "idle" and not self.recorder.recording:

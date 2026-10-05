@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from openpilot.system.camcorder.cameras import Camera
 from openpilot.system.camcorder.journal import PeriodicSync, read_json, write_json_atomic
 from openpilot.system.camcorder.hevc_writer import MasterInfo, cleanup_hevc_journal, recover_hevc
 from openpilot.system.camcorder.library import clips_root
@@ -407,7 +408,7 @@ def _audio_metadata(audio: AudioInfo) -> dict:
 
 
 class ClipWriter:
-  def __init__(self, camera: str, width: int = CLIP_WIDTH, height: int = CLIP_HEIGHT,
+  def __init__(self, camera: Camera, width: int = CLIP_WIDTH, height: int = CLIP_HEIGHT,
                fps: int = CLIP_FPS, started_at: datetime | None = None,
                preview_contains_full_frame: bool = False, media_type: str = "video",
                recording_start_mono_ns: int = 0):
@@ -493,8 +494,8 @@ class ClipWriter:
       "id": self.clip_id,
       "status": status,
       "media_type": self.media_type,
-      "camera": self.camera,
-      "flip_h": self.camera == "cabin",
+      "camera": self.camera.clip_name,
+      "flip_h": self.camera.flip_h,
       "started_at": self.started_at.isoformat(timespec="seconds"),
       "width": self.width,
       "height": self.height,

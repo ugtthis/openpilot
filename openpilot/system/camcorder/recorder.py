@@ -7,6 +7,7 @@ from typing import Literal
 
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
+from openpilot.system.camcorder.cameras import camera_for_stream
 from openpilot.system.camcorder.mic import CamcorderMic
 from openpilot.system.camcorder.preroll import HevcPacket, PreRoll
 from openpilot.system.camcorder.clip_storage import (
@@ -17,14 +18,6 @@ from openpilot.system.camcorder.storage import StorageFullError, StorageMonitor
 from openpilot.system.camcorder.timing import boot_time_ns
 from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_encoder
 
-_STREAM_NAMES = {
-  VisionStreamType.VISION_STREAM_WIDE_ROAD: "wide",
-  VisionStreamType.VISION_STREAM_CABIN: "cabin",
-}
-_ENCODE_SERVICES = {
-  VisionStreamType.VISION_STREAM_WIDE_ROAD: "wideRoadEncodeData",
-  VisionStreamType.VISION_STREAM_CABIN: "cabinEncodeData",
-}
 _VIDEO_TAIL_TIMEOUT_S = 0.5
 CaptureFailure = Literal["none", "storage", "audio", "recording"]
 
@@ -126,7 +119,7 @@ class ClipRecorder:
       self._preroll.stop()
     elif not self.recording:
       self._mic.start()
-      self._preroll.start(_ENCODE_SERVICES[stream_type])
+      self._preroll.start(camera_for_stream(stream_type).encode_service)
 
   def start(self, stream_type: VisionStreamType, recording_start_mono_ns: int | None = None) -> bool:
     # Recorder-level backstop: never acquire offroad capture processes based
@@ -277,7 +270,7 @@ class ClipRecorder:
     from msgq.visionipc import VisionIpcClient
 
     client = VisionIpcClient("camerad", self._stream_type, conflate=True)
-    cabin = self._stream_type == VisionStreamType.VISION_STREAM_CABIN
+    camera = camera_for_stream(self._stream_type)
     try:
       while not self._stop.is_set() and not (client.is_connected() and client.num_buffers):
         client.connect(False)
@@ -294,7 +287,7 @@ class ClipRecorder:
             # Overlaps the take's own subscriptions, which began at the press.
             self._preroll_video = self._preroll.take(press_ns)
             width, height = preview_size(buf.width, buf.height)
-            self._preview = ClipWriter(_STREAM_NAMES.get(self._stream_type, "wide"),
+            self._preview = ClipWriter(camera,
                                        width, height, preview_contains_full_frame=True,
                                        recording_start_mono_ns=press_ns)
             video_start_ns = self._preroll_video[0].timestamp_ns if self._preroll_video else press_ns
@@ -303,7 +296,7 @@ class ClipRecorder:
           preview = self._preview
         rgb = extract_clip_rgb(buf.data, buf.width, buf.height, buf.stride, buf.uv_offset,
                                out_w=preview.width, out_h=preview.height,
-                               flip_h=cabin, enhance=cabin, crop_aspect=None)
+                               flip_h=camera.flip_h, enhance=camera.enhance, crop_aspect=None)
         t_ms = int((time.monotonic() - self._started_mono) * 1000)
         with self._lock:
           preview.add_frame(rgb, t_ms)
@@ -316,7 +309,7 @@ class ClipRecorder:
   def _capture_hevc(self):
     from openpilot.cereal import messaging
 
-    service = _ENCODE_SERVICES[self._stream_type]
+    service = camera_for_stream(self._stream_type).encode_service
     sock = messaging.sub_sock(service, conflate=False)
     try:
       while not self._stop.is_set():
