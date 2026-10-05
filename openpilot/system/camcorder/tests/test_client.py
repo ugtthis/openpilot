@@ -1,7 +1,7 @@
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
+from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.system.camcorder.client import CamcorderClient
 
@@ -12,7 +12,11 @@ CABIN = VisionStreamType.VISION_STREAM_CABIN
 def state(**fields):
   defaults = {"sessionId": 1, "sequence": 0, "phase": "idle", "elapsedS": 0.0, "remainingS": 3600.0,
               "clipId": "", "error": "", "notice": "none", "micName": ""}
-  return SimpleNamespace(**(defaults | fields))
+  msg = messaging.new_message("camcorderState")
+  state = msg.camcorderState
+  for name, value in (defaults | fields).items():
+    setattr(state, name, value)
+  return state
 
 
 class PubMaster:

@@ -1,3 +1,6 @@
+import ast
+import inspect
+import textwrap
 from types import SimpleNamespace
 
 from openpilot.cereal.visionipc import VisionStreamType
@@ -37,6 +40,19 @@ class FakeRecorder:
     self.recording = False
     return SimpleNamespace(clip_id="saved-clip", audio_gap_count=0, audio_gap_frame_count=0,
                            has_timeline_gap=self.timeline_gap)
+
+
+def test_fake_recorder_covers_the_state_message_interface():
+  tree = ast.parse(textwrap.dedent(inspect.getsource(CamcorderDaemon.state_message)))
+  recorder_attributes = {
+    node.attr for node in ast.walk(tree)
+    if isinstance(node, ast.Attribute)
+    and isinstance(node.value, ast.Attribute)
+    and isinstance(node.value.value, ast.Name)
+    and node.value.value.id == "self"
+    and node.value.attr == "recorder"
+  }
+  assert recorder_attributes <= set(dir(FakeRecorder()))
 
 
 def control(sequence, action, stream="wideRoad", request_mono_time=123):

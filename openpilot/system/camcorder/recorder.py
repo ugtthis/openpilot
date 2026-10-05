@@ -93,7 +93,7 @@ class ClipRecorder:
   def poll(self) -> None:
     if not self._recording.is_set():
       return
-    if getattr(self._mic, "write_error", ""):
+    if self._mic.write_error:
       self._set_capture_error(self._mic.write_error, "audio")
     elif not self._storage.available():
       self._set_capture_error("storage full", "storage")
