@@ -7,7 +7,7 @@ from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.camcorder.cameras import camera_for_stream
 from openpilot.system.camcorder.client import CamcorderClient
-from openpilot.system.camcorder.clip_storage import ClipWriter, center_crop, extract_clip_rgb, format_timecode
+from openpilot.system.camcorder.clip_storage import center_crop, format_timecode
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   OSD_BACKGROUND, OSD_COLOR, RECORD_COLOR,
   camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, hit_name, split_rail,
@@ -439,23 +439,10 @@ class CamcorderView(CameraView):
   def _take_photo(self):
     if not self._capture_allowed() or self.frame is None:
       return
-    writer = None
     try:
-      camera = camera_for_stream(self.stream_type)
-      rgb = extract_clip_rgb(self.frame.data, self.frame.width, self.frame.height,
-                             self.frame.stride, self.frame.uv_offset,
-                             out_w=self.frame.width, out_h=self.frame.height,
-                             flip_h=camera.flip_h, enhance=camera.enhance,
-                             crop_aspect=None)
-      writer = ClipWriter(camera,
-                          self.frame.width, self.frame.height,
-                          preview_contains_full_frame=True, media_type="photo")
-      writer.add_frame(rgb, 0)
-      writer.finalize()
-      self._snapshot_flash_until = rl.get_time() + SNAPSHOT_FLASH_S
+      if self._recorder.take_photo(self.stream_type):
+        self._snapshot_flash_until = rl.get_time() + SNAPSHOT_FLASH_S
     except Exception:
-      if writer is not None:
-        writer.abort()
       cloudlog.exception("camcorder snapshot failed")
 
   def _toggle_record(self):

@@ -12,6 +12,7 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.system.camcorder.cameras import camera_for_control_name
 from openpilot.system.camcorder.capture_status import CaptureFailure, CaptureStatus
 from openpilot.system.camcorder.clip_storage import Clip, recover_interrupted_clips
+from openpilot.system.camcorder.photo import take_photo
 from openpilot.system.camcorder.recorder import ClipRecorder
 from openpilot.system.camcorder.storage import StorageMonitor
 from openpilot.system.camcorder.timing import boot_time_ns
@@ -68,6 +69,17 @@ class CamcorderDaemon:
           self.status = CaptureStatus.from_failure(CaptureFailure(self.recorder.capture_failure), False, detail)
       elif action == "stop" and self.recorder.recording:
         self._finish_recording(int(control.requestMonoTime))
+      elif action == "photo" and not self.recorder.recording:
+        self.clip_id = ""
+        try:
+          clip = take_photo(self.stream_type)
+          if clip is None:
+            raise RuntimeError("camera frame unavailable")
+          self.clip_id = clip.clip_id
+          self.status = CaptureStatus()
+        except Exception as exc:
+          self.status = CaptureStatus.command_failed(f"photo capture failed: {exc}")
+          cloudlog.exception("camcorder photo capture failed")
     except Exception as exc:
       self.phase = "failed"
       self.status = CaptureStatus.command_failed(str(exc))

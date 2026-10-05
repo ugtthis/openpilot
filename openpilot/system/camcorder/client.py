@@ -47,6 +47,7 @@ class CamcorderClient:
     self._lease_held = False
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self._requested_recording = False
+    self._requested_photo = False
     self._completed_clip: Clip | None = None
     self._error = ""
     self._notice_code = "none"
@@ -113,12 +114,24 @@ class CamcorderClient:
       return
     self._send("stop", self._stream_type, stop_mono_ns or boot_time_ns())
 
+  def take_photo(self, stream_type: VisionStreamType) -> bool:
+    if self.recording:
+      return False
+    self.set_warm(True, stream_type)
+    self._requested_photo = True
+    self._dismissed_notice = self._notice_code
+    self._local_error = ""
+    self._error = ""
+    self._send("photo", stream_type, boot_time_ns())
+    return True
+
   def close(self) -> None:
     self.stop()
     if self._lease_held:
       release_camcorder()
       self._lease_held = False
     self._warm = False
+    self._requested_photo = False
 
   def update(self) -> Clip | None:
     self._sm.update(0)
@@ -135,6 +148,7 @@ class CamcorderClient:
       self._update_notice(str(state.notice))
       if self._pending is not None and int(state.sequence) >= self._sequence:
         self._pending = None
+        self._requested_photo = False
       if self._requested_recording and self._phase in ("idle", "warming", "failed") and state.clipId:
         self._end_take()
         self._completed_clip = load_clip(clips_root() / str(state.clipId))
@@ -151,6 +165,7 @@ class CamcorderClient:
   def _reconnect(self, recovered: bool) -> None:
     """camcorderd restarted: the old take and any command sent to it are gone."""
     self._pending = None
+    self._requested_photo = False
     if self._requested_recording and not recovered:
       self._abandon_take("Recorder restarted — no clip recovered")
     if self._warm:

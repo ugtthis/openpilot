@@ -20,6 +20,7 @@ struct CamcorderControl @0x81c2f05a394cf4af {
     idle @0;
     start @1;
     stop @2;
+    photo @3;
   }
 
   enum Stream {

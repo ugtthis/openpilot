@@ -130,6 +130,29 @@ def test_recording_cannot_start_before_preroll_is_ready():
   assert pm.messages == []
 
 
+def test_photo_command_does_not_latch_recording_or_open_review():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  with patch("openpilot.system.camcorder.client.acquire_camcorder"):
+    assert client.take_photo(CABIN)
+
+  assert pm.last_command.action == "photo"
+  assert pm.last_command.stream == "cabin"
+  assert not client.recording
+
+  sm.publish(sequence=int(pm.last_command.sequence), phase="idle", clipId="photo")
+  assert client.update() is None
+  assert not client._requested_photo
+
+
+def test_photo_is_rejected_during_a_video_take():
+  client, pm, _sm = recording_client()
+  message_count = len(pm.messages)
+
+  assert not client.take_photo(WIDE)
+  assert len(pm.messages) == message_count
+
+
 def test_camera_switch_returns_to_warming_until_the_new_stream_is_ready():
   pm, sm = PubMaster(), SubMaster()
   client = CamcorderClient(pm, sm)

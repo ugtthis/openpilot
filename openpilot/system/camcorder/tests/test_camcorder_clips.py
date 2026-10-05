@@ -649,15 +649,14 @@ class TestCamcorderClips(OpenpilotTestCase):
     meta = json.loads((clip.path / "clip.json").read_text())
     assert meta["status"] == "ready" and meta["recovered"]
 
-  def test_recovery_leaves_a_photo_being_written_by_the_ui_alone(self):
+  def test_recovery_deletes_an_interrupted_photo(self):
     writer = ClipWriter(WIDE_ROAD_CAMERA, media_type="photo")
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+    writer._close_files()
+    path = writer.path
 
     assert recover_interrupted_clips(writer.path.parent) == []
-    assert json.loads((writer.path / "clip.json").read_text())["status"] == "recording"
-
-    photo = writer.finalize()
-    assert photo is not None and photo.is_photo
+    assert not path.exists()
 
   def test_hevc_writer_counts_dropped_frames(self):
     with TemporaryDirectory() as directory:

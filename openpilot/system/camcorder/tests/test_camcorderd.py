@@ -2,6 +2,7 @@ import ast
 import inspect
 import textwrap
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
@@ -123,6 +124,51 @@ def test_start_and_stop_commands_publish_the_saved_clip():
   assert state.sequence == 2
   assert state.phase == "warming"
   assert state.clipId == "saved-clip"
+
+
+def test_photo_command_publishes_the_clip_without_entering_recording():
+  recorder = FakeRecorder()
+  daemon = CamcorderDaemon(recorder)
+
+  with patch("openpilot.system.camcorder.camcorderd.take_photo",
+             return_value=SimpleNamespace(clip_id="photo")) as take_photo:
+    daemon.apply_control(control(1, "photo", "cabin"))
+
+  take_photo.assert_called_once_with(VisionStreamType.VISION_STREAM_CABIN)
+  assert daemon.clip_id == "photo"
+  assert daemon.phase == "warming"
+  assert daemon.notice == "none"
+  assert not recorder.recording
+
+
+def test_photo_is_ignored_during_a_video_take():
+  recorder = FakeRecorder()
+  recorder.recording = True
+  daemon = CamcorderDaemon(recorder)
+
+  with patch("openpilot.system.camcorder.camcorderd.take_photo") as take_photo:
+    daemon.apply_control(control(1, "photo"))
+
+  take_photo.assert_not_called()
+  assert recorder.recording
+
+
+def test_failed_photo_does_not_block_the_next_video_take():
+  recorder = FakeRecorder()
+  daemon = CamcorderDaemon(recorder)
+
+  with (
+    patch("openpilot.system.camcorder.camcorderd.take_photo", return_value=None),
+    patch("openpilot.system.camcorder.camcorderd.cloudlog.exception"),
+  ):
+    daemon.apply_control(control(1, "photo"))
+
+  assert daemon.phase == "warming"
+  assert daemon.notice == "recordingFailed"
+
+  daemon.apply_control(control(2, "start"))
+  assert daemon.phase == "recording"
+  assert recorder.recording
 
 
 def test_saved_clip_with_a_timeline_gap_publishes_a_warning():
