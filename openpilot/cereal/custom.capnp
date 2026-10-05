@@ -70,7 +70,11 @@ struct CamcorderState @0xaedffd8f31e7b55d {
   }
 }
 
-struct CustomReserved2 @0xf35cc4560bbf6ec2 {
+# Asks encoderd for a keyframe so a camcorder take starts on the next frame
+# instead of waiting for the encoder's regular keyframe interval.
+struct EncoderKeyframeRequest @0xf35cc4560bbf6ec2 {
+  # Publish name of the encoder that should emit it, e.g. "wideRoadEncodeData".
+  encodeService @0 :Text;
 }
 
 struct CustomReserved3 @0xda96579883444c35 {

@@ -65,12 +65,19 @@ void encoder_request_keyframe(std::unique_ptr<Encoder> &e) {
   e->request_keyframe();
 }
 
+// A camcorder take asks for a keyframe so it starts on the next frame instead of the next GOP.
+bool keyframe_requested(SubMaster &sm, const EncoderInfo &encoder_info) {
+  return sm.updated("encoderKeyframeRequest") &&
+         sm["encoderKeyframeRequest"].getEncoderKeyframeRequest().getEncodeService() == encoder_info.publish_name;
+}
+
 void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
   util::set_thread_name(cam_info.thread_name);
 
   std::vector<std::unique_ptr<Encoder>> encoders;
 
   VisionIpcClient vipc_client = VisionIpcClient("camerad", cam_info.stream_type, false);
+  SubMaster keyframe_requests({"encoderKeyframeRequest"});
 
   std::unique_ptr<JpegEncoder> jpeg_encoder;
 
@@ -130,10 +137,14 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
       }
 
       // encode a frame
+      keyframe_requests.update(0);
       for (int i = 0; i < encoders.size(); ++i) {
         if (cam_info.encoder_infos[i].is_live) {
           encoder_set_bitrate(encoders[i]);
           encoder_request_keyframe(encoders[i]);
+        }
+        if (keyframe_requested(keyframe_requests, cam_info.encoder_infos[i])) {
+          encoders[i]->request_keyframe();
         }
 
         int out_id = encoders[i]->encode_frame(buf, &extra);

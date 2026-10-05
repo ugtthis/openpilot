@@ -56,6 +56,11 @@ class HevcWriter:
     self._sync = self._track.periodic_sync(self._file, self._index)
     self._started = False
 
+  @property
+  def started(self) -> bool:
+    """True once the first keyframe, where the track can begin, has been written."""
+    return self._started
+
   def add_encoded(self, encoded):
     self.add_packet(bytes(encoded.header), bytes(encoded.data),
                     bool(encoded.idx.flags & V4L2_BUF_FLAG_KEYFRAME),

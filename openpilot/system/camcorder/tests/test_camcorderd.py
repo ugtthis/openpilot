@@ -8,7 +8,7 @@ from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.system.camcorder.camcorderd import CamcorderDaemon
 from openpilot.system.camcorder.capture_status import CaptureFailure, CaptureStatus
-from openpilot.system.camcorder.hevc_writer import MasterInfo
+from openpilot.system.camcorder.hevc_writer import HevcWriter, MasterInfo
 from openpilot.system.camcorder.recorder import ClipRecorder, RecorderState
 
 
@@ -287,6 +287,22 @@ def test_finalization_salvages_other_tracks_when_one_writer_fails():
   assert recorder.stop(123) == "clip"
   assert recorder.capture_error == "encoded video finalization failed: video write failed"
   assert not recorder.recording
+
+
+def test_take_asks_its_encoder_for_a_keyframe_until_video_starts(tmp_path):
+  sent = []
+  recorder = ClipRecorder(mic=SimpleNamespace())
+  recorder._keyframe_requests = SimpleNamespace(send=sent.append)
+
+  recorder._request_keyframe("cabinEncodeData")
+  assert messaging.log_from_bytes(sent[0]).encoderKeyframeRequest.encodeService == "cabinEncodeData"
+
+  assert not recorder._video_started()
+  recorder._hevc = HevcWriter(tmp_path)
+  assert not recorder._video_started()
+  recorder._hevc.add_packet(b"header", b"frame", keyframe=True, width=8, height=8)
+  assert recorder._video_started()
+  recorder._hevc.abort()
 
 
 def test_recorder_poll_promotes_audio_write_failures_without_a_cross_thread_callback():

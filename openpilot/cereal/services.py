@@ -79,6 +79,7 @@ _services: dict[str, tuple] = {
   "bookmarkButton": (True, 0., 1),
   "camcorderControl": (False, 0.),
   "camcorderState": (False, 10.),
+  "encoderKeyframeRequest": (False, 0.),
   "narrowRoadEncodeData": (False, 20., None, QueueSize.BIG),
   "cabinEncodeData": (False, 20., None, QueueSize.BIG),
   "wideRoadEncodeData": (False, 20., None, QueueSize.BIG),

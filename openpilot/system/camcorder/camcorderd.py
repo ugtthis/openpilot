@@ -7,7 +7,6 @@ writing live here at normal process priority so UI rendering cannot starve them.
 
 from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
-from openpilot.common.realtime import Ratekeeper
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.camcorder.cameras import camera_for_control_name
 from openpilot.system.camcorder.capture_status import CaptureFailure, CaptureStatus
@@ -130,16 +129,15 @@ class CamcorderDaemon:
   def run(self) -> None:
     sm = messaging.SubMaster(["camcorderControl"])
     pm = messaging.PubMaster(["camcorderState"])
-    rk = Ratekeeper(10)
     self.recorder.set_warm(True, self.stream_type)
     try:
       while True:
-        sm.update(0)
+        # Wakes as soon as a command arrives so a take starts right after the tap; otherwise 10 Hz.
+        sm.update(100)
         if sm.updated["camcorderControl"]:
           self.apply_control(sm["camcorderControl"])
         self.update()
         pm.send("camcorderState", self.state_message())
-        rk.keep_time()
     finally:
       self.recorder.stop()
       self.recorder.set_warm(False, self.stream_type)

@@ -2641,7 +2641,7 @@ struct Event {
     # DON'T change which struct it points to
     camcorderControl @107 :Custom.CamcorderControl;
     camcorderState @108 :Custom.CamcorderState;
-    customReserved2 @109 :Custom.CustomReserved2;
+    encoderKeyframeRequest @109 :Custom.EncoderKeyframeRequest;
     customReserved3 @110 :Custom.CustomReserved3;
     customReserved4 @111 :Custom.CustomReserved4;
     customReserved5 @112 :Custom.CustomReserved5;

@@ -36,6 +36,7 @@ from openpilot.system.camcorder.timing import boot_time_ns
 from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_encoder
 
 _VIDEO_TAIL_TIMEOUT_S = 0.5
+_KEYFRAME_RETRY_S = 0.25
 
 
 class RecorderState(StrEnum):
@@ -54,7 +55,11 @@ class TeardownReason(StrEnum):
 class ClipRecorder:
   def __init__(self, capture_allowed: Callable[[], bool] = lambda: True, mic: CamcorderMic | None = None,
                storage: StorageMonitor | None = None):
+    from openpilot.cereal import messaging
+
     self._capture_allowed = capture_allowed
+    # Created long before a take: subscribers skip what a brand-new publisher sends first.
+    self._keyframe_requests = messaging.pub_sock("encoderKeyframeRequest")
     self._mic = mic or CamcorderMic()
     self._storage = storage or StorageMonitor()
     self._preview_thread: threading.Thread | None = None
@@ -385,8 +390,14 @@ class ClipRecorder:
 
     service = camera_for_stream(self._stream_type).encode_service
     sock = messaging.sub_sock(service, conflate=False)
+    last_keyframe_request = 0.0
     try:
       while not self._stop.is_set():
+        # Ask only once subscribed, so the keyframe cannot arrive unheard. Repeat until the
+        # video track starts: a request is lost if encoderd is still starting.
+        if not self._video_started() and time.monotonic() - last_keyframe_request >= _KEYFRAME_RETRY_S:
+          self._request_keyframe(service)
+          last_keyframe_request = time.monotonic()
         if not self._preview_ready.wait(0.05):
           continue
         messages = messaging.drain_sock(sock, wait_for_one=False)
@@ -399,6 +410,17 @@ class ClipRecorder:
     except Exception as exc:
       self._set_capture_error(f"encoded video capture failed: {exc}")
       cloudlog.exception("camcorder encoded video capture failed")
+
+  def _video_started(self) -> bool:
+    with self._lock:
+      return self._hevc is not None and self._hevc.started
+
+  def _request_keyframe(self, encode_service: str) -> None:
+    from openpilot.cereal import messaging
+
+    msg = messaging.new_message("encoderKeyframeRequest")
+    msg.encoderKeyframeRequest.encodeService = encode_service
+    self._keyframe_requests.send(msg.to_bytes())
 
   def _write_hevc(self, encoded_frames) -> int:
     with self._lock:
