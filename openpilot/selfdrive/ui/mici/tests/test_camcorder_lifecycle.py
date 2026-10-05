@@ -12,7 +12,7 @@ from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView, fo
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout, SwipeLeftPage, camcorder_available
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.system.camcorder.preroll import _Run
-from openpilot.system.camcorder.recorder import ClipRecorder
+from openpilot.system.camcorder.recorder import ClipRecorder, RecorderState
 from openpilot.system.ui.widgets import Widget
 
 
@@ -143,10 +143,13 @@ class _FakeMic:
     self.audio = audio
     self.started = False
     self.stopped = False
+    self.aborted = False
     self.device_name = "test mic"
     self.sample_rate = 48000
     self.channels = 2
     self.error = ""
+    self.write_error = ""
+    self.ready = True
 
   def start(self):
     self.started = True
@@ -158,7 +161,7 @@ class _FakeMic:
     return self.audio
 
   def abort(self):
-    pass
+    self.aborted = True
 
   def attach(self, path, start_ns):
     pass
@@ -197,10 +200,10 @@ def test_recorder_ignition_stop_releases_leases_before_waiting_for_threads():
   ):
     recorder.stop_async()
     deadline = time.monotonic() + 2.0
-    while recorder._finalizing.is_set() and time.monotonic() < deadline:
+    while recorder.state == RecorderState.FINALIZING and time.monotonic() < deadline:
       time.sleep(0.01)
 
-  assert not recorder._finalizing.is_set()
+  assert recorder.state == RecorderState.IDLE
   assert events == ["encoder", "join"]
 
 
@@ -217,6 +220,7 @@ def test_recorder_normal_stop_releases_leases_after_waiting_for_threads():
 
   recorder = ClipRecorder()
   recorder._preview_thread = cast(Any, CaptureThread())
+  recorder._state = RecorderState.RECORDING
 
   with (
     patch("openpilot.system.camcorder.recorder.release_encoder",
@@ -246,10 +250,10 @@ def test_ignition_stop_still_saves_the_take():
   with patch("openpilot.system.camcorder.recorder.release_encoder"):
     recorder.stop_async()
     deadline = time.monotonic() + 2.0
-    while recorder._finalizing.is_set() and time.monotonic() < deadline:
+    while recorder.state == RecorderState.FINALIZING and time.monotonic() < deadline:
       time.sleep(0.01)
 
-  assert not recorder._finalizing.is_set()
+  assert recorder.state == RecorderState.IDLE
   assert preview.finalized_with == (None, "audio", recorder._stop_mono_ns)
 
 
@@ -264,7 +268,7 @@ def test_async_stop_thread_failure_remains_fail_safe():
     recorder.stop_async()
 
   assert recorder._stop.is_set()
-  assert not recorder._finalizing.is_set()
+  assert recorder.state == RecorderState.IDLE
   release_encoder.assert_called_once()
   log_exception.assert_called_once()
 
@@ -315,12 +319,103 @@ WIDE = VisionStreamType.VISION_STREAM_WIDE_ROAD
 CABIN = VisionStreamType.VISION_STREAM_CABIN
 
 
+def test_stop_during_warming_keeps_the_recorder_warm():
+  recorder = _warmable_recorder()
+  with _recorded_leases() as events:
+    recorder.set_warm(True, WIDE)
+
+    assert recorder.state == RecorderState.WARMING
+    assert recorder.stop() is None
+    assert recorder.state == RecorderState.WARMING
+
+  assert events == ["acquire"]
+
+
+def test_double_stop_finalizes_writers_once():
+  class Preview:
+    calls = 0
+
+    def finalize(self, master, audio, end_ns):
+      self.calls += 1
+      return "clip"
+
+  mic = _FakeMic("audio")
+  preview = Preview()
+  recorder = ClipRecorder(mic=cast(Any, mic))
+  recorder._preview = cast(Any, preview)
+  recorder._state = RecorderState.RECORDING
+
+  with patch("openpilot.system.camcorder.recorder.release_encoder"):
+    assert recorder.stop(123) == "clip"
+    assert recorder.stop(456) is None
+
+  assert preview.calls == 1
+  assert recorder.state == RecorderState.IDLE
+
+
+def test_failed_join_keeps_a_live_preview_worker_in_recording_state():
+  class StuckThread:
+    def join(self, timeout=None):
+      pass
+
+    def is_alive(self):
+      return True
+
+  recorder = ClipRecorder(mic=cast(Any, _FakeMic()))
+  recorder._preview_thread = cast(Any, StuckThread())
+  recorder._state = RecorderState.RECORDING
+
+  with patch("openpilot.system.camcorder.recorder.release_encoder"):
+    assert recorder.stop(123) is None
+
+  assert recorder.state == RecorderState.RECORDING
+  assert recorder.capture_error == "capture workers did not stop"
+
+
+def test_stale_teardown_aborts_instead_of_publishing_tracks():
+  class Writer:
+    aborted = False
+
+    def abort(self):
+      self.aborted = True
+
+  mic = _FakeMic()
+  preview, hevc = Writer(), Writer()
+  recorder = ClipRecorder(mic=cast(Any, mic))
+  recorder._warm = True
+  recorder._state = RecorderState.WARMING
+  recorder._preview = cast(Any, preview)
+  recorder._hevc = cast(Any, hevc)
+
+  with patch("openpilot.system.camcorder.recorder.release_encoder") as release:
+    assert recorder._discard_stale()
+
+  assert preview.aborted and hevc.aborted and mic.aborted
+  assert recorder.state == RecorderState.WARMING
+  release.assert_not_called()
+
+
+def test_double_async_stop_is_single_flight():
+  recorder = ClipRecorder()
+  with (
+    patch("openpilot.system.camcorder.recorder.release_encoder"),
+    patch("openpilot.system.camcorder.recorder.threading.Thread") as thread,
+  ):
+    recorder.stop_async()
+    recorder.stop_async()
+
+  thread.assert_called_once()
+  thread.return_value.start.assert_called_once()
+  assert recorder.state == RecorderState.FINALIZING
+
+
 def test_warm_camcorder_holds_leases_across_a_take():
   recorder = _warmable_recorder()
   with _recorded_leases() as events:
     recorder.set_warm(True, WIDE)
     recorder.set_warm(True, WIDE)
     recorder._preview_thread = cast(Any, _TakeThread())
+    recorder._state = RecorderState.RECORDING
     recorder.stop()
     assert events == ["acquire"]
 
@@ -333,6 +428,7 @@ def test_leaving_the_camcorder_mid_take_keeps_leases_until_stop():
   with _recorded_leases() as events:
     recorder.set_warm(True, WIDE)
     recorder._preview_thread = cast(Any, _TakeThread())
+    recorder._state = RecorderState.RECORDING
     recorder.set_warm(False, WIDE)
     assert events == ["acquire"]
 
@@ -359,6 +455,7 @@ def test_preroll_follows_the_camera_and_pauses_for_takes():
 
     preroll.stop()  # a take hands the pre-roll over at its first preview frame
     recorder._preview_thread = cast(Any, _TakeThread())
+    recorder._state = RecorderState.RECORDING
     recorder.set_warm(True, CABIN)
     assert preroll.service is None
 
@@ -375,7 +472,7 @@ def test_ignition_stop_releases_warm_leases():
     recorder.set_warm(True, WIDE)
     recorder.stop_async()
     deadline = time.monotonic() + 2.0
-    while recorder._finalizing.is_set() and time.monotonic() < deadline:
+    while recorder.state == RecorderState.FINALIZING and time.monotonic() < deadline:
       time.sleep(0.01)
   assert events == ["acquire", "release"]
   assert recorder._preroll.service is None

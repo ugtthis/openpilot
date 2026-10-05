@@ -8,7 +8,7 @@ from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.system.camcorder.camcorderd import CamcorderDaemon
 from openpilot.system.camcorder.capture_status import CaptureFailure, CaptureStatus
 from openpilot.system.camcorder.hevc_writer import MasterInfo
-from openpilot.system.camcorder.recorder import ClipRecorder
+from openpilot.system.camcorder.recorder import ClipRecorder, RecorderState
 
 
 class FakeRecorder:
@@ -202,7 +202,7 @@ def _track_ends(stop_ns: int, last_video_ns: int) -> dict[str, int]:
 
   recorder = ClipRecorder(mic=SimpleNamespace(finish=finish))
   recorder._warm = True
-  recorder._recording.set()
+  recorder._state = RecorderState.RECORDING
   recorder._preview = Preview()
   recorder._hevc = Hevc()
   assert recorder.stop(stop_ns) == "clip"
@@ -234,7 +234,7 @@ def test_finalization_salvages_other_tracks_when_one_writer_fails():
   mic = SimpleNamespace(finish=lambda end_ns: "audio")
   recorder = ClipRecorder(mic=mic)
   recorder._warm = True
-  recorder._recording.set()
+  recorder._state = RecorderState.RECORDING
   recorder._preview = Preview()
   recorder._hevc = BrokenHevc()
 
@@ -246,7 +246,7 @@ def test_finalization_salvages_other_tracks_when_one_writer_fails():
 def test_recorder_poll_promotes_audio_write_failures_without_a_cross_thread_callback():
   mic = SimpleNamespace(write_error="audio write failed: disk full")
   recorder = ClipRecorder(mic=mic)
-  recorder._recording.set()
+  recorder._state = RecorderState.RECORDING
 
   recorder.poll()
 

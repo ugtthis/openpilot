@@ -1,8 +1,25 @@
-"""Record a take: RGB preview for the on-device player, HEVC for export."""
+"""Record a take: RGB preview for the on-device player, HEVC for export.
+
+Lifecycle state is guarded by ``_lock``:
+
+* IDLE has no warm capture services and no take.
+* WARMING keeps the mic and encoder pre-roll ready for a take.
+* RECORDING lets the preview and HEVC workers own and write their tracks.
+* FINALIZING starts only after both workers have been asked to stop; the
+  teardown thread owns the writers after they join.
+
+``_warm`` is the requested post-take policy and is guarded by the same lock.
+A take may remain RECORDING after the page cools; in that case teardown ends
+in IDLE. ``_stop`` and ``_preview_ready`` remain thread signals, not lifecycle
+state. Shutter teardown joins before releasing leases, ignition teardown
+releases before joining, and stale pre-start teardown aborts instead of
+publishing tracks.
+"""
 
 import threading
 import time
 from collections.abc import Callable
+from enum import StrEnum
 
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
@@ -21,6 +38,19 @@ from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_enco
 _VIDEO_TAIL_TIMEOUT_S = 0.5
 
 
+class RecorderState(StrEnum):
+  IDLE = "idle"
+  WARMING = "warming"
+  RECORDING = "recording"
+  FINALIZING = "finalizing"
+
+
+class TeardownReason(StrEnum):
+  SHUTTER = "shutter"
+  IGNITION = "ignition"
+  STALE = "stale"
+
+
 class ClipRecorder:
   def __init__(self, capture_allowed: Callable[[], bool] = lambda: True, mic: CamcorderMic | None = None,
                storage: StorageMonitor | None = None):
@@ -31,16 +61,14 @@ class ClipRecorder:
     self._hevc_thread: threading.Thread | None = None
     self._stop = threading.Event()
     self._preview_ready = threading.Event()
-    self._finalizing = threading.Event()
-    self._recording = threading.Event()
     self._started_mono = 0.0
     self._stop_mono_ns = 0
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self._preview: ClipWriter | None = None
     self._hevc: HevcWriter | None = None
     self._lock = threading.Lock()
-    self._stop_lock = threading.Lock()
     self._warm = False
+    self._state = RecorderState.IDLE
     self._preroll = PreRoll()
     self._preroll_video: list[HevcPacket] = []
     # Newest pre-roll timestamp written; the take's own sockets repeat earlier packets.
@@ -50,8 +78,13 @@ class ClipRecorder:
 
   @property
   def recording(self) -> bool:
-    preview_alive = self._preview_thread is not None and self._preview_thread.is_alive()
-    return self._recording.is_set() or self._finalizing.is_set() or preview_alive
+    with self._lock:
+      return self._state in (RecorderState.RECORDING, RecorderState.FINALIZING)
+
+  @property
+  def state(self) -> RecorderState:
+    with self._lock:
+      return self._state
 
   @property
   def capture_error(self) -> str:
@@ -90,8 +123,9 @@ class ClipRecorder:
     return self._preroll.ready and self._mic.ready
 
   def poll(self) -> None:
-    if not self._recording.is_set():
-      return
+    with self._lock:
+      if self._state != RecorderState.RECORDING:
+        return
     if self._mic.write_error:
       self._set_capture_error(self._mic.write_error, CaptureFailure.AUDIO)
     elif not self._storage.available():
@@ -103,27 +137,40 @@ class ClipRecorder:
     Spawning capture on the shutter press cost every take its first ~0.7 s.
     """
     warm = warm and self._capture_allowed()
-    if warm != self._warm:
+    with self._lock:
+      changed = warm != self._warm
       self._warm = warm
+      active = self._state in (RecorderState.RECORDING, RecorderState.FINALIZING)
+      if not active:
+        self._state = RecorderState.WARMING if warm else RecorderState.IDLE
+    if changed:
       if warm:
         try:
           acquire_encoder()
         except (OSError, RuntimeError):
-          self._warm = False
+          with self._lock:
+            self._warm = False
+            if self._state == RecorderState.WARMING:
+              self._state = RecorderState.IDLE
           self._release_leases()
           cloudlog.exception("camcorder could not warm up recording services")
-      elif not self.recording:
+      elif not active:
         self._release_leases()
-    if not self._warm:
+    with self._lock:
+      warm = self._warm
+      active = self._state in (RecorderState.RECORDING, RecorderState.FINALIZING)
+    if not warm:
       self._preroll.stop()
-    elif not self.recording:
+    elif not active:
       self._mic.start()
       self._preroll.start(camera_for_stream(stream_type).encode_service)
 
   def start(self, stream_type: VisionStreamType, recording_start_mono_ns: int | None = None) -> bool:
     # Recorder-level backstop: never acquire offroad capture processes based
     # only on the UI page being visible.
-    if not self._capture_allowed() or self.recording or not self._discard_stale():
+    with self._lock:
+      active = self._state in (RecorderState.RECORDING, RecorderState.FINALIZING)
+    if not self._capture_allowed() or active or not self._discard_stale():
       return False
     self._stop.clear()
     self._preview_ready.clear()
@@ -151,107 +198,135 @@ class ClipRecorder:
       return False
     self._preview_thread = threading.Thread(target=self._capture_preview, name="camcorder-preview", daemon=True)
     self._hevc_thread = threading.Thread(target=self._capture_hevc, name="camcorder-hevc", daemon=True)
-    self._recording.set()
+    with self._lock:
+      self._state = RecorderState.RECORDING
     try:
       self._preview_thread.start()
       self._hevc_thread.start()
     except RuntimeError as exc:
       self._set_capture_error(f"capture worker could not start: {exc}")
-      self._recording.clear()
       self._stop.set()
-      self._join_threads()
+      stopped = self._join_threads()
       self._release_leases()
+      with self._lock:
+        if stopped:
+          self._state = self._idle_state_locked()
       return False
     return True
 
   def stop(self, stop_mono_ns: int | None = None) -> Clip | None:
-    self._stop_mono_ns = stop_mono_ns or boot_time_ns()
+    with self._lock:
+      if self._state != RecorderState.RECORDING:
+        return None
+      self._state = RecorderState.FINALIZING
+      self._stop_mono_ns = stop_mono_ns or boot_time_ns()
     self._stop.set()
-    return self._finish_stop(release_after=True)
-
-  def _finish_stop(self, release_after: bool) -> Clip | None:
-    with self._stop_lock:
-      stopped = self._join_threads()
-      if release_after:
-        # Normal shutter stop: preserve the clip tail until capture has drained.
-        self._release_leases()
-      if not stopped:
-        self._set_capture_error("capture workers did not stop")
-        self._recording.clear()
-        return None
-      with self._lock:
-        preview, hevc = self._preview, self._hevc
-        self._preview = None
-        self._hevc = None
-      master = None
-      audio_info = None
-      try:
-        if hevc is not None:
-          master = hevc.finalize(self._stop_mono_ns)
-      except Exception as exc:
-        self._set_capture_error(f"encoded video finalization failed: {exc}")
-        cloudlog.exception("camcorder encoded video finalization failed")
-      # Workers keep writing until they notice the stop, so every track is cut to
-      # one end: the press, extended to finish the last video frame shown across it.
-      end_ns = max(self._stop_mono_ns, master.end_ns if master is not None else 0)
-      try:
-        audio_info = self._mic.finish(end_ns)
-      except Exception as exc:
-        self._set_capture_error(f"audio finalization failed: {exc}", CaptureFailure.AUDIO)
-        cloudlog.exception("camcorder audio finalization failed")
-      try:
-        return preview.finalize(master, audio_info, end_ns) if preview is not None else None
-      except Exception as exc:
-        self._set_capture_error(f"clip finalization failed: {exc}")
-        cloudlog.exception("camcorder clip finalization failed")
-        return None
-      finally:
-        self._recording.clear()
+    _stopped, clip = self._teardown(TeardownReason.SHUTTER)
+    return clip
 
   def stop_async(self) -> None:
-    """Abort for ignition without joining capture workers on the UI thread."""
-    self._stop_mono_ns = boot_time_ns()
+    """Save a take during ignition teardown without blocking the caller."""
+    with self._lock:
+      if self._state == RecorderState.FINALIZING:
+        return
+      self._stop_mono_ns = boot_time_ns()
+      self._warm = False
+      self._state = RecorderState.FINALIZING
     self._stop.set()
-    self._warm = False
     self._preroll.stop()
     self._release_leases()
-    self._finalizing.set()
     try:
       threading.Thread(target=self._finish_stop_async, name="camcorder-stop", daemon=True).start()
     except RuntimeError:
       # Resources are already released and capture workers have been asked to
       # stop. Leave stale-file cleanup to the next offroad start.
-      self._finalizing.clear()
+      with self._lock:
+        self._state = RecorderState.IDLE
       cloudlog.exception("camcorder stop finalizer could not start")
 
   def _finish_stop_async(self) -> None:
+    self._teardown(TeardownReason.IGNITION)
+
+  def _teardown(self, reason: TeardownReason) -> tuple[bool, Clip | None]:
+    """Join workers, then either abort stale tracks or publish a completed take."""
+    timeout = 1.0 if reason == TeardownReason.STALE else 2.0
+    stopped = self._join_threads(timeout)
+    if reason in (TeardownReason.SHUTTER, TeardownReason.STALE):
+      # Shutter capture drains before leases go away. Ignition has already
+      # released them so process shutdown cannot wait on capture threads.
+      self._release_leases()
+    if not stopped:
+      if reason != TeardownReason.STALE:
+        self._set_capture_error("capture workers did not stop")
+      self._finish_teardown_state(preserve_live_preview=True)
+      return False, None
+
+    if reason == TeardownReason.STALE:
+      with self._lock:
+        if self._hevc is not None:
+          self._hevc.abort()
+          self._hevc = None
+        if self._preview is not None:
+          self._preview.abort()
+          self._preview = None
+        self._mic.abort()
+      self._finish_teardown_state()
+      return True, None
+
+    with self._lock:
+      preview, hevc = self._preview, self._hevc
+      self._preview = None
+      self._hevc = None
+    master = None
+    audio_info = None
     try:
-      self._finish_stop(release_after=False)
+      if hevc is not None:
+        master = hevc.finalize(self._stop_mono_ns)
+    except Exception as exc:
+      self._set_capture_error(f"encoded video finalization failed: {exc}")
+      cloudlog.exception("camcorder encoded video finalization failed")
+    # Workers keep writing until they notice the stop, so every track is cut to
+    # one end: the press, extended to finish the last video frame shown across it.
+    end_ns = max(self._stop_mono_ns, master.end_ns if master is not None else 0)
+    try:
+      audio_info = self._mic.finish(end_ns)
+    except Exception as exc:
+      self._set_capture_error(f"audio finalization failed: {exc}", CaptureFailure.AUDIO)
+      cloudlog.exception("camcorder audio finalization failed")
+    try:
+      clip = preview.finalize(master, audio_info, end_ns) if preview is not None else None
+      return True, clip
+    except Exception as exc:
+      self._set_capture_error(f"clip finalization failed: {exc}")
+      cloudlog.exception("camcorder clip finalization failed")
+      return True, None
     finally:
-      self._finalizing.clear()
+      self._finish_teardown_state()
 
   def _discard_stale(self) -> bool:
     self._stop.set()
-    stopped = self._join_threads(timeout=1.0)
-    self._release_leases()
+    stopped, _clip = self._teardown(TeardownReason.STALE)
     if not stopped:
       cloudlog.error("stale camcorder threads did not stop")
-      return False
-    with self._lock:
-      if self._hevc is not None:
-        self._hevc.abort()
-        self._hevc = None
-      if self._preview is not None:
-        self._preview.abort()
-        self._preview = None
-      self._mic.abort()
-    return True
+    return stopped
 
   def _release_leases(self) -> None:
-    if self._warm:
-      return
+    with self._lock:
+      if self._warm:
+        return
     release_encoder()
     self._mic.stop()
+
+  def _idle_state_locked(self) -> RecorderState:
+    return RecorderState.WARMING if self._warm else RecorderState.IDLE
+
+  def _finish_teardown_state(self, preserve_live_preview: bool = False) -> None:
+    preview_alive = self._preview_thread is not None and self._preview_thread.is_alive()
+    with self._lock:
+      if preserve_live_preview and preview_alive:
+        self._state = RecorderState.RECORDING
+      else:
+        self._state = self._idle_state_locked()
 
   def _join_threads(self, timeout: float = 2.0) -> bool:
     deadline = time.monotonic() + timeout
