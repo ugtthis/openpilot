@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 CLIP_JSON = "clip.json"
 FRAMES_BIN = "frames.bin"
 INDEX_BIN = "index.bin"
+THUMB_JPG = "thumb.jpg"
 FRAME_HEADER_SIZE = 4
 INDEX_RECORD_SIZE = 12
 
@@ -100,6 +101,10 @@ class Clip:
   @property
   def has_full_frame_preview(self) -> bool:
     return self.preview_contains_full_frame and self.height > 0 and abs(self.width / self.height - CLIP_ASPECT) > 0.01
+
+  @property
+  def thumb_path(self) -> Path:
+    return self.path / THUMB_JPG
 
   @property
   def is_photo(self) -> bool:

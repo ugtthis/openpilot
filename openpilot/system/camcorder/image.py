@@ -7,6 +7,8 @@ CLIP_WIDTH = 480
 CLIP_HEIGHT = 360
 CLIP_FPS = 20
 CLIP_ASPECT = CLIP_WIDTH / CLIP_HEIGHT
+THUMB_WIDTH = 240
+THUMB_HEIGHT = 180
 
 
 def center_crop(width: float, height: float, aspect: float = CLIP_ASPECT) -> tuple[float, float, float, float]:
@@ -75,3 +77,8 @@ def scale_rgb(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
   ys = (np.arange(height) * rgb.shape[0] / height).astype(np.intp)
   xs = (np.arange(width) * rgb.shape[1] / width).astype(np.intp)
   return np.ascontiguousarray(rgb[ys][:, xs])
+
+
+def crop_rgb(rgb: np.ndarray, aspect: float = CLIP_ASPECT) -> np.ndarray:
+  x, y, width, height = (round(v) for v in center_crop(rgb.shape[1], rgb.shape[0], aspect))
+  return np.ascontiguousarray(rgb[y:y + height, x:x + width])

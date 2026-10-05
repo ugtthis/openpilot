@@ -16,6 +16,7 @@ from openpilot.system.camcorder.cameras import Camera
 from openpilot.system.camcorder.clip_meta import (
   FRAMES_BIN,
   INDEX_BIN,
+  THUMB_JPG,
   Clip,
   clip_with_audio,
   clip_with_master,
@@ -23,7 +24,7 @@ from openpilot.system.camcorder.clip_meta import (
   write_clip_metadata,
 )
 from openpilot.system.camcorder.hevc_writer import MasterInfo, cleanup_hevc_journal
-from openpilot.system.camcorder.image import CLIP_FPS, CLIP_HEIGHT, CLIP_WIDTH
+from openpilot.system.camcorder.image import CLIP_FPS, CLIP_HEIGHT, CLIP_WIDTH, THUMB_HEIGHT, THUMB_WIDTH, crop_rgb
 from openpilot.system.camcorder.journal import JournaledFile, JournaledTrack
 from openpilot.system.camcorder.library import clips_root
 
@@ -92,6 +93,8 @@ class ClipWriter:
       raise RuntimeError("writer is closed")
     if rgb.shape != (self.height, self.width, 3):
       raise ValueError(f"expected {(self.height, self.width, 3)}, got {rgb.shape}")
+    if self.frame_count == 0:
+      _write_thumb(self.path / THUMB_JPG, rgb)
     blob = _encode_frame(rgb, lossless=self.media_type == "photo")
     offset = self._frames.tell()
     self._frames.write(_SIZE.pack(len(blob)))
@@ -246,6 +249,13 @@ def _encode_frame(rgb: np.ndarray, lossless: bool) -> bytes:
   jpeg = io.BytesIO()
   Image.fromarray(rgb).save(jpeg, "JPEG", quality=_JPEG_QUALITY)
   return jpeg.getvalue()
+
+
+def _write_thumb(path: Path, rgb: np.ndarray) -> None:
+  image = Image.fromarray(crop_rgb(rgb)).resize((THUMB_WIDTH, THUMB_HEIGHT), Image.Resampling.BILINEAR)
+  temporary = path.with_suffix(path.suffix + ".tmp")
+  image.save(temporary, "JPEG", quality=_JPEG_QUALITY)
+  temporary.replace(path)
 
 
 def _decode_frame(blob: bytes) -> np.ndarray:

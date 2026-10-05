@@ -2,12 +2,13 @@ import time
 
 import numpy as np
 import pyray as rl
+from PIL import Image
 
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
 from openpilot.selfdrive.ui.mici.layouts.playback_transport import PlaybackTransport
 from openpilot.system.camcorder.clip_storage import (
-  Clip, ClipReader, center_crop, delete_all_clips, delete_clip, format_timecode, list_clips, scale_rgb,
+  Clip, ClipReader, center_crop, delete_all_clips, delete_clip, format_timecode, list_clips,
 )
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   BODY_COLOR, OSD_BACKGROUND, OSD_COLOR, TEXT_COLOR, TRASH_ICON,
@@ -85,12 +86,6 @@ def _draw_pause_icon(rec: rl.Rectangle):
   rl.draw_rectangle(int(cx + gap), int(cy - s), int(s * 0.45), int(2 * s), TEXT_COLOR)
 
 
-def _crop_rgb_4x3(rgb: np.ndarray) -> np.ndarray:
-  x, y, width, height = center_crop(rgb.shape[1], rgb.shape[0])
-  x, y, width, height = round(x), round(y), round(width), round(height)
-  return np.ascontiguousarray(rgb[y:y + height, x:x + width])
-
-
 def _draw_back_icon(rec: rl.Rectangle):
   cx, cy = rec.x + rec.width / 2, rec.y + rec.height / 2
   size = min(rec.width, rec.height) * 0.20
@@ -130,6 +125,7 @@ class ClipRow(Widget):
     self._press = PressTracker()
     self._trash_rect = rl.Rectangle()
     self._thumb = _FrameTexture()
+    self._thumb_loaded = False
     self._thumb_w = 0
     self._thumb_h = 0
     self._trash_icon = gui_app.texture(TRASH_ICON, 32, 38)
@@ -147,20 +143,19 @@ class ClipRow(Widget):
   def hide_event(self):
     super().hide_event()
     self._thumb.unload()
+    self._thumb_loaded = False
 
   def set_thumb_size(self, width: int, height: int) -> None:
-    if (width, height) == (self._thumb_w, self._thumb_h):
-      return
-    self._thumb.unload()
     self._thumb_w, self._thumb_h = width, height
 
   def _ensure_thumb(self):
-    if self._thumb.texture is not None or self._thumb_w <= 0 or self._thumb_h <= 0:
+    if self._thumb_loaded or self._parent_rect is None or not rl.check_collision_recs(self.rect, self._parent_rect):
       return
+    self._thumb_loaded = True
     try:
-      with ClipReader(self.clip) as reader:
-        self._thumb.show(scale_rgb(_crop_rgb_4x3(reader.frame(0)), self._thumb_w, self._thumb_h))
-    except Exception:
+      with Image.open(self.clip.thumb_path) as image:
+        self._thumb.show(np.asarray(image.convert("RGB")))
+    except OSError:
       self._thumb.unload()
 
   def _controls(self) -> list[tuple[str, rl.Rectangle]]:

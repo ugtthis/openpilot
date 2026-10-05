@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
+from PIL import Image
 
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
@@ -18,6 +19,7 @@ from openpilot.system.camcorder.clip_storage import (
   recover_interrupted_clips, scale_rgb, _clip_from_metadata, _clip_metadata,
 )
 from openpilot.system.camcorder.hevc_writer import HevcWriter, recover_hevc
+from openpilot.system.camcorder.image import THUMB_HEIGHT, THUMB_WIDTH
 from openpilot.system.camcorder.preview_track import publish_preview
 
 
@@ -290,6 +292,22 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert clip is not None
     assert clip.has_full_frame_preview
     assert (clip.width, clip.height) == (636, 360)
+
+  def test_first_frame_writes_a_center_cropped_thumbnail(self):
+    writer = ClipWriter(WIDE_ROAD_CAMERA, 636, 360, preview_contains_full_frame=True)
+    first = np.zeros((360, 636, 3), dtype=np.uint8)
+    first[:, :78] = (255, 0, 0)
+    first[:, 78:558] = (0, 255, 0)
+    first[:, 558:] = (0, 0, 255)
+    writer.add_frame(first, 0)
+    writer.add_frame(np.zeros((360, 636, 3), dtype=np.uint8), 50)
+    clip = writer.finalize()
+    assert clip is not None
+    with Image.open(clip.thumb_path) as image:
+      assert image.size == (THUMB_WIDTH, THUMB_HEIGHT)
+      thumb = np.asarray(image.convert("RGB")).astype(int)
+    assert thumb[:, :, 1].min() > 200
+    assert thumb[:, :, [0, 2]].max() < 60
 
   def test_photo_metadata_round_trip(self):
     writer = ClipWriter(WIDE_ROAD_CAMERA, media_type="photo")
