@@ -11,8 +11,8 @@ from openpilot.system.camcorder.clip_storage import (
 )
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   BODY_COLOR, OSD_BACKGROUND, OSD_COLOR, TEXT_COLOR, TRASH_ICON,
-  camera_body, draw_centered_texture, draw_list_row, draw_physical_button, draw_rail,
-  SECOND_ROW_VISIBLE_FRACTION, draw_recessed_viewfinder, fit_inside, hit_name,
+  PressTracker, camera_body, draw_centered_texture, draw_list_row, draw_physical_button, draw_rail,
+  SECOND_ROW_VISIBLE_FRACTION, draw_recessed_viewfinder, fit_inside,
   row_height_for_peek, split_rail, thumb_size_for_row,
 )
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog
@@ -127,7 +127,7 @@ class ClipRow(Widget):
     self.clip = clip
     self._on_open = on_open
     self._on_delete = on_delete
-    self._pressed: str | None = None
+    self._press = PressTracker()
     self._trash_rect = rl.Rectangle()
     self._thumb = _FrameTexture()
     self._thumb_w = 0
@@ -171,13 +171,10 @@ class ClipRow(Widget):
                                     ROW_TRASH_W, self.rect.height)
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
-    self._pressed = hit_name(mouse_pos, self._controls())
+    self._press.press(mouse_pos, self._controls())
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
-    pressed = self._pressed
-    self._pressed = None
-    if pressed is None or hit_name(mouse_pos, self._controls()) != pressed:
-      return
+    pressed = self._press.release(mouse_pos, self._controls())
     if pressed == "delete":
       self._on_delete(self.clip)
     elif pressed == "open":
@@ -197,7 +194,7 @@ class ClipRow(Widget):
                         max(0, self._trash_rect.x - text_x - TEXT_PAD), face.height - 2 * TEXT_PAD)
     self._title.render(rl.Rectangle(text.x, text.y, text.width, text.height * 0.55))
     self._meta.render(rl.Rectangle(text.x, text.y + text.height * 0.5, text.width, text.height * 0.5))
-    tint = rl.Color(255, 255, 255, 160) if self.is_pressed and self._pressed == "delete" else rl.WHITE
+    tint = rl.Color(255, 255, 255, 160) if self.is_pressed and self._press.is_down("delete") else rl.WHITE
     draw_centered_texture(self._trash_rect, self._trash_icon, tint)
 
 
@@ -212,7 +209,7 @@ class ClipPlayerView(Widget):
     self._shown_index = -1
     self._transport = PlaybackTransport()
     self._fullscreen = False
-    self._pressed: str | None = None
+    self._press = PressTracker()
     self._rail = rl.Rectangle()
     self._top_slot = rl.Rectangle()
     self._back_rect = rl.Rectangle()
@@ -380,13 +377,10 @@ class ClipPlayerView(Widget):
                                self._feed.width, SCRUB_H)
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
-    self._pressed = hit_name(mouse_pos, self._controls())
+    self._press.press(mouse_pos, self._controls())
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
-    pressed = self._pressed
-    self._pressed = None
-    if pressed is None or hit_name(mouse_pos, self._controls()) != pressed:
-      return
+    pressed = self._press.release(mouse_pos, self._controls())
     if pressed == "fullscreen_back":
       self._fullscreen = False
     elif pressed == "back":
@@ -440,26 +434,26 @@ class ClipPlayerView(Widget):
 
     if self._fullscreen:
       back_face = draw_physical_button(self._fullscreen_back_rect,
-                                       self.is_pressed and self._pressed == "fullscreen_back")
+                                       self.is_pressed and self._press.is_down("fullscreen_back"))
       _draw_back_icon(back_face)
       if self._has_playable_audio():
         volume_face = draw_physical_button(self._fullscreen_volume_rect,
-                                           self.is_pressed and self._pressed == "volume")
+                                           self.is_pressed and self._press.is_down("volume"))
         _draw_speaker_icon(volume_face, self._transport.muted)
     else:
       photo = self._clip is not None and self._clip.is_photo
       slots = [self._back_rect, self._delete_slot] if photo else [self._top_slot, self._play_slot, self._delete_slot]
       draw_rail(self._rail, slots)
-      back_face = draw_physical_button(self._back_rect, self.is_pressed and self._pressed == "back")
-      delete_face = draw_physical_button(self._delete_slot, self.is_pressed and self._pressed == "delete")
+      back_face = draw_physical_button(self._back_rect, self.is_pressed and self._press.is_down("back"))
+      delete_face = draw_physical_button(self._delete_slot, self.is_pressed and self._press.is_down("delete"))
       self._back_label.render(back_face)
       if not photo:
         if self._has_playable_audio():
           volume_face = draw_physical_button(self._volume_rect,
-                                             self.is_pressed and self._pressed == "volume")
+                                             self.is_pressed and self._press.is_down("volume"))
           _draw_speaker_icon(volume_face, self._transport.muted)
         play_face = draw_physical_button(self._play_slot, not self._transport.playing or
-                                         (self.is_pressed and self._pressed == "play"))
+                                         (self.is_pressed and self._press.is_down("play")))
         if self._transport.playing:
           _draw_pause_icon(play_face)
         else:
@@ -486,7 +480,7 @@ class ClipPlayerView(Widget):
 class PlaybackView(Widget):
   def __init__(self):
     super().__init__()
-    self._pressed: str | None = None
+    self._press = PressTracker()
     self._back_rect = rl.Rectangle()
     self._delete_all_rect = rl.Rectangle()
     self._list_rect = rl.Rectangle()
@@ -594,13 +588,10 @@ class PlaybackView(Widget):
       row.set_thumb_size(thumb_w, thumb_h)
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
-    self._pressed = hit_name(mouse_pos, self._header_controls())
+    self._press.press(mouse_pos, self._header_controls())
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
-    pressed = self._pressed
-    self._pressed = None
-    if pressed is None or hit_name(mouse_pos, self._header_controls()) != pressed:
-      return
+    pressed = self._press.release(mouse_pos, self._header_controls())
     if pressed == "back":
       gui_app.pop_widget()
     elif pressed == "delete_all":
@@ -609,10 +600,12 @@ class PlaybackView(Widget):
   def _render(self, rect: rl.Rectangle):
     rl.draw_rectangle_rec(rect, BODY_COLOR)
     self._title.render(rl.Rectangle(self.rect.x, self.rect.y, self.rect.width, HEADER_H))
-    back_face = draw_physical_button(self._back_rect, self.is_pressed and self._pressed == "back")
+    back_face = draw_physical_button(self._back_rect, self.is_pressed and self._press.is_down("back"))
     self._back_label.render(back_face)
     if self._rows:
-      delete_face = draw_physical_button(self._delete_all_rect, self.is_pressed and self._pressed == "delete_all")
+      delete_face = draw_physical_button(
+        self._delete_all_rect, self.is_pressed and self._press.is_down("delete_all"),
+      )
       self._delete_all_label.render(delete_face)
 
     if not self._rows:

@@ -152,3 +152,26 @@ def hit_name(pos, named: list[tuple[str, rl.Rectangle]]) -> str | None:
     if rl.check_collision_point_rec(pos, rec):
       return name
   return None
+
+
+class PressTracker:
+  """Dispatch a tap only when press and release hit the same named control."""
+
+  def __init__(self):
+    self._name: str | None = None
+
+  def press(self, pos, controls: list[tuple[str, rl.Rectangle]]) -> None:
+    self._name = hit_name(pos, controls)
+
+  def release(self, pos, controls: list[tuple[str, rl.Rectangle]]) -> str | None:
+    pressed = self._name
+    self._name = None
+    if pressed is None or hit_name(pos, controls) != pressed:
+      return None
+    return pressed
+
+  def is_down(self, name: str) -> bool:
+    return self._name == name
+
+  def clear(self) -> None:
+    self._name = None

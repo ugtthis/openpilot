@@ -10,7 +10,7 @@ from openpilot.system.camcorder.client import CamcorderClient
 from openpilot.system.camcorder.clip_storage import center_crop, format_timecode
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   OSD_BACKGROUND, OSD_COLOR, RECORD_COLOR,
-  camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, hit_name, split_rail,
+  PressTracker, camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, split_rail,
 )
 from openpilot.selfdrive.ui.mici.layouts.playback_view import PlaybackView
 from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
@@ -324,7 +324,7 @@ class CamcorderView(CameraView):
     self._mode_pull_target_photo = True
     self._snapshot_countdown = SnapshotCountdown()
     self._snapshot_flash_until = 0.0
-    self._pressed: str | None = None
+    self._press = PressTracker()
     self._playback = PlaybackView()
     self._folder_icon = gui_app.texture("icons/folder.png", FOLDER_ICON_SIZE, FOLDER_ICON_SIZE)
     self._camera_icon = gui_app.texture("icons/camera.png", 64, 64)
@@ -395,7 +395,7 @@ class CamcorderView(CameraView):
     if not ui_state.ignition:
       return
     self._snapshot_countdown.cancel()
-    self._pressed = None
+    self._press.clear()
     if self._recorder.recording:
       self._recorder.stop()
     self._recorder.set_warm(False, self.stream_type)
@@ -480,13 +480,10 @@ class CamcorderView(CameraView):
                                        self._error_banner.y + 6, 98, self._error_banner.height - 12)
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
-    self._pressed = hit_name(mouse_pos, self._controls())
+    self._press.press(mouse_pos, self._controls())
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
-    pressed = self._pressed
-    self._pressed = None
-    if pressed is None or hit_name(mouse_pos, self._controls()) != pressed:
-      return
+    pressed = self._press.release(mouse_pos, self._controls())
     if pressed == "dismiss_error":
       self._recorder.dismiss_error()
     elif pressed == "feed":
@@ -544,7 +541,7 @@ class CamcorderView(CameraView):
     self._error_osd.set_text(message)
     message_rect = rl.Rectangle(banner.x + 8, banner.y, self._error_dismiss.x - banner.x - 12, banner.height)
     self._error_osd.render(message_rect)
-    button_color = rl.Color(180, 58, 58, 255) if self._pressed == "dismiss_error" else rl.Color(155, 38, 38, 255)
+    button_color = rl.Color(180, 58, 58, 255) if self._press.is_down("dismiss_error") else rl.Color(155, 38, 38, 255)
     rl.draw_rectangle_rounded(self._error_dismiss, 0.2, 6, button_color)
     self._error_dismiss_label.render(self._error_dismiss)
 
@@ -616,9 +613,9 @@ class CamcorderView(CameraView):
     super()._render(self._feed)
     draw_rail(self._rail, [self._playback_slot, self._record_slot])
 
-    playback_face = draw_physical_button(self._playback_slot, self.is_pressed and self._pressed == "playback")
+    playback_face = draw_physical_button(self._playback_slot, self.is_pressed and self._press.is_down("playback"))
     record_face = draw_physical_button(self._record_slot, recording or counting_down or
-                                      (self.is_pressed and self._pressed == "record"))
+                                      (self.is_pressed and self._press.is_down("record")))
     folder_color = rl.Color(255, 255, 255, 70) if recording else rl.WHITE
     draw_centered_texture(playback_face, self._folder_icon, folder_color)
     if recording:
