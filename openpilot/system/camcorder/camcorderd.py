@@ -51,16 +51,12 @@ class CamcorderDaemon:
     try:
       if action == "idle" and not self.recorder.recording:
         self.recorder.set_warm(True, self.stream_type)
-      elif action == "start":
+      elif action == "start" and not self.recorder.recording:
+        self.clip_id = ""
         self.status = CaptureStatus()
         self.recorder.set_warm(True, self.stream_type)
-        if not self.recorder.ready:
-          self.phase = "warming"
-          self.status = CaptureStatus.warming()
-        elif self.recorder.start(self.stream_type, int(control.requestMonoTime)):
+        if self.recorder.start(self.stream_type, int(control.requestMonoTime)):
           self.phase = "recording"
-          self.clip_id = ""
-          self.status = CaptureStatus()
           self.audio_gap_count = 0
           self.audio_gap_frame_count = 0
         else:

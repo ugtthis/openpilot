@@ -25,6 +25,7 @@ _UNKNOWN_NOTICE_TEXT = "Recording error — try again"
 # A restarted camcorderd announces a new session well before this. The timeout
 # only unlatches the UI when the recorder never comes back.
 _STATE_TIMEOUT_S = 10.0
+_TAKE_PHASES = ("recording", "finalizing")
 
 
 def notice_text(notice: str) -> str:
@@ -47,6 +48,7 @@ class CamcorderClient:
     self._lease_held = False
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self._requested_recording = False
+    self._take_sequence = 0
     self._requested_photo = False
     self._completed_clip: Clip | None = None
     self._error = ""
@@ -58,7 +60,7 @@ class CamcorderClient:
 
   @property
   def recording(self) -> bool:
-    return self._requested_recording or self._phase in ("recording", "finalizing")
+    return self._requested_recording or self._phase in _TAKE_PHASES
 
   @property
   def elapsed_s(self) -> float:
@@ -94,11 +96,11 @@ class CamcorderClient:
       self._phase = "warming"
       self._send("idle", stream_type, boot_time_ns())
     if not warm and self._lease_held and not self.recording:
-      release_camcorder()
-      self._lease_held = False
+      self._release_lease()
 
   def start(self, stream_type: VisionStreamType, press_mono_ns: int | None = None) -> bool:
-    if self.recording or self._phase != "idle":
+    """Request a take; the command repeats until camcorderd, which may still be launching, acknowledges it."""
+    if self.recording:
       return False
     self.set_warm(True, stream_type)
     self._requested_recording = True
@@ -106,7 +108,9 @@ class CamcorderClient:
     self._dismissed_notice = self._notice_code
     self._local_error = ""
     self._error = ""
+    self._last_state_update = time.monotonic()
     self._send("start", stream_type, press_mono_ns or boot_time_ns())
+    self._take_sequence = self._sequence
     return True
 
   def stop(self, stop_mono_ns: int | None = None) -> None:
@@ -128,8 +132,7 @@ class CamcorderClient:
   def close(self) -> None:
     self.stop()
     if self._lease_held:
-      release_camcorder()
-      self._lease_held = False
+      self._release_lease()
     self._warm = False
     self._requested_photo = False
 
@@ -149,11 +152,12 @@ class CamcorderClient:
       if self._pending is not None and int(state.sequence) >= self._sequence:
         self._pending = None
         self._requested_photo = False
-      if self._requested_recording and self._phase in ("idle", "warming", "failed") and state.clipId:
+      # Until camcorderd acknowledges the start, its phase and clipId describe the previous take.
+      take_acknowledged = int(state.sequence) >= self._take_sequence
+      if self._requested_recording and take_acknowledged and self._phase not in _TAKE_PHASES:
         self._end_take()
-        self._completed_clip = load_clip(clips_root() / str(state.clipId))
-      elif self._requested_recording and self._phase in ("warming", "failed") and state.error:
-        self._end_take()
+        if state.clipId:
+          self._completed_clip = load_clip(clips_root() / str(state.clipId))
     elif self._requested_recording and time.monotonic() - self._last_state_update > _STATE_TIMEOUT_S:
       self._phase = "failed"
       self._abandon_take("Recorder unavailable — reopen camera")
@@ -166,6 +170,8 @@ class CamcorderClient:
     """camcorderd restarted: the old take and any command sent to it are gone."""
     self._pending = None
     self._requested_photo = False
+    # The new session restarts its sequence, and its first state is the take's outcome.
+    self._take_sequence = 0
     if self._requested_recording and not recovered:
       self._abandon_take("Recorder restarted — no clip recovered")
     if self._warm:
@@ -174,8 +180,13 @@ class CamcorderClient:
   def _end_take(self) -> None:
     self._requested_recording = False
     if not self._warm and self._lease_held:
-      release_camcorder()
-      self._lease_held = False
+      self._release_lease()
+
+  def _release_lease(self) -> None:
+    release_camcorder()
+    self._lease_held = False
+    # Manager may stop camcorderd now, so its next session is a fresh start, not a crash.
+    self._session_id = 0
 
   def _abandon_take(self, message: str) -> None:
     self._end_take()

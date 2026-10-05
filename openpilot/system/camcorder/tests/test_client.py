@@ -121,13 +121,55 @@ def test_mic_label_follows_the_recorder_and_clears_when_the_mic_stops_working():
   assert client.mic_label == ""
 
 
-def test_recording_cannot_start_before_preroll_is_ready():
+def test_first_tap_while_warming_starts_the_take():
   pm, sm = PubMaster(), SubMaster()
   client = CamcorderClient(pm, sm)
+  sm.publish(phase="warming", clipId="previous")
   with patch("openpilot.system.camcorder.client.acquire_camcorder"):
+    client.update()
+    assert client.start(WIDE, 123)
+  assert pm.last_command.action == "start"
+
+  # State published before camcorderd saw the tap still names the previous take.
+  assert client.update() is None
+  assert client.recording
+
+  sm.publish(sequence=1, phase="recording")
+  client.update()
+  assert client.recording
+
+
+def test_take_that_ends_without_a_clip_unlatches_the_shutter():
+  client, pm, sm = recording_client()
+  client.stop(200)
+
+  sm.publish(sequence=2, phase="idle")
+  assert client.update() is None
+  assert not client.recording
+
+
+def test_tap_right_after_returning_to_the_page_survives_the_cold_start():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  sm.publish(sessionId=1, phase="idle")
+  with (
+    patch("openpilot.system.camcorder.client.acquire_camcorder"),
+    patch("openpilot.system.camcorder.client.release_camcorder"),
+  ):
     client.set_warm(True, WIDE)
-    assert not client.start(WIDE, 123)
-  assert pm.messages == []
+    client.update()
+    client.set_warm(False, WIDE)
+    sm.updated["camcorderState"] = False
+
+    with patch("openpilot.system.camcorder.client.time.monotonic", return_value=client._last_state_update + 60.0):
+      assert client.start(WIDE, 300)
+      client.update()
+      assert client.recording
+
+      sm.publish(sessionId=2, sequence=1, phase="recording")
+      client.update()
+  assert client.recording
+  assert client.error == ""
 
 
 def test_photo_command_does_not_latch_recording_or_open_review():
@@ -153,15 +195,15 @@ def test_photo_is_rejected_during_a_video_take():
   assert len(pm.messages) == message_count
 
 
-def test_camera_switch_returns_to_warming_until_the_new_stream_is_ready():
+def test_camera_switch_rewarms_the_new_stream():
   pm, sm = PubMaster(), SubMaster()
   client = CamcorderClient(pm, sm)
   client._phase = "idle"
   with patch("openpilot.system.camcorder.client.acquire_camcorder"):
     client.set_warm(True, CABIN)
-    assert not client.start(CABIN, 123)
   assert pm.last_command.action == "idle"
   assert pm.last_command.stream == "cabin"
+  assert client._phase == "warming"
 
 
 def test_leaving_the_page_keeps_the_lease_until_stop_finishes():

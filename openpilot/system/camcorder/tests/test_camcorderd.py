@@ -216,17 +216,17 @@ def test_capture_failure_stops_and_publishes_the_salvaged_clip():
   assert state.error == recorder.capture_error
 
 
-def test_warming_error_blocks_the_mic_banner():
+def test_start_does_not_wait_for_the_recorder_to_warm():
   recorder = FakeRecorder()
   recorder.ready = False
   daemon = CamcorderDaemon(recorder)
+  daemon.clip_id = "previous"
+
   daemon.apply_control(control(1, "start"))
-  recorder.mic_error = "Microphone disconnected"
 
-  state = daemon.state_message().camcorderState
-
-  assert str(state.notice) == "none"
-  assert state.error == "recorder is still warming up"
+  assert daemon.phase == "recording"
+  assert daemon.clip_id == ""
+  assert recorder.starts == [(VisionStreamType.VISION_STREAM_WIDE_ROAD, 123)]
 
 
 def _track_ends(stop_ns: int, last_video_ns: int) -> dict[str, int]:

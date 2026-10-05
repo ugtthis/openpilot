@@ -35,10 +35,6 @@ class CaptureStatus:
     return cls(_FAILURE_NOTICE[(failure, clip_saved)], detail, failure, clip_saved)
 
   @classmethod
-  def warming(cls) -> "CaptureStatus":
-    return cls(detail="recorder is still warming up")
-
-  @classmethod
   def recovered(cls) -> "CaptureStatus":
     return cls(notice="recordingRecovered", clip_saved=True)
 
