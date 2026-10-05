@@ -10,20 +10,11 @@ from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.realtime import Ratekeeper
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.camcorder.cameras import camera_for_control_name
+from openpilot.system.camcorder.capture_status import CaptureFailure, CaptureStatus
 from openpilot.system.camcorder.clip_storage import Clip, recover_interrupted_clips
 from openpilot.system.camcorder.recorder import ClipRecorder
 from openpilot.system.camcorder.storage import StorageMonitor
 from openpilot.system.camcorder.timing import boot_time_ns
-
-
-def failure_notice(failure: str, clip_saved: bool) -> str:
-  if failure == "storage":
-    return "storageFullSaved" if clip_saved else "storageFull"
-  if failure == "audio" and clip_saved:
-    return "audioErrorSaved"
-  if clip_saved:
-    return "recordingErrorSaved"
-  return "recordingFailed"
 
 
 class CamcorderDaemon:
@@ -35,10 +26,17 @@ class CamcorderDaemon:
     self.sequence = 0
     self.phase = "warming"
     self.clip_id = recovered_clip.clip_id if recovered_clip is not None else ""
-    self.error = ""
-    self.notice = "recordingRecovered" if recovered_clip is not None else "none"
+    self.status = CaptureStatus.recovered() if recovered_clip is not None else CaptureStatus()
     self.audio_gap_count = 0
     self.audio_gap_frame_count = 0
+
+  @property
+  def error(self) -> str:
+    return self.status.detail
+
+  @property
+  def notice(self) -> str:
+    return self.status.notice
 
   def apply_control(self, control) -> None:
     sequence = int(control.sequence)
@@ -53,28 +51,26 @@ class CamcorderDaemon:
       if action == "idle" and not self.recorder.recording:
         self.recorder.set_warm(True, self.stream_type)
       elif action == "start":
-        self.notice = "none"
+        self.status = CaptureStatus()
         self.recorder.set_warm(True, self.stream_type)
         if not self.recorder.ready:
           self.phase = "warming"
-          self.error = "recorder is still warming up"
+          self.status = CaptureStatus.warming()
         elif self.recorder.start(self.stream_type, int(control.requestMonoTime)):
           self.phase = "recording"
           self.clip_id = ""
-          self.error = ""
-          self.notice = "none"
+          self.status = CaptureStatus()
           self.audio_gap_count = 0
           self.audio_gap_frame_count = 0
         else:
           self.phase = "failed"
-          self.error = self.recorder.capture_error or "recorder could not start"
-          self.notice = failure_notice(self.recorder.capture_failure, False)
+          detail = self.recorder.capture_error or "recorder could not start"
+          self.status = CaptureStatus.from_failure(CaptureFailure(self.recorder.capture_failure), False, detail)
       elif action == "stop" and self.recorder.recording:
         self._finish_recording(int(control.requestMonoTime))
     except Exception as exc:
       self.phase = "failed"
-      self.error = str(exc)
-      self.notice = "recordingFailed"
+      self.status = CaptureStatus.command_failed(str(exc))
       cloudlog.exception("camcorder command failed")
 
   def update(self) -> None:
@@ -93,13 +89,14 @@ class CamcorderDaemon:
     self.clip_id = clip.clip_id if clip is not None else ""
     self.audio_gap_count = clip.audio_gap_count if clip is not None else 0
     self.audio_gap_frame_count = clip.audio_gap_frame_count if clip is not None else 0
-    self.error = self.recorder.capture_error
-    if clip is None and not self.error:
-      self.error = "recording stopped without a usable clip"
-    if self.error:
-      self.notice = failure_notice(self.recorder.capture_failure, clip is not None)
+    detail = self.recorder.capture_error
+    if clip is None and not detail:
+      detail = "recording stopped without a usable clip"
+    if detail:
+      failure = CaptureFailure(self.recorder.capture_failure)
+      self.status = CaptureStatus.from_failure(failure, clip is not None, detail)
     else:
-      self.notice = "timelineGapSaved" if clip is not None and clip.has_timeline_gap else "none"
+      self.status = CaptureStatus.timeline_gap() if clip is not None and clip.has_timeline_gap else CaptureStatus()
     self.phase = "warming"
 
   def state_message(self):
@@ -109,8 +106,6 @@ class CamcorderDaemon:
     state.sequence = self.sequence
     state.phase = self.phase
     state.clipId = self.clip_id
-    state.error = self.error
-    notice = self.notice
     state.elapsedS = self.recorder.elapsed_s
     state.remainingS = self.storage.remaining_s()
     state.audioSampleRate = self.recorder.mic_sample_rate
@@ -119,10 +114,9 @@ class CamcorderDaemon:
     state.audioGapFrameCount = self.audio_gap_frame_count
     # Name only a working input; on failure the error banner explains instead.
     state.micName = "" if self.recorder.mic_error else self.recorder.mic_name
-    if self.recorder.mic_error and not state.error:
-      state.error = self.recorder.mic_error
-      notice = "micDisconnected" if self.phase == "recording" else "micUnavailable"
-    state.notice = notice
+    published = self.status.with_mic_error(self.recorder.mic_error, self.phase == "recording")
+    state.error = published.detail
+    state.notice = published.notice
     return msg
 
   def run(self) -> None:

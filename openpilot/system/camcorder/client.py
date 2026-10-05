@@ -21,9 +21,16 @@ _NOTICE_TEXT = {
   "recordingRecovered": "Recorder restarted — clip recovered",
   "timelineGapSaved": "Recording gap detected — clip saved",
 }
+_UNKNOWN_NOTICE_TEXT = "Recording error — try again"
 # A restarted camcorderd announces a new session well before this. The timeout
 # only unlatches the UI when the recorder never comes back.
 _STATE_TIMEOUT_S = 10.0
+
+
+def notice_text(notice: str) -> str:
+  if notice == "none":
+    return ""
+  return _NOTICE_TEXT.get(notice, _UNKNOWN_NOTICE_TEXT)
 
 
 class CamcorderClient:
@@ -168,7 +175,7 @@ class CamcorderClient:
       self._error = self._local_error
     elif notice != self._dismissed_notice:
       self._local_error = ""
-      self._error = _NOTICE_TEXT.get(notice, "Recording error — try again")
+      self._error = notice_text(notice)
 
   def _send(self, action: str, stream_type: VisionStreamType, request_mono_ns: int) -> None:
     self._sequence += 1

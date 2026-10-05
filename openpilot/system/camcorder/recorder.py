@@ -3,11 +3,11 @@
 import threading
 import time
 from collections.abc import Callable
-from typing import Literal
 
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.camcorder.cameras import camera_for_stream
+from openpilot.system.camcorder.capture_status import CaptureFailure
 from openpilot.system.camcorder.mic import CamcorderMic
 from openpilot.system.camcorder.preroll import HevcPacket, PreRoll
 from openpilot.system.camcorder.clip_storage import (
@@ -19,7 +19,6 @@ from openpilot.system.camcorder.timing import boot_time_ns
 from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_encoder
 
 _VIDEO_TAIL_TIMEOUT_S = 0.5
-CaptureFailure = Literal["none", "storage", "audio", "recording"]
 
 
 class ClipRecorder:
@@ -47,7 +46,7 @@ class ClipRecorder:
     # Newest pre-roll timestamp written; the take's own sockets repeat earlier packets.
     self._hevc_after_ns = 0
     self._capture_error = ""
-    self._capture_failure: CaptureFailure = "none"
+    self._capture_failure = CaptureFailure.NONE
 
   @property
   def recording(self) -> bool:
@@ -94,9 +93,9 @@ class ClipRecorder:
     if not self._recording.is_set():
       return
     if self._mic.write_error:
-      self._set_capture_error(self._mic.write_error, "audio")
+      self._set_capture_error(self._mic.write_error, CaptureFailure.AUDIO)
     elif not self._storage.available():
-      self._set_capture_error("storage full", "storage")
+      self._set_capture_error("storage full", CaptureFailure.STORAGE)
 
   def set_warm(self, warm: bool, stream_type: VisionStreamType) -> None:
     """Keep encoderd and direct mic capture warm while the camcorder is on screen.
@@ -133,7 +132,7 @@ class ClipRecorder:
     self._hevc_after_ns = 0
     with self._lock:
       self._capture_error = ""
-      self._capture_failure = "none"
+      self._capture_failure = CaptureFailure.NONE
     self._stream_type = stream_type
     self._started_mono = (recording_start_mono_ns or boot_time_ns()) / 1e9
     try:
@@ -141,7 +140,7 @@ class ClipRecorder:
       acquire_encoder()
       self._mic.start()
     except StorageFullError as exc:
-      self._set_capture_error(str(exc), "storage")
+      self._set_capture_error(str(exc), CaptureFailure.STORAGE)
       self._release_leases()
       cloudlog.exception("camcorder could not request recording services")
       return False
@@ -198,7 +197,7 @@ class ClipRecorder:
       try:
         audio_info = self._mic.finish(end_ns)
       except Exception as exc:
-        self._set_capture_error(f"audio finalization failed: {exc}", "audio")
+        self._set_capture_error(f"audio finalization failed: {exc}", CaptureFailure.AUDIO)
         cloudlog.exception("camcorder audio finalization failed")
       try:
         return preview.finalize(master, audio_info, end_ns) if preview is not None else None
@@ -342,7 +341,7 @@ class ClipRecorder:
         hevc.add_encoded(encoded)
     return int(encoded_frames[-1].idx.timestampEof) if encoded_frames else 0
 
-  def _set_capture_error(self, error: str, failure: CaptureFailure = "recording") -> None:
+  def _set_capture_error(self, error: str, failure: CaptureFailure = CaptureFailure.RECORDING) -> None:
     with self._lock:
       if not self._capture_error:
         self._capture_error = error

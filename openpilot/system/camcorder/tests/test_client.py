@@ -1,9 +1,9 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from openpilot.cereal import messaging
+from openpilot.cereal import custom, messaging
 from openpilot.cereal.visionipc import VisionStreamType
-from openpilot.system.camcorder.client import CamcorderClient
+from openpilot.system.camcorder.client import _NOTICE_TEXT, CamcorderClient, notice_text
 
 WIDE = VisionStreamType.VISION_STREAM_WIDE_ROAD
 CABIN = VisionStreamType.VISION_STREAM_CABIN
@@ -67,6 +67,13 @@ def patch_clip_loading(clip):
     patch("openpilot.system.camcorder.client.clips_root", return_value=Path("/clips")),
     patch("openpilot.system.camcorder.client.load_clip", return_value=clip),
   )
+
+
+def test_every_cereal_notice_has_banner_copy():
+  notices = set(custom.CamcorderState.Notice.schema.enumerants)
+  assert set(_NOTICE_TEXT) == notices - {"none"}
+  assert notice_text("none") == ""
+  assert notice_text("notARealNotice") == "Recording error — try again"
 
 
 def test_commands_repeat_until_the_daemon_acknowledges_them():

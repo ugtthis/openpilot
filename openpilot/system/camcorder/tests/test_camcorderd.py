@@ -3,8 +3,10 @@ import inspect
 import textwrap
 from types import SimpleNamespace
 
+from openpilot.cereal import messaging
 from openpilot.cereal.visionipc import VisionStreamType
-from openpilot.system.camcorder.camcorderd import CamcorderDaemon, failure_notice
+from openpilot.system.camcorder.camcorderd import CamcorderDaemon
+from openpilot.system.camcorder.capture_status import CaptureFailure, CaptureStatus
 from openpilot.system.camcorder.hevc_writer import MasterInfo
 from openpilot.system.camcorder.recorder import ClipRecorder
 
@@ -59,11 +61,14 @@ def control(sequence, action, stream="wideRoad", request_mono_time=123):
   return SimpleNamespace(sequence=sequence, action=action, stream=stream, requestMonoTime=request_mono_time)
 
 
-def test_failure_notices_describe_what_was_saved():
-  assert failure_notice("storage", True) == "storageFullSaved"
-  assert failure_notice("storage", False) == "storageFull"
-  assert failure_notice("audio", True) == "audioErrorSaved"
-  assert failure_notice("recording", False) == "recordingFailed"
+def test_every_capture_failure_maps_to_a_valid_notice():
+  for failure in CaptureFailure:
+    for clip_saved in (False, True):
+      status = CaptureStatus.from_failure(failure, clip_saved, "detail")
+      msg = messaging.new_message("camcorderState")
+      msg.camcorderState.notice = status.notice
+      assert str(msg.camcorderState.notice) == status.notice
+  assert CaptureStatus.from_failure(CaptureFailure.AUDIO, False, "detail").notice == "recordingFailed"
 
 
 def test_restarted_daemon_publishes_the_recovered_clip():
@@ -82,7 +87,23 @@ def test_only_a_working_mic_is_named():
   assert daemon.state_message().camcorderState.micName == "test mic"
 
   recorder.mic_error = "Microphone disconnected"
-  assert daemon.state_message().camcorderState.micName == ""
+  state = daemon.state_message().camcorderState
+  assert state.micName == ""
+  assert str(state.notice) == "micUnavailable"
+  assert state.error == recorder.mic_error
+
+
+def test_mic_disconnect_is_published_live_without_changing_latched_status():
+  recorder = FakeRecorder()
+  daemon = CamcorderDaemon(recorder)
+  daemon.apply_control(control(1, "start"))
+  recorder.mic_error = "Microphone disconnected"
+
+  state = daemon.state_message().camcorderState
+
+  assert str(state.notice) == "micDisconnected"
+  assert state.error == recorder.mic_error
+  assert daemon.notice == "none"
 
 
 def test_start_and_stop_commands_publish_the_saved_clip():
@@ -142,6 +163,24 @@ def test_capture_failure_stops_and_publishes_the_salvaged_clip():
   assert daemon.clip_id == "saved-clip"
   assert daemon.error == recorder.capture_error
   assert daemon.notice == "recordingErrorSaved"
+
+  recorder.mic_error = "Microphone disconnected"
+  state = daemon.state_message().camcorderState
+  assert str(state.notice) == "recordingErrorSaved"
+  assert state.error == recorder.capture_error
+
+
+def test_warming_error_blocks_the_mic_banner():
+  recorder = FakeRecorder()
+  recorder.ready = False
+  daemon = CamcorderDaemon(recorder)
+  daemon.apply_control(control(1, "start"))
+  recorder.mic_error = "Microphone disconnected"
+
+  state = daemon.state_message().camcorderState
+
+  assert str(state.notice) == "none"
+  assert state.error == "recorder is still warming up"
 
 
 def _track_ends(stop_ns: int, last_video_ns: int) -> dict[str, int]:
