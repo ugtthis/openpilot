@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from openpilot.system.audio_utils import PCM_SAMPLE_BYTES
-from openpilot.system.camcorder.journal import PeriodicSync, read_json, write_json_atomic
+from openpilot.system.camcorder.journal import JournaledFile, JournaledTrack, read_json, write_json_atomic
 
 _AUDIO_PCM = "audio.s16le"
 _AUDIO_PARTIAL = "audio.s16le.partial"
@@ -14,6 +14,14 @@ _AUDIO_INFO = "audio.info"
 _AUDIO_GAP_TOLERANCE_NS = 10_000_000
 # Real mic clocks are within a few hundred ppm; anything further is a bad timestamp.
 _AUDIO_MAX_CLOCK_ERROR = 0.01
+
+
+def _audio_track(clip_path: Path) -> JournaledTrack:
+  return JournaledTrack(
+    clip_path,
+    [JournaledFile(_AUDIO_PARTIAL, _AUDIO_PCM)],
+    [_AUDIO_INFO],
+  )
 
 
 @dataclass(frozen=True)
@@ -35,11 +43,12 @@ class AudioWriter:
   """Atomically persist one fixed-format little-endian int16 PCM stream."""
 
   def __init__(self, clip_path: Path):
-    self._path = clip_path / _AUDIO_PCM
-    self._partial = clip_path / _AUDIO_PARTIAL
+    self._track = _audio_track(clip_path)
+    self._path = self._track.published_path()
+    self._partial = self._track.live_path()
     self._info_path = clip_path / _AUDIO_INFO
     self._file = open(self._partial, "wb", buffering=0)
-    self._sync = PeriodicSync(self._file)
+    self._sync = self._track.periodic_sync(self._file)
     self._sample_rate = 0
     self._channels = 1
     self._frame_count = 0
@@ -111,10 +120,10 @@ class AudioWriter:
       self._write_info()
     self._file.close()
     if self._frame_count <= 0:
-      self._partial.unlink(missing_ok=True)
-      self._info_path.unlink(missing_ok=True)
+      self._track.discard_live()
+      self._track.cleanup_journal()
       return None
-    self._partial.replace(self._path)
+    self._track.publish([self._frame_count * PCM_SAMPLE_BYTES * self._channels], sync=False)
     return AudioInfo(self._path.name, self._sample_rate, self._channels,
                      self._frame_count, self._first_log_mono_ns,
                      self._gap_count, self._gap_frame_count,
@@ -141,15 +150,13 @@ class AudioWriter:
   def abort(self) -> None:
     if not self._file.closed:
       self._file.close()
-    self._partial.unlink(missing_ok=True)
-    self._path.unlink(missing_ok=True)
-    self._info_path.unlink(missing_ok=True)
+    self._track.abort()
 
 
 def recover_audio(clip_path: Path) -> AudioInfo | None:
-  partial = clip_path / _AUDIO_PARTIAL
-  output = clip_path / _AUDIO_PCM
-  source = output if output.is_file() else partial
+  track = _audio_track(clip_path)
+  source = track.source_path()
+  output = track.published_path()
   info_path = clip_path / _AUDIO_INFO
   info = read_json(info_path)
   if info is None or not source.is_file():
@@ -165,14 +172,11 @@ def recover_audio(clip_path: Path) -> AudioInfo | None:
     frame_count = source.stat().st_size // frame_size
     if frame_count <= 0:
       return None
-    with open(source, "r+b") as file:
-      file.truncate(frame_count * frame_size)
-    if source == partial:
-      partial.replace(output)
+    track.publish([frame_count * frame_size], sync=False)
     return AudioInfo(output.name, sample_rate, channels, frame_count, first_log_mono_ns,
                      error="recording was interrupted", measured_sample_rate=measured_sample_rate)
   except (KeyError, OSError, TypeError, ValueError):
     return None
   finally:
-    partial.unlink(missing_ok=True)
-    info_path.unlink(missing_ok=True)
+    track.discard_live()
+    track.cleanup_journal()

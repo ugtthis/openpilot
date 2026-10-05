@@ -1,12 +1,11 @@
 """Append encoderd Annex-B packets and publish them as video.hevc."""
 
-import os
 import struct
 from dataclasses import dataclass
 from itertools import pairwise, takewhile
 from pathlib import Path
 
-from openpilot.system.camcorder.journal import PeriodicSync, read_json, write_json_atomic
+from openpilot.system.camcorder.journal import JournaledFile, JournaledTrack, read_json, write_json_atomic
 
 # Same bit as openpilot/system/loggerd/encoder/encoder.h
 V4L2_BUF_FLAG_KEYFRAME = 8
@@ -18,6 +17,14 @@ _INFO_FILENAME = "video.info"
 _INDEX = struct.Struct("<QQ")  # complete byte offset, timestamp
 # encoderd runs every camera at 20 fps.
 _FRAME_NS = 50_000_000
+
+
+def _hevc_track(clip_path: Path) -> JournaledTrack:
+  return JournaledTrack(
+    clip_path,
+    [JournaledFile(_PARTIAL_FILENAME, MASTER_FILENAME)],
+    [_INDEX_FILENAME, _INFO_FILENAME],
+  )
 
 
 @dataclass(frozen=True)
@@ -40,12 +47,13 @@ class MasterInfo:
 class HevcWriter:
   def __init__(self, clip_path: Path):
     self._clip_path = clip_path
-    self._partial = clip_path / _PARTIAL_FILENAME
+    self._track = _hevc_track(clip_path)
+    self._partial = self._track.live_path()
     self._index_path = clip_path / _INDEX_FILENAME
     self._info_path = clip_path / _INFO_FILENAME
     self._file = open(self._partial, "wb", buffering=0)
     self._index = open(self._index_path, "wb", buffering=0)
-    self._sync = PeriodicSync(self._file, self._index)
+    self._sync = self._track.periodic_sync(self._file, self._index)
     self._started = False
 
   def add_encoded(self, encoded):
@@ -77,8 +85,7 @@ class HevcWriter:
 
   def abort(self):
     self._close()
-    self._cleanup()
-    (self._clip_path / MASTER_FILENAME).unlink(missing_ok=True)
+    self._track.abort()
 
   def _close(self) -> None:
     if not self._file.closed:
@@ -87,9 +94,8 @@ class HevcWriter:
       self._index.close()
 
   def _cleanup(self) -> None:
-    self._partial.unlink(missing_ok=True)
-    self._index_path.unlink(missing_ok=True)
-    self._info_path.unlink(missing_ok=True)
+    self._track.discard_live()
+    self._track.cleanup_journal()
 
 
 def _journaled_frames(index: bytes, data_size: int) -> list[tuple[int, int]]:
@@ -103,9 +109,8 @@ def _journaled_frames(index: bytes, data_size: int) -> list[tuple[int, int]]:
 
 
 def _publish(clip_path: Path, end_ns: int | None = None) -> MasterInfo | None:
-  partial = clip_path / _PARTIAL_FILENAME
-  output = clip_path / MASTER_FILENAME
-  source = output if output.is_file() else partial
+  track = _hevc_track(clip_path)
+  source = track.source_path()
   index_path = clip_path / _INDEX_FILENAME
   info = read_json(clip_path / _INFO_FILENAME)
   if info is None or not source.is_file() or not index_path.is_file():
@@ -115,11 +120,7 @@ def _publish(clip_path: Path, end_ns: int | None = None) -> MasterInfo | None:
     frames = list(takewhile(lambda frame: frame[1] <= end_ns, frames))
   if not frames:
     return None
-  with open(source, "r+b") as file:
-    file.truncate(frames[-1][0])
-    os.fsync(file.fileno())
-  if source == partial:
-    partial.replace(output)
+  output, = track.publish([frames[-1][0]])
   timestamps = [timestamp for _, timestamp in frames]
   drops = [round((current - previous) / _FRAME_NS) - 1 for previous, current in pairwise(timestamps)]
   drops = [dropped for dropped in drops if dropped > 0]
@@ -133,10 +134,9 @@ def recover_hevc(clip_path: Path) -> MasterInfo | None:
   except (KeyError, OSError, TypeError, ValueError, struct.error):
     return None
   finally:
-    (clip_path / _PARTIAL_FILENAME).unlink(missing_ok=True)
+    _hevc_track(clip_path).discard_live()
     cleanup_hevc_journal(clip_path)
 
 
 def cleanup_hevc_journal(clip_path: Path) -> None:
-  (clip_path / _INDEX_FILENAME).unlink(missing_ok=True)
-  (clip_path / _INFO_FILENAME).unlink(missing_ok=True)
+  _hevc_track(clip_path).cleanup_journal()

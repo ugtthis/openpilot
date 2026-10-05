@@ -10,13 +10,15 @@ import numpy as np
 
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
+from openpilot.system.camcorder.audio_track import recover_audio
 from openpilot.system.camcorder.cameras import CABIN_CAMERA, CAMERAS, WIDE_ROAD_CAMERA
 from openpilot.system.camcorder.clip_storage import (
   CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, Clip, ClipReader, ClipWriter, center_crop, delete_all_clips, delete_clip,
   clip_format_version, clips_root, extract_clip_rgb, format_timecode, list_clips, load_clip, preview_size,
   recover_interrupted_clips, scale_rgb, _clip_from_metadata, _clip_metadata,
 )
-from openpilot.system.camcorder.hevc_writer import HevcWriter
+from openpilot.system.camcorder.hevc_writer import HevcWriter, recover_hevc
+from openpilot.system.camcorder.preview_track import publish_preview
 
 
 def _make_nv12(width: int, height: int, stride: int | None = None, y=128, u=128, v=128) -> tuple[np.ndarray, int, int]:
@@ -531,6 +533,80 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert clip.frame_count == 3
     with ClipReader(clip) as reader:
       assert reader.frame(2).shape == (CLIP_HEIGHT, CLIP_WIDTH, 3)
+
+  def test_all_journaled_tracks_recover_only_complete_units_at_every_boundary(self):
+    with TemporaryDirectory() as directory:
+      root = Path(directory)
+
+      audio_data = np.arange(3, dtype=np.int16).tobytes()
+      audio_info = json.dumps({
+        "sample_rate": 100,
+        "channels": 1,
+        "first_log_mono_ns": 1,
+      })
+      for cut in range(len(audio_data) + 1):
+        path = root / f"audio-{cut}"
+        path.mkdir()
+        (path / "audio.s16le.partial").write_bytes(audio_data[:cut])
+        (path / "audio.info").write_text(audio_info)
+
+        audio = recover_audio(path)
+
+        expected = cut // 2
+        assert (audio.frame_count if audio is not None else 0) == expected
+        assert not (path / "audio.s16le.partial").exists()
+        assert not (path / "audio.info").exists()
+        if expected:
+          assert (path / "audio.s16le").stat().st_size == expected * 2
+        else:
+          assert not (path / "audio.s16le").exists()
+
+      hevc_data = b"aaabbb"
+      hevc_index = struct.pack("<QQQQ", 3, 100, 6, 150)
+
+      def recover_torn_hevc(name: str, data: bytes, index: bytes, expected: int) -> None:
+        path = root / name
+        path.mkdir()
+        (path / "video.hevc.partial").write_bytes(data)
+        (path / "video.index.partial").write_bytes(index)
+        (path / "video.info").write_text('{"width": 10, "height": 8}')
+
+        master = recover_hevc(path)
+
+        assert (master.frame_count if master is not None else 0) == expected
+        assert not (path / "video.hevc.partial").exists()
+        assert not (path / "video.index.partial").exists()
+        assert not (path / "video.info").exists()
+        if expected:
+          assert (path / "video.hevc").stat().st_size == expected * 3
+        else:
+          assert not (path / "video.hevc").exists()
+
+      for cut in range(len(hevc_data) + 1):
+        recover_torn_hevc(f"hevc-data-{cut}", hevc_data[:cut], hevc_index, int(cut >= 3) + int(cut >= 6))
+      for cut in range(len(hevc_index) + 1):
+        recover_torn_hevc(f"hevc-index-{cut}", hevc_data, hevc_index[:cut], min(2, cut // 16))
+
+      preview_frames = struct.pack("<I", 3) + b"aaa" + struct.pack("<I", 3) + b"bbb"
+      preview_index = struct.pack("<QIQI", 0, 0, 7, 50)
+
+      def recover_torn_preview(name: str, frames: bytes, index: bytes, expected: int) -> None:
+        path = root / name
+        path.mkdir()
+        (path / "frames.bin").write_bytes(frames)
+        (path / "index.bin").write_bytes(index)
+
+        recovered = publish_preview(path)
+
+        assert (recovered[0] if recovered is not None else 0) == expected
+        if expected:
+          assert (path / "frames.bin").stat().st_size == expected * 7
+          assert (path / "index.bin").stat().st_size == expected * 12
+
+      for cut in range(len(preview_frames) + 1):
+        recover_torn_preview(f"preview-data-{cut}", preview_frames[:cut], preview_index, int(cut >= 7) + int(cut >= 14))
+      for cut in range(len(preview_index) + 1):
+        recover_torn_preview(f"preview-index-{cut}", preview_frames, preview_index[:cut], min(2, cut // 12))
 
   def test_interrupted_take_recovers_only_fully_written_media(self):
     writer = ClipWriter(WIDE_ROAD_CAMERA, recording_start_mono_ns=1_000_000_000)

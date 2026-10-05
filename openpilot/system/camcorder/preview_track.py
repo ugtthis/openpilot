@@ -3,7 +3,6 @@
 import bisect
 from datetime import datetime
 import io
-import os
 from pathlib import Path
 import shutil
 import struct
@@ -25,7 +24,7 @@ from openpilot.system.camcorder.clip_meta import (
 )
 from openpilot.system.camcorder.hevc_writer import MasterInfo, cleanup_hevc_journal
 from openpilot.system.camcorder.image import CLIP_FPS, CLIP_HEIGHT, CLIP_WIDTH
-from openpilot.system.camcorder.journal import PeriodicSync
+from openpilot.system.camcorder.journal import JournaledFile, JournaledTrack
 from openpilot.system.camcorder.library import clips_root
 
 _ZLIB_LEVEL = 1
@@ -34,6 +33,16 @@ _JPEG_MAGIC = b"\xff\xd8"
 _INDEX = struct.Struct("<QI")
 _SIZE = struct.Struct("<I")
 _AUDIO_INFO = "audio.info"
+
+
+def _preview_track(path: Path) -> JournaledTrack:
+  return JournaledTrack(
+    path,
+    [
+      JournaledFile(FRAMES_BIN, FRAMES_BIN),
+      JournaledFile(INDEX_BIN, INDEX_BIN),
+    ],
+  )
 
 
 def _new_clip_id(root: Path, when: datetime) -> str:
@@ -71,7 +80,7 @@ class ClipWriter:
     try:
       self._frames = open(self.path / FRAMES_BIN, "wb", buffering=0)
       self._index = open(self.path / INDEX_BIN, "wb", buffering=0)
-      self._sync = PeriodicSync(self._frames, self._index)
+      self._sync = _preview_track(self.path).periodic_sync(self._frames, self._index)
       self._write_meta("recording")
     except OSError:
       self._close_files()
@@ -147,8 +156,9 @@ class ClipWriter:
 
 def publish_preview(path: Path, end_ms: int | None = None) -> tuple[int, int] | None:
   """Truncate the preview to its complete frames received by end_ms; returns (count, last t_ms)."""
-  frames_path = path / FRAMES_BIN
-  index_path = path / INDEX_BIN
+  track = _preview_track(path)
+  frames_path = track.source_path(0)
+  index_path = track.source_path(1)
   if not frames_path.is_file() or not index_path.is_file():
     return None
   raw_index = index_path.read_bytes()
@@ -173,10 +183,7 @@ def publish_preview(path: Path, end_ms: int | None = None) -> tuple[int, int] | 
       last_t_ms = t_ms
   if valid_count <= 0:
     return None
-  for file_path, size in ((frames_path, valid_end), (index_path, valid_count * _INDEX.size)):
-    with open(file_path, "r+b") as file:
-      file.truncate(size)
-      os.fsync(file.fileno())
+  track.publish([valid_end, valid_count * _INDEX.size])
   return valid_count, last_t_ms
 
 
