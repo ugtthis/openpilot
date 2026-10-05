@@ -14,7 +14,7 @@ import os
 import shutil
 import struct
 import zlib
-from dataclasses import dataclass
+from dataclasses import MISSING, dataclass, field, fields, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -50,6 +50,24 @@ _AUDIO_GAP_TOLERANCE_NS = 10_000_000
 # Real mic clocks are within a few hundred ppm; anything further is a bad timestamp.
 _AUDIO_MAX_CLOCK_ERROR = 0.01
 
+_META_KEY = "meta_key"
+_META_ALIASES = "meta_aliases"
+_META_DEFAULT = "meta_default"
+_META_FALLBACK = "meta_fallback"
+_META_ALWAYS = "meta_always"
+_META_GROUP = "meta_group"
+_META_READ = "meta_read"
+_META_WRITE = "meta_write"
+_META_SKIP = "meta_skip"
+
+
+def _read_datetime(value) -> datetime:
+  return datetime.fromisoformat(str(value))
+
+
+def _write_datetime(value: datetime) -> str:
+  return value.isoformat(timespec="seconds")
+
 
 def format_timecode(seconds: float) -> str:
   total = max(0, int(seconds))
@@ -79,37 +97,43 @@ def preview_size(width: int, height: int, preview_height: int = CLIP_HEIGHT) -> 
 
 @dataclass(frozen=True)
 class Clip:
-  clip_id: str
-  path: Path
-  camera: str
-  started_at: datetime
+  clip_id: str = field(metadata={_META_KEY: "id"})
+  path: Path = field(metadata={_META_SKIP: True})
+  camera: str = field(metadata={_META_DEFAULT: "wide"})
+  started_at: datetime = field(metadata={_META_READ: _read_datetime, _META_WRITE: _write_datetime})
   width: int
   height: int
-  fps: int
+  fps: int = field(metadata={_META_DEFAULT: CLIP_FPS})
   frame_count: int
-  duration_s: float
-  media_type: str = "video"
-  preview_contains_full_frame: bool = False
-  master: str | None = None
-  native_width: int = 0
-  native_height: int = 0
-  native_frame_count: int = 0
+  duration_s: float = field(metadata={_META_DEFAULT: 0.0})
+  media_type: str = field(default="video", metadata={_META_ALWAYS: True})
+  preview_contains_full_frame: bool = field(
+    default=False, metadata={_META_ALIASES: ("preview_uncropped",), _META_ALWAYS: True},
+  )
+  flip_h: bool = field(default=False, metadata={_META_ALWAYS: True})
+  codec: str | None = field(default=None, metadata={_META_GROUP: "master"})
+  master: str | None = field(default=None, metadata={_META_GROUP: "master"})
+  native_width: int = field(default=0, metadata={_META_GROUP: "master"})
+  native_height: int = field(default=0, metadata={_META_GROUP: "master"})
+  native_frame_count: int = field(default=0, metadata={_META_GROUP: "master"})
   recording_start_mono_ns: int = 0
-  video_start_mono_ns: int = 0
-  video_gap_count: int = 0
-  video_dropped_frame_count: int = 0
-  audio: str | None = None
-  audio_sample_rate: int = 0
-  audio_measured_sample_rate: float = 0.0
-  audio_channels: int = 0
-  audio_frame_count: int = 0
-  audio_start_mono_ns: int = 0
-  audio_timestamp: str = ""
-  audio_gap_count: int = 0
-  audio_gap_frame_count: int = 0
-  audio_device_name: str = ""
-  audio_overflow_count: int = 0
-  audio_error: str = ""
+  video_start_mono_ns: int = field(default=0, metadata={_META_GROUP: "master"})
+  video_gap_count: int = field(default=0, metadata={_META_GROUP: "master"})
+  video_dropped_frame_count: int = field(default=0, metadata={_META_GROUP: "master"})
+  audio: str | None = field(default=None, metadata={_META_GROUP: "audio"})
+  audio_sample_rate: int = field(default=0, metadata={_META_GROUP: "audio"})
+  audio_measured_sample_rate: float = field(
+    default=0.0, metadata={_META_GROUP: "audio", _META_FALLBACK: "audio_sample_rate"},
+  )
+  audio_channels: int = field(default=0, metadata={_META_GROUP: "audio"})
+  audio_frame_count: int = field(default=0, metadata={_META_GROUP: "audio"})
+  audio_start_mono_ns: int = field(default=0, metadata={_META_GROUP: "audio"})
+  audio_timestamp: str = field(default="", metadata={_META_GROUP: "audio"})
+  audio_gap_count: int = field(default=0, metadata={_META_GROUP: "audio"})
+  audio_gap_frame_count: int = field(default=0, metadata={_META_GROUP: "audio"})
+  audio_device_name: str = field(default="", metadata={_META_GROUP: "audio"})
+  audio_overflow_count: int = field(default=0, metadata={_META_GROUP: "audio"})
+  audio_error: str = field(default="", metadata={_META_GROUP: "audio"})
   recovered: bool = False
   recovery_error: str = ""
 
@@ -152,6 +176,91 @@ class Clip:
     audio_rate = self.audio_measured_sample_rate or self.audio_sample_rate
     audio_end_s = self.audio_start_mono_ns / 1e9 + self.audio_frame_count / audio_rate
     return abs(audio_end_s - video_end_s) > frame_duration_s
+
+
+def clip_format_version(clip: Clip) -> int:
+  """Return the on-disk schema generation required by this clip.
+
+  Version 1 is the legacy cropped preview, version 2 adds full-frame previews
+  and photos, and version 4 adds direct microphone audio and track timing.
+  """
+  if clip.audio is not None:
+    return 4
+  if clip.preview_contains_full_frame or clip.is_photo:
+    return 2
+  return 1
+
+
+def _field_default(item):
+  if _META_DEFAULT in item.metadata:
+    return item.metadata[_META_DEFAULT]
+  if item.default is not MISSING:
+    return item.default
+  if item.default_factory is not MISSING:
+    return item.default_factory()
+  raise KeyError(item.metadata.get(_META_KEY, item.name))
+
+
+def _read_clip_field(item, meta: dict):
+  key = item.metadata.get(_META_KEY, item.name)
+  value = MISSING
+  for candidate in (key, *item.metadata.get(_META_ALIASES, ())):
+    if candidate in meta:
+      value = meta[candidate]
+      break
+  if value is MISSING:
+    value = _field_default(item)
+  fallback = item.metadata.get(_META_FALLBACK)
+  if fallback is not None and not value:
+    value = meta.get(fallback, value)
+  if reader := item.metadata.get(_META_READ):
+    return reader(value)
+  if item.type is bool:
+    return bool(value)
+  if item.type is int:
+    return int(value)
+  if item.type is float:
+    return float(value or 0.0)
+  if item.type is str:
+    return str(value)
+  # Every optional metadata field is an optional string.
+  if item.default is None:
+    return str(value) if value else None
+  return value
+
+
+def _clip_from_metadata(path: Path, meta: dict) -> Clip:
+  values = {}
+  for item in fields(Clip):
+    if item.name == "path":
+      values[item.name] = path
+    else:
+      values[item.name] = _read_clip_field(item, meta)
+  return Clip(**values)
+
+
+def _clip_metadata(clip: Clip, status: str) -> dict:
+  payload = {
+    "format_version": clip_format_version(clip),
+    "status": status,
+  }
+  for item in fields(clip):
+    if item.metadata.get(_META_SKIP):
+      continue
+    value = getattr(clip, item.name)
+    group = item.metadata.get(_META_GROUP)
+    if group is not None and getattr(clip, group) is None:
+      continue
+    if group is None and not item.metadata.get(_META_ALWAYS) and item.default is not MISSING and value == item.default:
+      continue
+    if writer := item.metadata.get(_META_WRITE):
+      value = writer(value)
+    payload[item.metadata.get(_META_KEY, item.name)] = value
+  return payload
+
+
+def _write_clip_metadata(clip: Clip, status: str) -> None:
+  write_json_atomic(clip.path / _CLIP_JSON, _clip_metadata(clip, status))
 
 
 @dataclass(frozen=True)
@@ -377,34 +486,36 @@ def scale_rgb(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
   return np.ascontiguousarray(rgb[ys][:, xs])
 
 
-def _master_metadata(master: MasterInfo) -> dict:
-  return {
-    "codec": "hevc",
-    "master": master.filename,
-    "native_width": master.width,
-    "native_height": master.height,
-    "native_frame_count": master.frame_count,
-    "video_start_mono_ns": master.first_timestamp_ns,
-    "video_gap_count": master.gap_count,
-    "video_dropped_frame_count": master.dropped_frame_count,
-  }
+def _with_master(clip: Clip, master: MasterInfo) -> Clip:
+  return replace(
+    clip,
+    codec="hevc",
+    master=master.filename,
+    native_width=master.width,
+    native_height=master.height,
+    native_frame_count=master.frame_count,
+    video_start_mono_ns=master.first_timestamp_ns,
+    video_gap_count=master.gap_count,
+    video_dropped_frame_count=master.dropped_frame_count,
+  )
 
 
-def _audio_metadata(audio: AudioInfo) -> dict:
-  return {
-    "audio": audio.filename,
-    "audio_sample_rate": audio.sample_rate,
-    "audio_measured_sample_rate": audio.measured_sample_rate or audio.sample_rate,
-    "audio_channels": audio.channels,
-    "audio_frame_count": audio.frame_count,
-    "audio_start_mono_ns": audio.first_log_mono_ns,
-    "audio_timestamp": "adc_start_boottime",
-    "audio_gap_count": audio.gap_count,
-    "audio_gap_frame_count": audio.gap_frame_count,
-    "audio_device_name": audio.device_name,
-    "audio_overflow_count": audio.overflow_count,
-    "audio_error": audio.error,
-  }
+def _with_audio(clip: Clip, audio: AudioInfo) -> Clip:
+  return replace(
+    clip,
+    audio=audio.filename,
+    audio_sample_rate=audio.sample_rate,
+    audio_measured_sample_rate=audio.measured_sample_rate or audio.sample_rate,
+    audio_channels=audio.channels,
+    audio_frame_count=audio.frame_count,
+    audio_start_mono_ns=audio.first_log_mono_ns,
+    audio_timestamp="adc_start_boottime",
+    audio_gap_count=audio.gap_count,
+    audio_gap_frame_count=audio.gap_frame_count,
+    audio_device_name=audio.device_name,
+    audio_overflow_count=audio.overflow_count,
+    audio_error=audio.error,
+  )
 
 
 class ClipWriter:
@@ -484,33 +595,26 @@ class ClipWriter:
     duration = 0.0
     if self.frame_count and self.media_type == "video":
       duration = max(self._last_t_ms / 1000.0, self.frame_count / float(self.fps))
-    format_version = 1
-    if self.preview_contains_full_frame or self.media_type != "video":
-      format_version = 2
-    if audio is not None:
-      format_version = 4
-    payload = {
-      "format_version": format_version,
-      "id": self.clip_id,
-      "status": status,
-      "media_type": self.media_type,
-      "camera": self.camera.clip_name,
-      "flip_h": self.camera.flip_h,
-      "started_at": self.started_at.isoformat(timespec="seconds"),
-      "width": self.width,
-      "height": self.height,
-      "fps": self.fps,
-      "frame_count": self.frame_count,
-      "duration_s": duration,
-      "preview_contains_full_frame": self.preview_contains_full_frame,
-    }
-    if self.recording_start_mono_ns:
-      payload["recording_start_mono_ns"] = self.recording_start_mono_ns
+    clip = Clip(
+      clip_id=self.clip_id,
+      path=self.path,
+      camera=self.camera.clip_name,
+      started_at=self.started_at,
+      width=self.width,
+      height=self.height,
+      fps=self.fps,
+      frame_count=self.frame_count,
+      duration_s=duration,
+      media_type=self.media_type,
+      preview_contains_full_frame=self.preview_contains_full_frame,
+      flip_h=self.camera.flip_h,
+      recording_start_mono_ns=self.recording_start_mono_ns,
+    )
     if master is not None:
-      payload.update(_master_metadata(master))
+      clip = _with_master(clip, master)
     if audio is not None:
-      payload.update(_audio_metadata(audio))
-    write_json_atomic(self.path / _CLIP_JSON, payload)
+      clip = _with_audio(clip, audio)
+    _write_clip_metadata(clip, status)
 
 
 def load_clip(path: Path) -> Clip | None:
@@ -525,42 +629,7 @@ def load_clip(path: Path) -> Clip | None:
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     if meta.get("status") != "ready" or int(meta.get("frame_count", 0)) <= 0:
       return None
-    return Clip(
-      clip_id=str(meta["id"]),
-      path=path,
-      camera=str(meta.get("camera", "wide")),
-      started_at=datetime.fromisoformat(meta["started_at"]),
-      width=int(meta["width"]),
-      height=int(meta["height"]),
-      fps=int(meta.get("fps", CLIP_FPS)),
-      frame_count=int(meta["frame_count"]),
-      duration_s=float(meta.get("duration_s") or 0.0),
-      media_type=str(meta.get("media_type", "video")),
-      preview_contains_full_frame=bool(meta.get("preview_contains_full_frame",
-                                                meta.get("preview_uncropped", False))),
-      master=str(meta["master"]) if meta.get("master") else None,
-      native_width=int(meta.get("native_width", 0)),
-      native_height=int(meta.get("native_height", 0)),
-      native_frame_count=int(meta.get("native_frame_count", 0)),
-      recording_start_mono_ns=int(meta.get("recording_start_mono_ns", 0)),
-      video_start_mono_ns=int(meta.get("video_start_mono_ns", 0)),
-      video_gap_count=int(meta.get("video_gap_count", 0)),
-      video_dropped_frame_count=int(meta.get("video_dropped_frame_count", 0)),
-      audio=str(meta["audio"]) if meta.get("audio") else None,
-      audio_sample_rate=int(meta.get("audio_sample_rate", 0)),
-      audio_measured_sample_rate=float(meta.get("audio_measured_sample_rate") or meta.get("audio_sample_rate", 0)),
-      audio_channels=int(meta.get("audio_channels", 0)),
-      audio_frame_count=int(meta.get("audio_frame_count", 0)),
-      audio_start_mono_ns=int(meta.get("audio_start_mono_ns", 0)),
-      audio_timestamp=str(meta.get("audio_timestamp", "")),
-      audio_gap_count=int(meta.get("audio_gap_count", 0)),
-      audio_gap_frame_count=int(meta.get("audio_gap_frame_count", 0)),
-      audio_device_name=str(meta.get("audio_device_name", "")),
-      audio_overflow_count=int(meta.get("audio_overflow_count", 0)),
-      audio_error=str(meta.get("audio_error", "")),
-      recovered=bool(meta.get("recovered", False)),
-      recovery_error=str(meta.get("recovery_error", "")),
-    )
+    return _clip_from_metadata(path, meta)
   except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError):
     return None
 
@@ -614,18 +683,17 @@ def _recover_interrupted_clip(path: Path, meta: dict) -> Clip | None:
   master = recover_hevc(path)
   audio = recover_audio(path)
   meta.update({
-    "status": "ready",
     "frame_count": frame_count,
     "duration_s": max(last_t_ms / 1000.0, frame_count / float(fps)),
     "recovered": True,
     "recovery_error": "recording was interrupted",
   })
+  clip = _clip_from_metadata(path, meta)
   if master is not None:
-    meta.update(_master_metadata(master))
+    clip = _with_master(clip, master)
   if audio is not None:
-    meta["format_version"] = 4
-    meta.update(_audio_metadata(audio))
-  write_json_atomic(path / _CLIP_JSON, meta)
+    clip = _with_audio(clip, audio)
+  _write_clip_metadata(clip, "ready")
   return load_clip(path)
 
 

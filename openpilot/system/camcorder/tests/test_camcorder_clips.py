@@ -13,7 +13,8 @@ from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
 from openpilot.system.camcorder.cameras import CABIN_CAMERA, CAMERAS, WIDE_ROAD_CAMERA
 from openpilot.system.camcorder.clip_storage import (
   CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, Clip, ClipReader, ClipWriter, center_crop, delete_all_clips, delete_clip,
-  extract_clip_rgb, format_timecode, list_clips, load_clip, preview_size, recover_interrupted_clips, scale_rgb,
+  clip_format_version, clips_root, extract_clip_rgb, format_timecode, list_clips, load_clip, preview_size,
+  recover_interrupted_clips, scale_rgb, _clip_from_metadata, _clip_metadata,
 )
 from openpilot.system.camcorder.hevc_writer import HevcWriter
 
@@ -28,6 +29,15 @@ def _make_nv12(width: int, height: int, stride: int | None = None, y=128, u=128,
   uv[:height // 2, 0:width:2] = u
   uv[:height // 2, 1:width:2] = v
   return buf, stride, uv_offset
+
+
+def _load_metadata_payload(payload: dict) -> Clip | None:
+  path = clips_root() / payload["id"]
+  path.mkdir(parents=True)
+  (path / "frames.bin").write_bytes(struct.pack("<I", 1) + b"\0")
+  (path / "index.bin").write_bytes(struct.pack("<QI", 0, 0))
+  (path / "clip.json").write_text(json.dumps(payload), encoding="utf-8")
+  return load_clip(path)
 
 
 class TestCamcorderClips(OpenpilotTestCase):
@@ -53,6 +63,110 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert format_timecode(12.9) == "0:12"
     assert format_timecode(75) == "1:15"
     assert format_timecode(3661) == "1:01:01"
+
+  def test_format_version_is_derived_from_clip_contents(self):
+    clip = Clip("clip", Path("."), "wide", datetime(2026, 1, 1), 480, 360, 20, 1, 0.05)
+    assert clip_format_version(clip) == 1
+    assert clip_format_version(replace(clip, preview_contains_full_frame=True)) == 2
+    assert clip_format_version(replace(clip, media_type="photo")) == 2
+    assert clip_format_version(replace(clip, audio="audio.s16le")) == 4
+
+  def test_clip_schema_round_trips_video_photo_and_recovered_clip(self):
+    video = Clip(
+      "video", Path("/clips/video"), "cabin", datetime(2026, 10, 3, 2, 0, 21),
+      636, 360, 20, 1926, 96.332,
+      preview_contains_full_frame=True, flip_h=True, codec="hevc", master="video.hevc",
+      native_width=1344, native_height=760, native_frame_count=1935,
+      recording_start_mono_ns=8618946790280, video_start_mono_ns=8618533497539,
+      video_gap_count=1, video_dropped_frame_count=2,
+      audio="audio.s16le", audio_sample_rate=48000, audio_measured_sample_rate=48001.25,
+      audio_channels=2, audio_frame_count=4644810, audio_start_mono_ns=8618517964050,
+      audio_timestamp="adc_start_boottime", audio_gap_count=3, audio_gap_frame_count=2400,
+      audio_device_name="USB mic", audio_overflow_count=4, audio_error="reconnected",
+    )
+    photo = Clip(
+      "photo", Path("/clips/photo"), "wide", datetime(2026, 10, 3, 20, 1, 21),
+      1344, 760, 20, 1, 0.0, media_type="photo", preview_contains_full_frame=True,
+    )
+    recovered = replace(
+      video, clip_id="recovered", path=Path("/clips/recovered"),
+      recovered=True, recovery_error="recording was interrupted",
+    )
+
+    for clip in (video, photo, recovered):
+      assert _clip_from_metadata(clip.path, _clip_metadata(clip, "ready")) == clip
+
+  def test_loads_zlib_era_device_payload(self):
+    payload = {
+      "format_version": 1,
+      "id": "2026-09-20--13-51-18",
+      "status": "ready",
+      "media_type": "video",
+      "camera": "wide",
+      "flip_h": False,
+      "started_at": "2026-09-20T13:51:18",
+      "width": 480,
+      "height": 360,
+      "fps": 20,
+      "frame_count": 42,
+      "duration_s": 2.1,
+      "preview_contains_full_frame": False,
+    }
+
+    clip = _load_metadata_payload(payload)
+
+    assert clip == Clip(
+      "2026-09-20--13-51-18", clips_root() / payload["id"], "wide",
+      datetime(2026, 9, 20, 13, 51, 18), 480, 360, 20, 42, 2.1,
+    )
+    assert _clip_metadata(clip, "ready") == payload
+
+  def test_loads_jpeg_era_device_payload(self):
+    payload = {
+      "format_version": 4,
+      "id": "2026-10-03--02-00-21",
+      "status": "ready",
+      "media_type": "video",
+      "camera": "cabin",
+      "flip_h": True,
+      "started_at": "2026-10-03T02:00:21",
+      "width": 636,
+      "height": 360,
+      "fps": 20,
+      "frame_count": 1926,
+      "duration_s": 96.332,
+      "preview_contains_full_frame": True,
+      "recording_start_mono_ns": 8618946790280,
+      "codec": "hevc",
+      "master": "video.hevc",
+      "native_width": 1344,
+      "native_height": 760,
+      "native_frame_count": 1935,
+      "video_start_mono_ns": 8618533497539,
+      "video_gap_count": 0,
+      "video_dropped_frame_count": 0,
+      "audio": "audio.s16le",
+      "audio_sample_rate": 48000,
+      "audio_measured_sample_rate": 48001.27914617975,
+      "audio_channels": 2,
+      "audio_frame_count": 4644810,
+      "audio_start_mono_ns": 8618517964050,
+      "audio_timestamp": "adc_start_boottime",
+      "audio_gap_count": 0,
+      "audio_gap_frame_count": 0,
+      "audio_device_name": "Wireless Mic Rx: USB Audio (hw:1,0)",
+      "audio_overflow_count": 0,
+      "audio_error": "",
+    }
+
+    clip = _load_metadata_payload(payload)
+
+    assert clip is not None
+    assert clip.camera == "cabin" and clip.flip_h
+    assert (clip.codec, clip.master, clip.native_frame_count) == ("hevc", "video.hevc", 1935)
+    assert (clip.audio_sample_rate, clip.audio_channels, clip.audio_frame_count) == (48000, 2, 4644810)
+    assert clip.audio_measured_sample_rate == 48001.27914617975
+    assert _clip_metadata(clip, "ready") == payload
 
   def test_center_crop_matches_clip_aspect(self):
     x, y, w, h = center_crop(1920, 1080)
