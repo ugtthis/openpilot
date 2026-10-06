@@ -8,11 +8,13 @@ from unittest.mock import patch
 
 from openpilot.cereal import log
 from openpilot.cereal.visionipc import VisionStreamType
+from openpilot.selfdrive.ui.mici.layouts.camcorder_settings import SettingsSheet
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import PressTracker
 from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView, format_remaining
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout, SwipeLeftPage, camcorder_available
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.system.camcorder.recorder import ClipRecorder, RecorderState
+from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import Widget
 
 
@@ -522,10 +524,14 @@ def test_ignition_transition_cancels_and_stops_capture():
 
   press = PressTracker()
   press._name = "record"
+  with patch.object(gui_app, "font"):
+    settings = SettingsSheet()
+  settings._is_open = True
   view = SimpleNamespace(
     _snapshot_countdown=Countdown(),
     _recorder=Recorder(),
     _press=press,
+    _settings=settings,
     stream_type=WIDE,
   )
 
@@ -538,4 +544,5 @@ def test_ignition_transition_cancels_and_stops_capture():
   assert view._snapshot_countdown.cancelled
   assert view._recorder.stopped
   assert not view._press.is_down("record")
+  assert not view._settings.is_open
   clear_timeout.assert_called_once_with(None)

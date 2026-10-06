@@ -77,7 +77,8 @@ class MiciMainLayout(Scroller):
     self.set_overscroll_resistance(MODE_PULL_RESISTANCE)
     self.set_scroll_observer(self._handle_mode_pull)
     self._scroller.set_reset_scroll_at_show(False)
-    self._scroller.set_scrolling_enabled(lambda: not self._onroad_view.is_swiping_left())
+    self._scroller.set_scrolling_enabled(lambda: not self._onroad_view.is_swiping_left() and
+                                         not self._camcorder_view.settings_active)
 
     # Set callbacks
     self._setup_callbacks()

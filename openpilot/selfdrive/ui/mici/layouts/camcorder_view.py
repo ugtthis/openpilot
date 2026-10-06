@@ -12,10 +12,11 @@ from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   OSD_BACKGROUND, OSD_COLOR, RECORD_COLOR,
   PressTracker, camera_body, draw_centered_texture, draw_physical_button, draw_rail, draw_recessed_viewfinder, split_rail,
 )
+from openpilot.selfdrive.ui.mici.layouts.camcorder_settings import SettingsSheet
 from openpilot.selfdrive.ui.mici.layouts.playback_view import PlaybackView
 from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
 from openpilot.selfdrive.ui.ui_state import device, ui_state
-from openpilot.system.ui.lib.application import GL_VERSION, FontWeight, MousePos, TextAlignment, TextAlignmentVertical, gui_app
+from openpilot.system.ui.lib.application import GL_VERSION, FontWeight, MouseEvent, MousePos, TextAlignment, TextAlignmentVertical, gui_app
 from openpilot.system.ui.widgets.label import UnifiedLabel
 
 WIDE = VisionStreamType.VISION_STREAM_WIDE_ROAD
@@ -326,6 +327,7 @@ class CamcorderView(CameraView):
     self._snapshot_flash_until = 0.0
     self._press = PressTracker()
     self._playback = PlaybackView()
+    self._settings = SettingsSheet()
     self._folder_icon = gui_app.texture("icons/folder.png", FOLDER_ICON_SIZE, FOLDER_ICON_SIZE)
     self._camera_icon = gui_app.texture("icons/camera.png", 64, 64)
     self._video_icon = gui_app.texture("icons/video_camera.png", 64, 64)
@@ -396,6 +398,7 @@ class CamcorderView(CameraView):
       return
     self._snapshot_countdown.cancel()
     self._press.clear()
+    self._settings.close()
     if self._recorder.recording:
       self._recorder.stop()
     self._recorder.set_warm(False, self.stream_type)
@@ -412,8 +415,15 @@ class CamcorderView(CameraView):
       return
     self.switch_stream(WIDE if self._showing_cabin() else CABIN)
 
+  def hide_event(self):
+    super().hide_event()
+    self._settings.close()
+
+  def _settings_pull_allowed(self) -> bool:
+    return not (self._recorder.recording or self._countdown_active() or self._mode_pull.progress > 0.0)
+
   def update_mode_pull(self, overscroll: float, dragging: bool):
-    if self._recorder.recording or self._countdown_active():
+    if self._recorder.recording or self._countdown_active() or self._settings.visible:
       self._mode_pull.reset()
       return
 
@@ -479,8 +489,36 @@ class CamcorderView(CameraView):
     self._error_dismiss = rl.Rectangle(self._error_banner.x + self._error_banner.width - 104,
                                        self._error_banner.y + 6, 98, self._error_banner.height - 12)
 
+  def _update_state(self):
+    super()._update_state()
+    # A touch taken over by the page scroller never delivers a release here.
+    if not self.is_pressed:
+      self._settings.cancel_touch()
+    self._settings.update(self.rect)
+
+  @property
+  def settings_active(self) -> bool:
+    """While true the page scroller must stay still so vertical swipes reach the sheet."""
+    return self._settings.visible
+
   def _handle_mouse_press(self, mouse_pos: MousePos):
-    self._press.press(mouse_pos, self._controls())
+    if not self._settings.owns_touch:
+      self._press.press(mouse_pos, self._controls())
+
+  def _handle_mouse_event(self, mouse_event: MouseEvent):
+    super()._handle_mouse_event(mouse_event)
+    if mouse_event.left_pressed:
+      self._settings.press(mouse_event.pos, mouse_event.t, self._settings_pull_allowed())
+      consumed = self._settings.owns_touch
+    elif mouse_event.left_released:
+      consumed = self._settings.release(mouse_event.pos, mouse_event.t)
+    elif mouse_event.left_down:
+      self._settings.move(mouse_event.pos, mouse_event.t)
+      consumed = self._settings.owns_touch
+    else:
+      return
+    if consumed:
+      self._press.clear()
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
     pressed = self._press.release(mouse_pos, self._controls())
@@ -641,3 +679,4 @@ class CamcorderView(CameraView):
     if self._snapshot_flash_until > now:
       remaining = _clamp01((self._snapshot_flash_until - now) / SNAPSHOT_FLASH_S)
       rl.draw_rectangle_rec(self._feed, rl.Color(255, 255, 255, round(150 * remaining)))
+    self._settings.render()
