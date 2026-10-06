@@ -106,6 +106,13 @@ def ignition_blocked_processes(started: bool, ignition: bool) -> list[str]:
   return ["encoderd", "camcorderd"] if ignition and not started else []
 
 
+def drive_start_restarted_processes(started: bool, started_prev: bool) -> list[str]:
+  """Processes skipped for one loop when a drive starts, so the drive gets a fresh one."""
+  # The camcorder also runs these offroad; stock only runs them onroad, so every
+  # drive starts with processes that have no offroad history.
+  return ["camerad", "encoderd"] if started and not started_prev else []
+
+
 def manager_thread() -> None:
   cloudlog.bind(daemon="manager")
   cloudlog.info("manager start")
@@ -152,10 +159,11 @@ def manager_thread() -> None:
     if started != started_prev:
       params.put_bool("IsOffroad", not started, block=True)
 
+    not_run = ignore + ignition_blocked_processes(started, ignition) + drive_start_restarted_processes(started, started_prev)
+
     started_prev = started
     ignition_prev = ignition
 
-    not_run = ignore + ignition_blocked_processes(started, ignition)
     ensure_running(managed_processes.values(), started, params=params, CP=sm['carParams'], not_run=not_run)
 
     running = ' '.join("{}{}\u001b[0m".format("\u001b[32m" if p.proc.is_alive() else "\u001b[31m", p.name)
