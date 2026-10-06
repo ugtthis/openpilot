@@ -1,7 +1,7 @@
 """Clip preview track writing and reading."""
 
 import bisect
-from datetime import datetime
+from datetime import UTC, datetime
 import io
 from pathlib import Path
 import shutil
@@ -65,7 +65,7 @@ class ClipWriter:
     self.width = width
     self.height = height
     self.fps = fps
-    self.started_at = started_at or datetime.now()
+    self.started_at = started_at or datetime.now(UTC).replace(tzinfo=None)
     self.preview_contains_full_frame = preview_contains_full_frame
     self.media_type = media_type
     self.recording_start_mono_ns = recording_start_mono_ns

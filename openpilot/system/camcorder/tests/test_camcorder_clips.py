@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from zoneinfo import ZoneInfo
 
 import numpy as np
 from PIL import Image
@@ -67,6 +68,23 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert format_timecode(12.9) == "0:12"
     assert format_timecode(75) == "1:15"
     assert format_timecode(3661) == "1:01:01"
+
+  def test_time_and_date_labels_in_a_chosen_zone(self):
+    pacific = ZoneInfo("America/Los_Angeles")
+    # 4:39 UTC on Oct 6 is still the evening before in Pacific time.
+    clip = Clip("clip", Path("."), "wide", datetime(2026, 10, 6, 4, 39, 15), 636, 360, 20, 1, 0.05)
+    assert clip.time_label(pacific) == "9:39 PM PDT"
+    assert clip.date_label(pacific) == "Oct 5"
+
+  def test_time_label_follows_daylight_saving(self):
+    pacific = ZoneInfo("America/Los_Angeles")
+    winter = Clip("clip", Path("."), "wide", datetime(2026, 12, 1, 21, 5), 636, 360, 20, 1, 0.05)
+    assert winter.time_label(pacific) == "1:05 PM PST"
+
+  def test_labels_are_utc_without_a_zone(self):
+    clip = Clip("clip", Path("."), "wide", datetime(2026, 10, 3, 0, 5), 636, 360, 20, 1, 0.05)
+    assert clip.time_label(None) == "12:05 AM UTC"
+    assert clip.date_label(None) == "Oct 3"
 
   def test_format_version_is_derived_from_clip_contents(self):
     clip = Clip("clip", Path("."), "wide", datetime(2026, 1, 1), 480, 360, 20, 1, 0.05)

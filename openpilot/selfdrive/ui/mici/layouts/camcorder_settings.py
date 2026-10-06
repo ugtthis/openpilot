@@ -1,6 +1,9 @@
 from collections import deque
+from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import NamedTuple
+from zoneinfo import ZoneInfo
 
 import pyray as rl
 
@@ -9,10 +12,13 @@ from openpilot.common.params import Params
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   BODY_COLOR, BUTTON_FACE_COLOR, BUTTON_FACE_PRESSED_COLOR, OSD_COLOR, TEXT_COLOR, PressTracker,
 )
-from openpilot.system.camcorder.settings import FRAME_RATES, CamcorderSettings, Quality
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton
+from openpilot.system.camcorder.clip_meta import format_clock
+from openpilot.system.camcorder.settings import FRAME_RATES, TIME_ZONES, CamcorderSettings, Quality
 from openpilot.system.ui.lib.application import FontWeight, MousePos, TextAlignment, TextAlignmentVertical, gui_app
 from openpilot.system.ui.lib.scroll_panel2 import weighted_velocity
 from openpilot.system.ui.widgets.label import UnifiedLabel
+from openpilot.system.ui.widgets.scroller import NavScroller
 
 PULL_LOCK_PX = 16  # travel along the pull before the sheet takes the touch
 PULL_BLOCK_PX = 60  # sideways travel that cancels a pull before it locks in, as in NavWidget
@@ -23,8 +29,12 @@ SHEET_SLIDE_RC = 0.08
 SHEET_PADDING = 18
 SHEET_TITLE_HEIGHT = 40
 SHEET_ROW_GAP = 12
+ROW_LABEL_SIZE = 28
+OPTION_TEXT_SIZE = 26
 SEGMENT_WIDTH = 120
 SEGMENT_GAP = 8
+ZONE_BUTTON_WIDTH = 2 * SEGMENT_WIDTH + SEGMENT_GAP  # lines up with the two option columns
+TIME_ZONE_CONTROL = "time_zone"
 SELECTED_TEXT_COLOR = rl.Color(24, 24, 24, 255)
 HANDLE_WIDTH = 56
 HANDLE_HEIGHT = 5
@@ -44,6 +54,23 @@ ROWS = (
   ("quality", (Option("quality", Quality.STOCK, "stock"), Option("quality", Quality.MAX, "max"))),
   ("frame rate", tuple(Option("frame_rate", fps, f"{fps} fps") for fps in FRAME_RATES)),
 )
+
+
+class TimeZoneSelectPage(NavScroller):
+  """Pick the zone clip labels use; tapping one saves it and goes back, like BranchSelectPage."""
+
+  def __init__(self, current: str, on_select: Callable[[str], None]):
+    super().__init__()
+    check_icon = gui_app.texture("icons_mici/settings/device/up_to_date.png", 64, 64)
+    now = datetime.now(UTC)
+    buttons = []
+    for name, label in TIME_ZONES.items():
+      # The zone's time right now, so the right one is the one matching your watch.
+      clock = format_clock(now.astimezone(ZoneInfo(name) if name else UTC))
+      button = BigButton(label, clock, check_icon if name == current else None, scroll=True)
+      button.set_click_callback(lambda name=name: self.dismiss(lambda: on_select(name)))
+      buttons.append(button)
+    self._scroller.add_widgets(buttons)
 
 
 class VerticalPull:
@@ -118,11 +145,14 @@ class SettingsSheet:
     self._title = UnifiedLabel("settings", 30, FontWeight.DISPLAY, TEXT_COLOR,
                                alignment_vertical=TextAlignmentVertical.MIDDLE)
     self._rows = [
-      (UnifiedLabel(title, 28, FontWeight.MEDIUM, OSD_COLOR, alignment_vertical=TextAlignmentVertical.MIDDLE),
-       [(option, UnifiedLabel(option.text, 26, FontWeight.MEDIUM, TEXT_COLOR, alignment=TextAlignment.CENTER,
+      (UnifiedLabel(title, ROW_LABEL_SIZE, FontWeight.MEDIUM, OSD_COLOR, alignment_vertical=TextAlignmentVertical.MIDDLE),
+       [(option, UnifiedLabel(option.text, OPTION_TEXT_SIZE, FontWeight.MEDIUM, TEXT_COLOR, alignment=TextAlignment.CENTER,
                               alignment_vertical=TextAlignmentVertical.MIDDLE)) for option in options])
       for title, options in ROWS
     ]
+    self._zone_row = UnifiedLabel("time zone", ROW_LABEL_SIZE, FontWeight.MEDIUM, OSD_COLOR, alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._zone_value = UnifiedLabel(lambda: TIME_ZONES[self.settings.time_zone], OPTION_TEXT_SIZE, FontWeight.MEDIUM, TEXT_COLOR,
+                                    alignment=TextAlignment.CENTER, alignment_vertical=TextAlignmentVertical.MIDDLE)
 
   @property
   def is_open(self) -> bool:
@@ -176,10 +206,15 @@ class SettingsSheet:
     return claimed
 
   def _select(self, name: str | None) -> None:
-    option = next((option for _, options in ROWS for option in options if option.name == name), None)
-    if option is None:
+    if name == TIME_ZONE_CONTROL:
+      gui_app.push_widget(TimeZoneSelectPage(self.settings.time_zone, lambda zone: self._apply(time_zone=zone)))
       return
-    chosen = replace(self.settings, **{option.field: option.value})
+    option = next((option for _, options in ROWS for option in options if option.name == name), None)
+    if option is not None:
+      self._apply(**{option.field: option.value})
+
+  def _apply(self, **changes) -> None:
+    chosen = replace(self.settings, **changes)
     if chosen != self.settings:
       self.settings = chosen
       chosen.save(self._params)
@@ -195,28 +230,37 @@ class SettingsSheet:
       if abs(target - self._shown.update(target)) < 0.002:
         self._shown.x = target
 
-  def _geometry(self) -> tuple[rl.Rectangle, list]:
-    """The sheet rect at its current slide position, and each row's label, rect and option segments."""
+  def _geometry(self) -> tuple[rl.Rectangle, list, rl.Rectangle, rl.Rectangle]:
+    """The sheet rect at its current slide position, each option row's label, rect and segments,
+    and the time zone row and its button below them."""
     r = self._rect
     sheet = rl.Rectangle(r.x, r.y - r.height * (1.0 - self._shown.x), r.width, r.height)
     top = sheet.y + SHEET_PADDING + SHEET_TITLE_HEIGHT + SHEET_ROW_GAP
-    row_height = (sheet.y + sheet.height - SHEET_PADDING * 2 - top - SHEET_ROW_GAP * (len(self._rows) - 1)) / len(self._rows)
+    count = len(self._rows) + 1
+    row_height = (sheet.y + sheet.height - SHEET_PADDING * 2 - top - SHEET_ROW_GAP * (count - 1)) / count
+
+    def row_rect(i: int) -> rl.Rectangle:
+      return rl.Rectangle(sheet.x + SHEET_PADDING, top + i * (row_height + SHEET_ROW_GAP), sheet.width - SHEET_PADDING * 2, row_height)
+
     rows = []
     for i, (row_label, options) in enumerate(self._rows):
-      row = rl.Rectangle(sheet.x + SHEET_PADDING, top + i * (row_height + SHEET_ROW_GAP), sheet.width - SHEET_PADDING * 2, row_height)
+      row = row_rect(i)
       x = row.x + row.width - len(options) * SEGMENT_WIDTH - (len(options) - 1) * SEGMENT_GAP
       segments = [(option, label, rl.Rectangle(x + j * (SEGMENT_WIDTH + SEGMENT_GAP), row.y, SEGMENT_WIDTH, row.height))
                   for j, (option, label) in enumerate(options)]
       rows.append((row_label, row, segments))
-    return sheet, rows
+    zone_row = row_rect(len(self._rows))
+    zone_button = rl.Rectangle(zone_row.x + zone_row.width - ZONE_BUTTON_WIDTH, zone_row.y, ZONE_BUTTON_WIDTH, zone_row.height)
+    return sheet, rows, zone_row, zone_button
 
   def _controls(self) -> list[tuple[str, rl.Rectangle]]:
-    return [(option.name, rect) for _, _, segments in self._geometry()[1] for option, _, rect in segments]
+    _, rows, _, zone_button = self._geometry()
+    return [(option.name, rect) for _, _, segments in rows for option, _, rect in segments] + [(TIME_ZONE_CONTROL, zone_button)]
 
   def render(self) -> None:
     if not self.visible:
       return
-    sheet, rows = self._geometry()
+    sheet, rows, zone_row, zone_button = self._geometry()
     rl.draw_rectangle_rec(sheet, BODY_COLOR)
     self._title.render(rl.Rectangle(sheet.x + SHEET_PADDING, sheet.y + SHEET_PADDING,
                                     sheet.width - SHEET_PADDING * 2, SHEET_TITLE_HEIGHT))
@@ -229,6 +273,9 @@ class SettingsSheet:
                                   (BUTTON_FACE_PRESSED_COLOR if pressed else BUTTON_FACE_COLOR))
         label.set_text_color(SELECTED_TEXT_COLOR if selected else TEXT_COLOR)
         label.render(rect)
+    self._zone_row.render(zone_row)
+    rl.draw_rectangle_rounded(zone_button, 0.3, 8, BUTTON_FACE_PRESSED_COLOR if self._press.is_down(TIME_ZONE_CONTROL) else BUTTON_FACE_COLOR)
+    self._zone_value.render(zone_button)
     handle = rl.Rectangle(sheet.x + (sheet.width - HANDLE_WIDTH) / 2,
                           sheet.y + sheet.height - SHEET_PADDING / 2 - HANDLE_HEIGHT, HANDLE_WIDTH, HANDLE_HEIGHT)
     rl.draw_rectangle_rounded(handle, 1.0, 6, OSD_COLOR)

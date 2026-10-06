@@ -6,11 +6,11 @@ import pytest
 
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.ui.mici.layouts.camcorder_settings import (
-  PULL_BLOCK_PX, PULL_COMMIT_PX, PULL_LOCK_PX, SettingsSheet, VerticalPull,
+  PULL_BLOCK_PX, PULL_COMMIT_PX, PULL_LOCK_PX, TIME_ZONE_CONTROL, SettingsSheet, TimeZoneSelectPage, VerticalPull,
 )
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import PressTracker
 from openpilot.selfdrive.ui.mici.layouts.camcorder_view import WIDE, CamcorderView, ModePullGesture
-from openpilot.system.camcorder.settings import CamcorderSettings, Quality
+from openpilot.system.camcorder.settings import TIME_ZONES, CamcorderSettings, Quality
 from openpilot.system.ui.lib.application import MouseEvent, MousePos, gui_app
 
 SCREEN = rl.Rectangle(0, 0, 536, 240)
@@ -128,6 +128,19 @@ class TestSettingsSheet(OpenpilotTestCase):
     assert _drag(sheet, [_segment(sheet, "frame_rate=30")])
     assert sheet.is_open
     assert CamcorderSettings.load() == CamcorderSettings(Quality.MAX, 30)
+
+  def test_tapping_time_zone_opens_the_list_and_a_choice_saves_it(self):
+    sheet = _open_sheet()
+    with patch.object(gui_app, "push_widget") as push, patch.object(gui_app, "texture"):
+      assert _drag(sheet, [_segment(sheet, TIME_ZONE_CONTROL)])
+    page = push.call_args.args[0]
+    assert isinstance(page, TimeZoneSelectPage)
+
+    pacific = page._scroller._items[list(TIME_ZONES).index("America/Los_Angeles")]
+    with patch.object(page, "dismiss", side_effect=lambda callback: callback()):
+      pacific._click_callback()
+    assert CamcorderSettings.load().time_zone == "America/Los_Angeles"
+    assert sheet._zone_value.text == "Pacific"
 
   def test_dragging_off_an_option_does_not_select_it(self):
     sheet = _open_sheet()

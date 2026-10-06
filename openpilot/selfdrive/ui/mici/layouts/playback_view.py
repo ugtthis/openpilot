@@ -1,4 +1,5 @@
 import time
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pyray as rl
@@ -10,6 +11,7 @@ from openpilot.selfdrive.ui.mici.layouts.playback_transport import PlaybackTrans
 from openpilot.system.camcorder.clip_storage import (
   Clip, ClipReader, center_crop, delete_all_clips, delete_clip, format_timecode, list_clips,
 )
+from openpilot.system.camcorder.settings import CamcorderSettings
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
   BODY_COLOR, OSD_BACKGROUND, OSD_COLOR, TEXT_COLOR, TRASH_ICON,
   PressTracker, camera_body, draw_centered_texture, draw_list_row, draw_physical_button, draw_rail,
@@ -30,8 +32,7 @@ TEXT_PAD = 10
 ROW_GAP = 2
 SCRUB_H = 16
 ROW_TRASH_W = 88
-ROW_TITLE_SIZE = 44
-ROW_META_SIZE = 28
+ROW_TEXT_SIZE = 28
 OVERLAY_BUTTON_SIZE = 48
 
 
@@ -117,7 +118,7 @@ def _draw_speaker_icon(rec: rl.Rectangle, muted: bool):
 
 
 class ClipRow(Widget):
-  def __init__(self, clip: Clip, on_open, on_delete):
+  def __init__(self, clip: Clip, zone: ZoneInfo | None, on_open, on_delete):
     super().__init__()
     self.clip = clip
     self._on_open = on_open
@@ -129,13 +130,13 @@ class ClipRow(Widget):
     self._thumb_w = 0
     self._thumb_h = 0
     self._trash_icon = gui_app.texture(TRASH_ICON, 32, 38)
-    self._title = UnifiedLabel(clip.time_label, ROW_TITLE_SIZE, FontWeight.DISPLAY,
+    self._title = UnifiedLabel(clip.time_label(zone), ROW_TEXT_SIZE, FontWeight.DISPLAY,
                                text_color=TEXT_COLOR,
                                alignment=TextAlignment.LEFT,
                                alignment_vertical=TextAlignmentVertical.BOTTOM)
     detail = "photo" if clip.is_photo else clip.duration_label
     recovered = "  Recovered" if clip.recovered else ""
-    self._meta = UnifiedLabel(f"{detail}  {clip.camera}{recovered}", ROW_META_SIZE, FontWeight.ROMAN,
+    self._meta = UnifiedLabel(f"{clip.date_label(zone)}  {detail}  {clip.camera}{recovered}", ROW_TEXT_SIZE, FontWeight.ROMAN,
                               text_color=OSD_COLOR,
                               alignment=TextAlignment.LEFT,
                               alignment_vertical=TextAlignmentVertical.TOP)
@@ -514,7 +515,8 @@ class PlaybackView(Widget):
 
   def _reload(self):
     self._clear_rows()
-    self._rows = [ClipRow(clip, self._open_clip, self._confirm_delete) for clip in list_clips()]
+    zone = CamcorderSettings.load().zone
+    self._rows = [ClipRow(clip, zone, self._open_clip, self._confirm_delete) for clip in list_clips()]
     for row in self._rows:
       row.set_enabled(lambda: self.enabled)
       row.set_touch_valid_callback(self._scroll.is_touch_valid)

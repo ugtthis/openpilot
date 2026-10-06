@@ -2,9 +2,10 @@
 
 import json
 from dataclasses import MISSING, dataclass, field, fields, replace
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from openpilot.system.camcorder.hevc_writer import MasterInfo
 from openpilot.system.camcorder.image import CLIP_ASPECT, CLIP_FPS
@@ -48,11 +49,17 @@ def format_timecode(seconds: float) -> str:
   return f"{minutes}:{secs:02d}"
 
 
+def format_clock(when: datetime) -> str:
+  """12-hour clock time, e.g. '2:39 AM'."""
+  return f"{when.hour % 12 or 12}:{when.minute:02d} {'AM' if when.hour < 12 else 'PM'}"
+
+
 @dataclass(frozen=True)
 class Clip:
   clip_id: str = field(metadata={_META_KEY: "id"})
   path: Path = field(metadata={_META_SKIP: True})
   camera: str = field(metadata={_META_DEFAULT: "wide"})
+  # Naive UTC, like other openpilot timestamps; the time zone only applies to labels.
   started_at: datetime = field(metadata={_META_READ: _read_datetime, _META_WRITE: _write_datetime})
   width: int
   height: int
@@ -90,9 +97,18 @@ class Clip:
   recovered: bool = False
   recovery_error: str = ""
 
-  @property
-  def time_label(self) -> str:
-    return self.started_at.strftime("%H:%M")
+  def time_label(self, zone: ZoneInfo | None) -> str:
+    """Start time with the zone's short name, e.g. '2:39 AM PDT'; UTC while no zone is chosen."""
+    local = self._local_start(zone)
+    return f"{format_clock(local)} {local.tzname()}"
+
+  def date_label(self, zone: ZoneInfo | None) -> str:
+    """Start date in the same zone, e.g. 'Oct 3'."""
+    local = self._local_start(zone)
+    return f"{local:%b} {local.day}"
+
+  def _local_start(self, zone: ZoneInfo | None) -> datetime:
+    return self.started_at.replace(tzinfo=UTC).astimezone(zone or UTC)
 
   @property
   def duration_label(self) -> str:
