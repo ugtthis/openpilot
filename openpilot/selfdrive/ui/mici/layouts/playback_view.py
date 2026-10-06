@@ -22,6 +22,7 @@ from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog
 from openpilot.selfdrive.ui.ui_state import device
 from openpilot.system.ui.lib.application import FontWeight, MousePos, TextAlignment, TextAlignmentVertical, gui_app
 from openpilot.system.ui.lib.scroll_panel import GuiScrollPanel
+from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.label import UnifiedLabel
 
@@ -33,6 +34,10 @@ ROW_GAP = 2
 SCRUB_H = 16
 ROW_TRASH_W = 88
 ROW_TEXT_SIZE = 28
+DURATION_TEXT_SIZE = 26
+DURATION_HEIGHT = 34
+DURATION_PAD_X = 8
+DURATION_MARGIN = 6
 OVERLAY_BUTTON_SIZE = 48
 
 
@@ -134,12 +139,17 @@ class ClipRow(Widget):
                                text_color=TEXT_COLOR,
                                alignment=TextAlignment.LEFT,
                                alignment_vertical=TextAlignmentVertical.BOTTOM)
-    detail = "photo" if clip.is_photo else clip.duration_label
     recovered = "  Recovered" if clip.recovered else ""
-    self._meta = UnifiedLabel(f"{clip.date_label(zone)}  {detail}  {clip.camera}{recovered}", ROW_TEXT_SIZE, FontWeight.ROMAN,
+    self._meta = UnifiedLabel(f"{clip.date_label(zone)}{recovered}", ROW_TEXT_SIZE, FontWeight.ROMAN,
                               text_color=OSD_COLOR,
                               alignment=TextAlignment.LEFT,
                               alignment_vertical=TextAlignmentVertical.TOP)
+    # Photos get no badge, as in a phone gallery.
+    self._duration = None if clip.is_photo else UnifiedLabel(clip.duration_label, DURATION_TEXT_SIZE, FontWeight.MEDIUM,
+                                                             text_color=rl.WHITE,
+                                                             alignment=TextAlignment.CENTER,
+                                                             alignment_vertical=TextAlignmentVertical.MIDDLE,
+                                                             wrap_text=False)
 
   def hide_event(self):
     super().hide_event()
@@ -176,6 +186,15 @@ class ClipRow(Widget):
     elif pressed == "open":
       self._on_open(self.clip)
 
+  def _draw_duration_badge(self, thumb: rl.Rectangle):
+    if self._duration is None:
+      return
+    width = measure_text_cached(gui_app.font(FontWeight.MEDIUM), self._duration.text, DURATION_TEXT_SIZE).x + 2 * DURATION_PAD_X
+    badge = rl.Rectangle(thumb.x + thumb.width - width - DURATION_MARGIN, thumb.y + thumb.height - DURATION_HEIGHT - DURATION_MARGIN,
+                         width, DURATION_HEIGHT)
+    rl.draw_rectangle_rounded(badge, 0.3, 6, rl.BLACK)
+    self._duration.render(badge)
+
   def _render(self, rect: rl.Rectangle):
     self._ensure_thumb()
     face = draw_list_row(rect, self.is_pressed)
@@ -185,6 +204,7 @@ class ClipRow(Widget):
       rl.draw_texture_pro(self._thumb.texture,
                           rl.Rectangle(0, 0, self._thumb.texture.width, self._thumb.texture.height),
                           thumb, rl.Vector2(0, 0), 0.0, rl.WHITE)
+    self._draw_duration_badge(thumb)
     text_x = thumb.x + thumb.width + THUMB_TEXT_GAP
     text = rl.Rectangle(text_x, face.y + TEXT_PAD,
                         max(0, self._trash_rect.x - text_x - TEXT_PAD), face.height - 2 * TEXT_PAD)
