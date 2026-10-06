@@ -8,13 +8,11 @@ from unittest.mock import patch
 
 from openpilot.cereal import log
 from openpilot.cereal.visionipc import VisionStreamType
-from openpilot.selfdrive.ui.mici.layouts.camcorder_settings import SettingsSheet
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import PressTracker
 from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView, format_remaining
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout, SwipeLeftPage, camcorder_available
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.system.camcorder.recorder import ClipRecorder, RecorderState
-from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import Widget
 
 
@@ -479,20 +477,20 @@ def test_stop_drains_encoded_video_until_a_frame_after_the_press():
     assert master is not None and master.frame_count == 2
 
 
-def test_camcorder_warms_up_only_while_settled_on_screen():
+def test_camcorder_is_on_screen_only_while_settled_on_screen():
   warm = []
   layout = cast(Any, object.__new__(MiciMainLayout))
   layout._setup = True
   layout._rect = SimpleNamespace(x=0.0, width=536.0)
   layout._swipe_left_page = SimpleNamespace(showing_camcorder=True, rect=SimpleNamespace(x=0.0))
-  layout._camcorder_view = SimpleNamespace(set_warm=warm.append)
+  layout._camcorder_view = SimpleNamespace(set_on_screen=warm.append)
 
   def tick(active=layout, awake=True):
     with (
       patch("openpilot.selfdrive.ui.mici.layouts.main.gui_app.get_active_widget", return_value=active),
       patch.object(type(device), "awake", property(lambda _self: awake)),
     ):
-      layout._update_camcorder_warmup()
+      layout._update_camcorder_on_screen()
 
   tick()
   layout._swipe_left_page.rect.x = 400.0
@@ -524,14 +522,10 @@ def test_ignition_transition_cancels_and_stops_capture():
 
   press = PressTracker()
   press._name = "record"
-  with patch.object(gui_app, "font"):
-    settings = SettingsSheet()
-  settings._is_open = True
   view = SimpleNamespace(
     _snapshot_countdown=Countdown(),
     _recorder=Recorder(),
     _press=press,
-    _settings=settings,
     stream_type=WIDE,
   )
 
@@ -544,5 +538,4 @@ def test_ignition_transition_cancels_and_stops_capture():
   assert view._snapshot_countdown.cancelled
   assert view._recorder.stopped
   assert not view._press.is_down("record")
-  assert not view._settings.is_open
   clear_timeout.assert_called_once_with(None)

@@ -9,7 +9,7 @@ from openpilot.selfdrive.ui.mici.layouts.camcorder_settings import (
   PULL_BLOCK_PX, PULL_COMMIT_PX, PULL_LOCK_PX, SettingsSheet, VerticalPull,
 )
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import PressTracker
-from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView, ModePullGesture
+from openpilot.selfdrive.ui.mici.layouts.camcorder_view import WIDE, CamcorderView, ModePullGesture
 from openpilot.system.camcorder.settings import CamcorderSettings, Quality
 from openpilot.system.ui.lib.application import MouseEvent, MousePos, gui_app
 
@@ -162,6 +162,9 @@ class FakeRecorder:
   recording = False
   error = None
 
+  def set_warm(self, warm, stream_type):
+    pass
+
 
 class FakeCountdown:
   def active(self, now):
@@ -175,6 +178,7 @@ class _InputOnlyCamcorderView(CamcorderView):
 
 def _camcorder_view(recording: bool = False) -> Any:
   view = cast(Any, object.__new__(_InputOnlyCamcorderView))
+  view._stream_type = WIDE
   view._recorder = FakeRecorder()
   view._recorder.recording = recording
   view._snapshot_countdown = FakeCountdown()
@@ -221,9 +225,16 @@ class TestCamcorderViewSettingsPull(OpenpilotTestCase):
     view = _camcorder_view()
     CamcorderView._handle_mouse_press(view, MousePos(200, 20))
     CamcorderView._handle_mouse_event(view, _event(200, 20, 0.0, pressed=True))
-    assert not view.settings_active
+    assert not view.blocks_page_scroll
     CamcorderView._handle_mouse_event(view, _event(200, 20 + PULL_LOCK_PX, 0.1))
-    assert view.settings_active
+    assert view.blocks_page_scroll
+
+  def test_leaving_the_page_frees_the_page_scroller(self):
+    view = _camcorder_view()
+    _touch_view(view, [(200, 20), (200, 60), (200, 200)])
+    assert view.blocks_page_scroll
+    view.set_on_screen(False)
+    assert not view.blocks_page_scroll
 
   def test_cannot_open_settings_while_recording(self):
     view = _camcorder_view(recording=True)

@@ -78,13 +78,13 @@ class MiciMainLayout(Scroller):
     self.set_scroll_observer(self._handle_mode_pull)
     self._scroller.set_reset_scroll_at_show(False)
     self._scroller.set_scrolling_enabled(lambda: not self._onroad_view.is_swiping_left() and
-                                         not self._camcorder_view.settings_active)
+                                         not self._camcorder_view.blocks_page_scroll)
 
     # Set callbacks
     self._setup_callbacks()
 
     gui_app.add_nav_stack_tick(self._handle_transitions)
-    gui_app.add_nav_stack_tick(self._update_camcorder_warmup)
+    gui_app.add_nav_stack_tick(self._update_camcorder_on_screen)
     gui_app.push_widget(self)
 
     # Start onboarding if terms or training not completed, make sure to push after self
@@ -138,13 +138,13 @@ class MiciMainLayout(Scroller):
       self._camcorder_view.draw_mode_pull_indicator()
     super()._render(self._rect)
 
-  def _update_camcorder_warmup(self):
+  def _update_camcorder_on_screen(self):
     # The offroad interactive timeout blanks the screen and scrolls home, which
     # also bounds how long an idle camcorder page keeps capture running.
     page = self._swipe_left_page
     on_screen = (self._setup and device.awake and gui_app.get_active_widget() is self and
                  page.showing_camcorder and abs(page.rect.x - self._rect.x) < self._rect.width / 2)
-    self._camcorder_view.set_warm(on_screen)
+    self._camcorder_view.set_on_screen(on_screen)
 
   def _handle_transitions(self):
     # Don't pop if onboarding

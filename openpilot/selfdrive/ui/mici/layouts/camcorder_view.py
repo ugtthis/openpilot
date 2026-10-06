@@ -384,8 +384,11 @@ class CamcorderView(CameraView):
     # capture does not depend on visibility or event ordering for safety.
     return camcorder_available(bool(ui_state.is_body), ui_state.ignition, ui_state.panda_type)
 
-  def set_warm(self, on_screen: bool) -> None:
+  def set_on_screen(self, on_screen: bool) -> None:
     self._recorder.set_warm(on_screen and self._capture_allowed(), self.stream_type)
+    # Off-screen pages are not rendered, so an open sheet would otherwise keep the page scroller disabled.
+    if not on_screen:
+      self._settings.close()
 
   def _update_recorder(self) -> None:
     clip = self._recorder.update()
@@ -398,7 +401,6 @@ class CamcorderView(CameraView):
       return
     self._snapshot_countdown.cancel()
     self._press.clear()
-    self._settings.close()
     if self._recorder.recording:
       self._recorder.stop()
     self._recorder.set_warm(False, self.stream_type)
@@ -414,10 +416,6 @@ class CamcorderView(CameraView):
     if self._recorder.recording or self._countdown_active():
       return
     self.switch_stream(WIDE if self._showing_cabin() else CABIN)
-
-  def hide_event(self):
-    super().hide_event()
-    self._settings.close()
 
   def _settings_pull_allowed(self) -> bool:
     return not (self._recorder.recording or self._countdown_active() or self._mode_pull.progress > 0.0)
@@ -497,8 +495,8 @@ class CamcorderView(CameraView):
     self._settings.update(self.rect)
 
   @property
-  def settings_active(self) -> bool:
-    """While true the page scroller must stay still so vertical swipes reach the sheet."""
+  def blocks_page_scroll(self) -> bool:
+    """So swipes on the settings sheet are not taken by the page scroller."""
     return self._settings.visible
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
