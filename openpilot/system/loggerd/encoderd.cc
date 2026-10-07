@@ -138,8 +138,11 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
       }
 
       // do rotation if required
+      // Synced cameras rotate on the shared start frame so every camera's segment
+      // covers the same frames; a free-running wide camera has its own frame ids.
       const int frames_per_seg = SEGMENT_LENGTH * cam_info.fps;
-      const uint64_t next_segment_frame = static_cast<uint64_t>(segment_start_frame_id) +
+      const uint32_t segment_base = camcorder_wide_fps() == MAIN_FPS ? s->start_frame_id.load() : segment_start_frame_id;
+      const uint64_t next_segment_frame = static_cast<uint64_t>(segment_base) +
                                           static_cast<uint64_t>(cur_seg + 1) * frames_per_seg;
       if (cur_seg >= 0 && extra.frame_id >= next_segment_frame) {
         for (auto &e : encoders) {
