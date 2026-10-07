@@ -2,6 +2,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
+import time
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -14,7 +15,7 @@ from openpilot.selfdrive.ui.mici.layouts.camcorder_style import (
 )
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton
 from openpilot.system.camcorder.clip_meta import format_clock
-from openpilot.system.camcorder.settings import FRAME_RATES, TIME_ZONES, CamcorderSettings, Quality
+from openpilot.system.camcorder.settings import FRAME_RATES, TIME_ZONES, CamcorderSettings, Quality, Resolution
 from openpilot.system.ui.lib.application import FontWeight, MousePos, TextAlignment, TextAlignmentVertical, gui_app
 from openpilot.system.ui.lib.scroll_panel2 import weighted_velocity
 from openpilot.system.ui.widgets.label import UnifiedLabel
@@ -26,13 +27,14 @@ PULL_COMMIT_PX = 60  # release at least this far along to open or close
 PULL_FLING_PX_S = 500  # or flick at least this fast
 PULL_VELOCITY_SAMPLES = 4
 SHEET_SLIDE_RC = 0.08
-SHEET_PADDING = 18
-SHEET_TITLE_HEIGHT = 40
-SHEET_ROW_GAP = 12
+# Four rows must fit the 240 px MICI screen: rows come out ~39 px, above the 26-28 px text.
+SHEET_PADDING = 10
+SHEET_TITLE_HEIGHT = 30
+SHEET_ROW_GAP = 6
 ROW_LABEL_SIZE = 28
 OPTION_TEXT_SIZE = 26
-SEGMENT_WIDTH = 120
-SEGMENT_GAP = 8
+SEGMENT_WIDTH = 104  # three fps segments still leave ~190 px for the row label
+SEGMENT_GAP = 6
 ZONE_BUTTON_WIDTH = 2 * SEGMENT_WIDTH + SEGMENT_GAP  # lines up with the two option columns
 TIME_ZONE_CONTROL = "time_zone"
 SELECTED_TEXT_COLOR = rl.Color(24, 24, 24, 255)
@@ -42,7 +44,7 @@ HANDLE_HEIGHT = 5
 
 class Option(NamedTuple):
   field: str  # the CamcorderSettings field this option sets
-  value: Quality | int
+  value: Quality | Resolution | int
   text: str
 
   @property
@@ -51,8 +53,9 @@ class Option(NamedTuple):
 
 
 ROWS = (
-  ("quality", (Option("quality", Quality.STOCK, "stock"), Option("quality", Quality.MAX, "max"))),
-  ("frame rate", tuple(Option("frame_rate", fps, f"{fps} fps") for fps in FRAME_RATES)),
+  ("wide quality", (Option("quality", Quality.STOCK, "stock"), Option("quality", Quality.MAX, "max"))),
+  ("wide res", (Option("resolution", Resolution.STOCK, "1 MP"), Option("resolution", Resolution.FULL, "4 MP"))),
+  ("wide fps", tuple(Option("frame_rate", fps, f"{fps} fps") for fps in FRAME_RATES)),
 )
 
 
@@ -140,9 +143,11 @@ class SettingsSheet:
     self._close_pull = VerticalPull(-1)
     self._press = PressTracker()
     self._is_open = False
+    self._switching_until = 0.0
     self._shown = FirstOrderFilter(0.0, SHEET_SLIDE_RC, 1 / gui_app.target_fps)  # 0 hidden, 1 covering the page
     self._rect = rl.Rectangle()
-    self._title = UnifiedLabel("settings", 30, FontWeight.DISPLAY, TEXT_COLOR,
+    self._title = UnifiedLabel(lambda: "switching camera" if time.monotonic() < self._switching_until else "settings",
+                               30, FontWeight.DISPLAY, TEXT_COLOR,
                                alignment_vertical=TextAlignmentVertical.MIDDLE)
     self._rows = [
       (UnifiedLabel(title, ROW_LABEL_SIZE, FontWeight.MEDIUM, OSD_COLOR, alignment_vertical=TextAlignmentVertical.MIDDLE),
@@ -216,6 +221,8 @@ class SettingsSheet:
   def _apply(self, **changes) -> None:
     chosen = replace(self.settings, **changes)
     if chosen != self.settings:
+      if chosen.encoder_mode != self.settings.encoder_mode:
+        self._switching_until = time.monotonic() + 3.0
       self.settings = chosen
       chosen.save(self._params)
 

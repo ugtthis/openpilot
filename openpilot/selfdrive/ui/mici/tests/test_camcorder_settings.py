@@ -10,7 +10,7 @@ from openpilot.selfdrive.ui.mici.layouts.camcorder_settings import (
 )
 from openpilot.selfdrive.ui.mici.layouts.camcorder_style import PressTracker
 from openpilot.selfdrive.ui.mici.layouts.camcorder_view import WIDE, CamcorderView, ModePullGesture
-from openpilot.system.camcorder.settings import TIME_ZONES, CamcorderSettings, Quality
+from openpilot.system.camcorder.settings import TIME_ZONES, CamcorderSettings, Quality, Resolution
 from openpilot.system.ui.lib.application import MouseEvent, MousePos, gui_app
 
 SCREEN = rl.Rectangle(0, 0, 536, 240)
@@ -125,9 +125,10 @@ class TestSettingsSheet(OpenpilotTestCase):
   def test_tapping_an_option_saves_it(self):
     sheet = _open_sheet()
     assert _drag(sheet, [_segment(sheet, "quality=max")])
-    assert _drag(sheet, [_segment(sheet, "frame_rate=30")])
+    assert _drag(sheet, [_segment(sheet, "resolution=2688x1520")])
+    assert _drag(sheet, [_segment(sheet, "frame_rate=60")])
     assert sheet.is_open
-    assert CamcorderSettings.load() == CamcorderSettings(Quality.MAX, 30)
+    assert CamcorderSettings.load() == CamcorderSettings(Quality.MAX, 60, resolution=Resolution.FULL)
 
   def test_tapping_time_zone_opens_the_list_and_a_choice_saves_it(self):
     sheet = _open_sheet()
