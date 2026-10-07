@@ -1,6 +1,9 @@
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 #include "openpilot/cereal/messaging/messaging.h"
@@ -25,6 +28,41 @@ const auto MAIN_ENCODE_TYPE = Hardware::PC() ? cereal::EncodeIndex::Type::BIG_BO
 
 const bool LOGGERD_TEST = getenv("LOGGERD_TEST");
 const int SEGMENT_LENGTH = LOGGERD_TEST ? atoi(getenv("LOGGERD_SEGMENT_LENGTH")) : 60;
+
+// Exact whitelist; anything else (unset, malformed, unknown) is "stock:stock".
+inline bool valid_camcorder_encoder_mode(const std::string &mode) {
+  static const char *const sensor_modes[] = {
+    "stock", "1344x760@30", "1344x760@60", "2688x1520@20", "2688x1520@30", "2688x1520@60",
+  };
+  for (const char *sensor : sensor_modes) {
+    if (mode == std::string(sensor) + ":stock" || mode == std::string(sensor) + ":max") return true;
+  }
+  return false;
+}
+
+inline const std::string &camcorder_encoder_mode() {
+  static const std::string mode = [] {
+    std::string value = Params().get("CamcorderEncoderMode");
+    return valid_camcorder_encoder_mode(value) ? value : std::string("stock:stock");
+  }();
+  return mode;
+}
+
+inline bool camcorder_stock_mode() {
+  return camcorder_encoder_mode() == "stock:stock";
+}
+
+inline int camcorder_wide_fps() {
+  const std::string &mode = camcorder_encoder_mode();
+  if (mode.find("@60:") != std::string::npos) return 60;
+  if (mode.find("@30:") != std::string::npos) return 30;
+  return MAIN_FPS;
+}
+
+inline bool camcorder_max_quality() {
+  const std::string &mode = camcorder_encoder_mode();
+  return mode.size() >= 4 && mode.compare(mode.size() - 4, 4, ":max") == 0;
+}
 
 inline int livestream_width() {
   switch (Hardware::get_device_type()) {
@@ -57,6 +95,21 @@ struct EncoderSettings {
     } else {
       return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = 10'000'000, .gop_size = 30};
     }
+  }
+
+  static EncoderSettings CamcorderEncoderSettings(int in_width) {
+    // Driving (and any sensor the camcorder modes don't program, e.g. OX03C10
+    // at 1928 wide) must get exactly the stock encoder settings.
+    if (camcorder_stock_mode() || (in_width != 1344 && in_width != 2688)) {
+      return MainEncoderSettings(in_width);
+    }
+    const int fps = camcorder_wide_fps();
+    const int height = in_width == 1344 ? 760 : 1520;
+    const int64_t stock_pixels_per_second = 1344LL * 760 * MAIN_FPS;
+    int bitrate = static_cast<int>(5'000'000LL * in_width * height * fps / stock_pixels_per_second);
+    if (camcorder_max_quality()) bitrate *= 2;
+    bitrate = std::clamp(bitrate, 5'000'000, 80'000'000);
+    return EncoderSettings{.encode_type = MAIN_ENCODE_TYPE, .bitrate = bitrate, .gop_size = fps};
   }
 
   static EncoderSettings QcamEncoderSettings() {
@@ -106,7 +159,8 @@ const EncoderInfo main_road_encoder_info = {
 const EncoderInfo main_wide_road_encoder_info = {
   .publish_name = "wideRoadEncodeData",
   .filename = "ecamera.hevc",
-  .get_settings = [](int in_width){return EncoderSettings::MainEncoderSettings(in_width);},
+  .fps = camcorder_wide_fps(),
+  .get_settings = [](int in_width){return EncoderSettings::CamcorderEncoderSettings(in_width);},
   INIT_ENCODE_FUNCTIONS(WideRoadEncode),
 };
 
@@ -167,6 +221,7 @@ const LogCameraInfo narrow_road_camera_info{
 
 const LogCameraInfo wide_road_camera_info{
   .thread_name = "wide_road_cam_encoder",
+  .fps = camcorder_wide_fps(),
   .stream_type = VISION_STREAM_WIDE_ROAD,
   .encoder_infos = {main_wide_road_encoder_info}
 };

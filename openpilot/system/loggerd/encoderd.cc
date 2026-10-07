@@ -32,6 +32,11 @@ struct EncoderdState {
 
 // Handle initial encoder syncing by waiting for all encoders to reach the same frame id
 bool sync_encoders(EncoderdState *s, VisionStreamType cam_type, uint32_t frame_id) {
+  // RAW10 camcorder modes free-run the wide sensor at 30/60 Hz while the
+  // other cameras stay panda-synchronized at 20 Hz. Their frame ids are
+  // different clocks, so waiting for one shared id can starve slow streams.
+  if (camcorder_wide_fps() != MAIN_FPS) return true;
+
   if (s->camera_synced[cam_type]) return true;
 
   if (s->max_waiting > 1 && s->encoders_ready != s->max_waiting) {
@@ -82,6 +87,8 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
   std::unique_ptr<JpegEncoder> jpeg_encoder;
 
   int cur_seg = 0;
+  uint32_t segment_start_frame_id = 0;
+  bool segment_started = false;
   while (!do_exit) {
     if (!vipc_client.connect(false)) {
       util::sleep_for(5);
@@ -125,10 +132,16 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
         continue;
       }
       if (do_exit) break;
+      if (!segment_started) {
+        segment_start_frame_id = extra.frame_id;
+        segment_started = true;
+      }
 
       // do rotation if required
-      const int frames_per_seg = SEGMENT_LENGTH * MAIN_FPS;
-      if (cur_seg >= 0 && extra.frame_id >= ((cur_seg + 1) * frames_per_seg) + s->start_frame_id) {
+      const int frames_per_seg = SEGMENT_LENGTH * cam_info.fps;
+      const uint64_t next_segment_frame = static_cast<uint64_t>(segment_start_frame_id) +
+                                          static_cast<uint64_t>(cur_seg + 1) * frames_per_seg;
+      if (cur_seg >= 0 && extra.frame_id >= next_segment_frame) {
         for (auto &e : encoders) {
           e->encoder_close();
           e->encoder_open();
