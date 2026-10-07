@@ -3,7 +3,10 @@ from unittest.mock import patch
 from opendbc.car.structs import car
 
 from openpilot.common.params import Params
-from openpilot.system.manager.manager import drive_start_restarted_processes, ignition_blocked_processes
+from openpilot.system.camcorder.settings import ENCODER_MODE_PARAM, SENSOR_MODE_PARAM, CamcorderSettings, Quality, Resolution
+from openpilot.system.manager.manager import (
+  camcorder_stock_required, desired_camcorder_sensor_mode, drive_start_restarted_processes, ignition_blocked_processes, update_camcorder_sensor_mode,
+)
 from openpilot.system.manager.process import ManagerProcess, ensure_running
 from openpilot.system.manager.process_config import camera_encoding, camcorder_capture, microphone_capture
 
@@ -75,3 +78,48 @@ def test_started_uses_normal_onroad_process_predicates_without_leases():
     assert camera_encoding(True, params, CP)
     assert microphone_capture(True, params, CP)
     assert not camcorder_capture(True, params, CP)
+
+
+def test_camcorder_mode_change_restarts_shared_processes_and_drive_restores_stock(tmp_path):
+  params = Params(str(tmp_path / "params"))
+  CamcorderSettings(Quality.MAX, 60, resolution=Resolution.FULL).save(params)
+
+  assert desired_camcorder_sensor_mode(False, params) == "2688x1520@60"
+  assert set(update_camcorder_sensor_mode(False, params)) == {"camerad", "encoderd"}
+  assert params.get(SENSOR_MODE_PARAM) == "2688x1520@60"
+  assert params.get(ENCODER_MODE_PARAM) == "2688x1520@60:max"
+  assert update_camcorder_sensor_mode(False, params) == []
+
+  assert set(update_camcorder_sensor_mode(True, params)) == {"camerad", "encoderd"}
+  assert params.get(SENSOR_MODE_PARAM) == "stock"
+  assert params.get(ENCODER_MODE_PARAM) == "stock:stock"
+
+
+def test_camcorder_modes_stay_stock_until_ignition_is_known_off():
+  with patch("openpilot.system.manager.manager.CAMCORDER_MODES_SUPPORTED", True):
+    # manager restarting mid-drive: no pandaStates yet, so ignition is unknown
+    assert camcorder_stock_required(started=False, ignition=False, panda_state_seen=False)
+    assert camcorder_stock_required(started=False, ignition=True, panda_state_seen=True)
+    assert camcorder_stock_required(started=True, ignition=False, panda_state_seen=True)
+    assert not camcorder_stock_required(started=False, ignition=False, panda_state_seen=True)
+  with patch("openpilot.system.manager.manager.CAMCORDER_MODES_SUPPORTED", False):
+    assert camcorder_stock_required(started=False, ignition=False, panda_state_seen=True)
+
+
+def test_mode_change_waits_for_take_but_stock_never_waits(tmp_path):
+  params = Params(str(tmp_path / "params"))
+  CamcorderSettings(Quality.MAX, 60, resolution=Resolution.FULL).save(params)
+  assert update_camcorder_sensor_mode(False, params, take_active=True) == []
+  assert params.get(SENSOR_MODE_PARAM, return_default=True) == "stock"
+
+  update_camcorder_sensor_mode(False, params)
+  assert set(update_camcorder_sensor_mode(True, params, take_active=True)) == {"camerad", "encoderd"}
+  assert params.get(ENCODER_MODE_PARAM) == "stock:stock"
+
+
+def test_quality_only_change_restarts_only_encoderd(tmp_path):
+  params = Params(str(tmp_path / "params"))
+  CamcorderSettings().save(params)
+  update_camcorder_sensor_mode(False, params)
+  CamcorderSettings(quality=Quality.MAX).save(params)
+  assert update_camcorder_sensor_mode(False, params) == ["encoderd"]

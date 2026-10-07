@@ -15,6 +15,7 @@ from openpilot.common.hardware import HARDWARE
 from openpilot.system.manager.helpers import unblock_stdout, save_bootlog
 from openpilot.system.manager.process import ensure_running
 from openpilot.system.manager.process_config import managed_processes
+from openpilot.system.camcorder.settings import ENCODER_MODE_PARAM, SENSOR_MODE_PARAM, CamcorderSettings, Quality
 from openpilot.system.camcorder_lease import revoke_camcorder
 from openpilot.system.loggerd.encoder_lease import revoke_encoder
 from openpilot.system.athena.registration import register, UNREGISTERED_DONGLE_ID
@@ -113,6 +114,39 @@ def drive_start_restarted_processes(started: bool, started_prev: bool) -> list[s
   return ["camerad", "encoderd"] if started and not started_prev else []
 
 
+# Only MICI is known to carry the OS04C10 wide sensor that the camcorder modes program.
+CAMCORDER_MODES_SUPPORTED = HARDWARE.get_device_type() == "mici"
+_TAKE_PHASES = ("recording", "finalizing")
+
+
+def camcorder_stock_required(started: bool, ignition: bool, panda_state_seen: bool) -> bool:
+  """Stock until panda state proves ignition is off; driving never sees a camcorder mode."""
+  return started or ignition or not panda_state_seen or not CAMCORDER_MODES_SUPPORTED
+
+
+def desired_camcorder_sensor_mode(stock_required: bool, params: Params) -> str:
+  """Ignition and the driving stack always get the exact stock sensor mode."""
+  return "stock" if stock_required else CamcorderSettings.load(params).sensor_mode
+
+
+def update_camcorder_sensor_mode(stock_required: bool, params: Params, take_active: bool = False) -> list[str]:
+  """Publish the startup-only mode and name processes that must be rebuilt around it."""
+  # A settings change during a take waits for it to finish; stock is never deferred.
+  if take_active and not stock_required:
+    return []
+  settings = CamcorderSettings.load(params)
+  desired_sensor = desired_camcorder_sensor_mode(stock_required, params)
+  desired_encoder = f"{desired_sensor}:{Quality.STOCK if stock_required else settings.quality}"
+  restart: list[str] = []
+  if params.get(SENSOR_MODE_PARAM, return_default=True) != desired_sensor:
+    params.put(SENSOR_MODE_PARAM, desired_sensor, block=True)
+    restart.extend(("camerad", "encoderd"))
+  if params.get(ENCODER_MODE_PARAM, return_default=True) != desired_encoder:
+    params.put(ENCODER_MODE_PARAM, desired_encoder, block=True)
+    restart.append("encoderd")
+  return list(dict.fromkeys(restart))
+
+
 def manager_thread() -> None:
   cloudlog.bind(daemon="manager")
   cloudlog.info("manager start")
@@ -127,10 +161,12 @@ def manager_thread() -> None:
     ignore.append("pandad")
   ignore += [x for x in os.getenv("BLOCK", "").split(",") if len(x) > 0]
 
-  sm = messaging.SubMaster(['deviceState', 'carParams', 'pandaStates'], poll='deviceState')
+  sm = messaging.SubMaster(['deviceState', 'carParams', 'pandaStates', 'camcorderState'], poll='deviceState')
   pm = messaging.PubMaster(['managerState'])
 
   params.put_bool("IsOffroad", True, block=True)
+  # Ignition is unknown until pandaStates arrives (manager may restart mid-drive).
+  update_camcorder_sensor_mode(True, params)
   ensure_running(managed_processes.values(), False, params=params, CP=sm['carParams'], not_run=ignore)
 
   started_prev = False
@@ -159,7 +195,10 @@ def manager_thread() -> None:
     if started != started_prev:
       params.put_bool("IsOffroad", not started, block=True)
 
-    not_run = ignore + ignition_blocked_processes(started, ignition) + drive_start_restarted_processes(started, started_prev)
+    stock_required = camcorder_stock_required(started, ignition, sm.seen['pandaStates'])
+    take_active = sm.alive['camcorderState'] and str(sm['camcorderState'].phase) in _TAKE_PHASES
+    mode_restarts = update_camcorder_sensor_mode(stock_required, params, take_active)
+    not_run = ignore + ignition_blocked_processes(started, ignition) + drive_start_restarted_processes(started, started_prev) + mode_restarts
 
     started_prev = started
     ignition_prev = ignition
