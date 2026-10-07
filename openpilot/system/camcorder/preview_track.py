@@ -60,7 +60,7 @@ class ClipWriter:
   def __init__(self, camera: Camera, width: int = CLIP_WIDTH, height: int = CLIP_HEIGHT,
                fps: int = CLIP_FPS, started_at: datetime | None = None,
                preview_contains_full_frame: bool = False, media_type: str = "video",
-               recording_start_mono_ns: int = 0):
+               recording_start_mono_ns: int = 0, bitrate: int = 0):
     self.camera = camera
     self.width = width
     self.height = height
@@ -69,6 +69,7 @@ class ClipWriter:
     self.preview_contains_full_frame = preview_contains_full_frame
     self.media_type = media_type
     self.recording_start_mono_ns = recording_start_mono_ns
+    self.bitrate = bitrate
     self.frame_count = 0
     self._last_t_ms = 0
     self._frames = None
@@ -145,6 +146,7 @@ class ClipWriter:
       fps=self.fps,
       frame_count=self.frame_count,
       duration_s=duration,
+      bitrate=self.bitrate,
       media_type=self.media_type,
       preview_contains_full_frame=self.preview_contains_full_frame,
       flip_h=self.camera.flip_h,

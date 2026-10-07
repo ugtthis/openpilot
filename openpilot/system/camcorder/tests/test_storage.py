@@ -94,10 +94,20 @@ def test_recordable_bytes_measured_before_the_first_clip_folder_exists(tmp_path:
 
 def test_remaining_time_counts_only_recordable_bytes(tmp_path: Path, monkeypatch):
   monkeypatch.setattr(storage_module, "measure_recordable_bytes", lambda root: 10 * TAKE_BYTES_PER_S)
-  assert StorageMonitor(tmp_path).remaining_s() == 10.0
+  assert StorageMonitor(tmp_path, bytes_per_s=TAKE_BYTES_PER_S).remaining_s() == 10.0
 
   monkeypatch.setattr(storage_module, "measure_recordable_bytes", lambda root: -1)
-  assert StorageMonitor(tmp_path).remaining_s() == 0.0
+  assert StorageMonitor(tmp_path, bytes_per_s=TAKE_BYTES_PER_S).remaining_s() == 0.0
+
+
+def test_remaining_time_tracks_changed_camcorder_settings(tmp_path: Path, monkeypatch):
+  rates = iter((1_000, 2_000))
+  monkeypatch.setattr(storage_module, "measure_recordable_bytes", lambda root: 10_000)
+  monkeypatch.setattr(storage_module, "take_bytes_per_s", lambda: next(rates))
+  monitor = StorageMonitor(tmp_path, check_interval_s=0)
+
+  assert monitor.remaining_s() == 10.0
+  assert monitor.remaining_s() == 5.0
 
 
 def test_storage_monitor_measures_at_most_once_per_second(tmp_path: Path, monkeypatch):
@@ -105,7 +115,7 @@ def test_storage_monitor_measures_at_most_once_per_second(tmp_path: Path, monkey
   recordable = [GIB]
   measured = []
   monkeypatch.setattr(storage_module, "measure_recordable_bytes", lambda root: measured.append(root) or recordable[0])
-  monitor = StorageMonitor(tmp_path, clock=lambda: now[0])
+  monitor = StorageMonitor(tmp_path, clock=lambda: now[0], bytes_per_s=TAKE_BYTES_PER_S)
 
   monitor.start()
   recordable[0] = -1

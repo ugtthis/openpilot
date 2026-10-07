@@ -15,6 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from openpilot.system.camcorder.library import CAMCORDER_QUOTA_BYTES, clips_root, library_bytes
+from openpilot.system.camcorder.settings import CamcorderSettings
 from openpilot.system.loggerd.config import MIN_STORAGE_BYTES, MIN_STORAGE_PERCENT
 
 CHECK_INTERVAL_S = 1.0
@@ -26,6 +27,11 @@ HEVC_BYTES_PER_S = 5_000_000 // 8  # encoderd's main-camera bitrate
 PREVIEW_BYTES_PER_S = 750_000  # JPEG previews measured 0.46-0.59 MB/s
 AUDIO_BYTES_PER_S = 48_000 * 2 * 2  # 48 kHz stereo int16
 TAKE_BYTES_PER_S = HEVC_BYTES_PER_S + PREVIEW_BYTES_PER_S + AUDIO_BYTES_PER_S
+
+
+def take_bytes_per_s(settings: CamcorderSettings | None = None) -> int:
+  selected = settings or CamcorderSettings.load()
+  return selected.bitrate // 8 + PREVIEW_BYTES_PER_S + AUDIO_BYTES_PER_S
 
 
 class StorageFullError(RuntimeError):
@@ -56,14 +62,17 @@ class StorageMonitor:
   """Measure recordable space at most once per interval; takes and the time-left chip share it."""
 
   def __init__(self, root: Path | None = None, check_interval_s: float = CHECK_INTERVAL_S,
-               clock: Callable[[], float] = time.monotonic):
+               clock: Callable[[], float] = time.monotonic, bytes_per_s: int | None = None):
     self.root = root
     self.check_interval_s = check_interval_s
     self._clock = clock
+    self._bytes_per_s_override = bytes_per_s
+    self._take_bytes_per_s = bytes_per_s or TAKE_BYTES_PER_S
     self._last_check: float | None = None
     self._recordable_bytes = 0
 
   def start(self) -> None:
+    self._take_bytes_per_s = self._bytes_per_s_override or take_bytes_per_s()
     root = self.root or clips_root()
     root.mkdir(parents=True, exist_ok=True)
     (root / ".finalize-reserve").unlink(missing_ok=True)  # remove the old reservation scheme
@@ -74,7 +83,10 @@ class StorageMonitor:
     return self._recordable() >= 0
 
   def remaining_s(self) -> float:
-    return max(0, self._recordable()) / TAKE_BYTES_PER_S
+    # camcorderd publishes this while the settings sheet is open. It stays
+    # alive across sensor-mode changes, so refresh the selected rate here.
+    bytes_per_s = self._bytes_per_s_override or take_bytes_per_s()
+    return max(0, self._recordable()) / bytes_per_s
 
   def _recordable(self) -> int:
     if self._last_check is None or self._clock() - self._last_check >= self.check_interval_s:

@@ -15,8 +15,7 @@ _PARTIAL_FILENAME = "video.hevc.partial"
 _INDEX_FILENAME = "video.index.partial"
 _INFO_FILENAME = "video.info"
 _INDEX = struct.Struct("<QQ")  # complete byte offset, timestamp
-# encoderd runs every camera at 20 fps.
-_FRAME_NS = 50_000_000
+_DEFAULT_FPS = 20
 
 
 def _hevc_track(clip_path: Path) -> JournaledTrack:
@@ -37,16 +36,18 @@ class MasterInfo:
   gap_count: int = 0
   dropped_frame_count: int = 0
   last_timestamp_ns: int = 0
+  fps: int = _DEFAULT_FPS
 
   @property
   def end_ns(self) -> int:
     """When the last frame stops showing, on the frame timestamp clock."""
-    return self.last_timestamp_ns + _FRAME_NS
+    return self.last_timestamp_ns + round(1e9 / self.fps)
 
 
 class HevcWriter:
-  def __init__(self, clip_path: Path):
+  def __init__(self, clip_path: Path, fps: int = _DEFAULT_FPS):
     self._clip_path = clip_path
+    self._fps = fps
     self._track = _hevc_track(clip_path)
     self._partial = self._track.live_path()
     self._index_path = clip_path / _INDEX_FILENAME
@@ -72,7 +73,7 @@ class HevcWriter:
     if not self._started:
       if not keyframe or not header:
         return
-      write_json_atomic(self._info_path, {"width": width, "height": height})
+      write_json_atomic(self._info_path, {"width": width, "height": height, "fps": self._fps})
       self._started = True
     if keyframe and header:
       self._file.write(header)
@@ -127,10 +128,12 @@ def _publish(clip_path: Path, end_ns: int | None = None) -> MasterInfo | None:
     return None
   output, = track.publish([frames[-1][0]])
   timestamps = [timestamp for _, timestamp in frames]
-  drops = [round((current - previous) / _FRAME_NS) - 1 for previous, current in pairwise(timestamps)]
+  fps = int(info.get("fps", _DEFAULT_FPS))
+  frame_ns = round(1e9 / fps)
+  drops = [round((current - previous) / frame_ns) - 1 for previous, current in pairwise(timestamps)]
   drops = [dropped for dropped in drops if dropped > 0]
   return MasterInfo(output.name, int(info["width"]), int(info["height"]), len(frames),
-                    timestamps[0], len(drops), sum(drops), timestamps[-1])
+                    timestamps[0], len(drops), sum(drops), timestamps[-1], fps)
 
 
 def recover_hevc(clip_path: Path) -> MasterInfo | None:

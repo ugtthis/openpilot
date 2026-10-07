@@ -543,6 +543,18 @@ class TestCamcorderClips(OpenpilotTestCase):
       assert master.end_ns == 1_150_000_000
       assert (path / "video.hevc").read_bytes() == b"H100010501100"
 
+  def test_hevc_timing_uses_the_selected_frame_rate(self):
+    with TemporaryDirectory() as directory:
+      writer = HevcWriter(Path(directory), fps=60)
+      for timestamp_ns in (1_000_000_000, 1_016_666_667, 1_050_000_000):
+        writer.add_packet(b"H", b"frame", timestamp_ns == 1_000_000_000,
+                          2688, 1520, timestamp_ns=timestamp_ns)
+      master = writer.finalize()
+      assert master is not None
+      assert master.fps == 60
+      assert master.end_ns == 1_066_666_667
+      assert (master.gap_count, master.dropped_frame_count) == (1, 1)
+
   def test_audio_ends_exactly_at_the_clip_end(self):
     with TemporaryDirectory() as directory:
       packet = np.ones(5, dtype=np.int16).tobytes()
@@ -569,6 +581,14 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert clip.frame_count == 3
     with ClipReader(clip) as reader:
       assert reader.frame(2).shape == (CLIP_HEIGHT, CLIP_WIDTH, 3)
+
+  def test_clip_metadata_records_capture_fps_and_bitrate(self):
+    writer = ClipWriter(WIDE_ROAD_CAMERA, fps=60, bitrate=80_000_000)
+    writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
+    clip = writer.finalize()
+    assert clip is not None
+    assert (clip.fps, clip.bitrate) == (60, 80_000_000)
+    assert json.loads((clip.path / "clip.json").read_text())["bitrate"] == 80_000_000
 
   def test_all_journaled_tracks_recover_only_complete_units_at_every_boundary(self):
     with TemporaryDirectory() as directory:

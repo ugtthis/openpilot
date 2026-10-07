@@ -66,6 +66,7 @@ class Clip:
   fps: int = field(metadata={_META_DEFAULT: CLIP_FPS})
   frame_count: int
   duration_s: float = field(metadata={_META_DEFAULT: 0.0})
+  bitrate: int = 0
   media_type: str = field(default="video", metadata={_META_ALWAYS: True})
   preview_contains_full_frame: bool = field(
     default=False, metadata={_META_ALIASES: ("preview_uncropped",), _META_ALWAYS: True},

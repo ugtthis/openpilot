@@ -30,6 +30,7 @@ from openpilot.system.camcorder.clip_storage import (
   Clip, ClipWriter, extract_clip_rgb, preview_size,
 )
 from openpilot.system.camcorder.hevc_writer import HevcWriter
+from openpilot.system.camcorder.settings import CamcorderSettings
 from openpilot.system.camcorder.storage import StorageFullError, StorageMonitor
 from openpilot.system.camcorder.timing import boot_time_ns
 from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_encoder
@@ -66,6 +67,8 @@ class ClipRecorder:
     self._stop = threading.Event()
     self._preview_ready = threading.Event()
     self._started_mono = 0.0
+    self._fps = 20
+    self._bitrate = 5_000_000
     self._stop_mono_ns = 0
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self._preview: ClipWriter | None = None
@@ -173,6 +176,11 @@ class ClipRecorder:
       self._capture_failure = CaptureFailure.NONE
     self._stream_type = stream_type
     self._started_mono = (recording_start_mono_ns or boot_time_ns()) / 1e9
+    # The applied mode, not a just-changed setting manager hasn't switched to yet.
+    settings = CamcorderSettings.applied()
+    wide = stream_type == VisionStreamType.VISION_STREAM_WIDE_ROAD
+    self._fps = settings.frame_rate if wide else 20
+    self._bitrate = settings.bitrate if wide else 5_000_000
     try:
       self._storage.start()
       acquire_encoder()
@@ -335,6 +343,8 @@ class ClipRecorder:
 
     client = VisionIpcClient("camerad", self._stream_type, conflate=True)
     camera = camera_for_stream(self._stream_type)
+    next_preview_ms = 0
+    preview_tolerance_ms = (500 + self._fps - 1) // self._fps
     try:
       while not self._stop.is_set() and not (client.is_connected() and client.num_buffers):
         client.connect(False)
@@ -350,15 +360,20 @@ class ClipRecorder:
             press_ns = int(self._started_mono * 1e9)
             width, height = preview_size(buf.width, buf.height)
             self._preview = ClipWriter(camera,
-                                       width, height, preview_contains_full_frame=True,
-                                       recording_start_mono_ns=press_ns)
+                                       width, height, fps=self._fps, preview_contains_full_frame=True,
+                                       recording_start_mono_ns=press_ns, bitrate=self._bitrate)
             self._mic.attach(self._preview.path, press_ns)
             self._preview_ready.set()
           preview = self._preview
+        t_ms = int((time.monotonic() - self._started_mono) * 1000)
+        if t_ms + preview_tolerance_ms < next_preview_ms:
+          continue
+        next_preview_ms += 50
+        while next_preview_ms <= t_ms:
+          next_preview_ms += 50
         rgb = extract_clip_rgb(buf.data, buf.width, buf.height, buf.stride, buf.uv_offset,
                                out_w=preview.width, out_h=preview.height,
                                flip_h=camera.flip_h, enhance=camera.enhance, crop_aspect=None)
-        t_ms = int((time.monotonic() - self._started_mono) * 1000)
         with self._lock:
           preview.add_frame(rgb, t_ms)
     except Exception as exc:
@@ -409,7 +424,7 @@ class ClipRecorder:
       if self._preview is None:
         return 0
       if self._hevc is None:
-        self._hevc = HevcWriter(self._preview.path)
+        self._hevc = HevcWriter(self._preview.path, self._fps)
       hevc = self._hevc
     for encoded in encoded_frames:
       hevc.add_encoded(encoded)
