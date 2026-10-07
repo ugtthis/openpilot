@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <array>
 #include <cmath>
 
 #include "system/camerad/sensors/sensor.h"
@@ -21,7 +23,7 @@ const uint32_t os04c10_analog_gains_reg[] = {
 
 }  // namespace
 
-OS04C10::OS04C10() {
+OS04C10::OS04C10(const std::string &mode) {
   image_sensor = cereal::FrameData::ImageSensor::OS04C10;
   bayer_pattern = CAM_ISP_PATTERN_BAYER_BGBGBG;
   pixel_size_mm = 0.002;
@@ -55,6 +57,58 @@ OS04C10::OS04C10() {
   dc_gain_off_grey = 1.0;
   exposure_time_min = 2;
   exposure_time_max = 2352;
+
+  const bool full_resolution = mode == "2688x1520@20" || mode == "2688x1520@30" || mode == "2688x1520@60";
+  const bool raw10 = mode == "1344x760@30" || mode == "1344x760@60" ||
+                     mode == "2688x1520@30" || mode == "2688x1520@60";
+  const int mode_fps = mode.size() >= 3 && mode.compare(mode.size() - 3, 3, "@60") == 0 ? 60 :
+                       (mode.size() >= 3 && mode.compare(mode.size() - 3, 3, "@30") == 0 ? 30 : 20);
+
+  if (full_resolution) {
+    out_scale = 1;
+  }
+  if (raw10) {
+    // Stock is an FSIN slave. Public free-running linear tables leave these
+    // registers at their reset values (0x3829 is the one exception), so don't
+    // layer stock's slave configuration underneath the faster mode.
+    constexpr std::array<uint16_t, 11> fsin_registers = {
+      0x3002, 0x3663, 0x368a, 0x3822, 0x3823, 0x3832,
+      0x382c, 0x3844, 0x3843, 0x382a, 0x382b,
+    };
+    init_reg_array.erase(std::remove_if(init_reg_array.begin(), init_reg_array.end(), [&fsin_registers](const auto &reg) {
+      return std::find(fsin_registers.begin(), fsin_registers.end(), reg.reg_addr) != fsin_registers.end();
+    }), init_reg_array.end());
+
+    // Public Rockchip/CVITEK/Ingenic tables all use this bit-depth selector
+    // and ADC ramp. Keeping 0x0306=1 and 0x4837=0x15 preserves comma's
+    // four-lane 728 Mbps link while HTS=1070 halves the row time.
+    const i2c_random_wr_payload raw10_overrides[] = {
+      {0x0301, 0x84}, {0x0305, 0x5b}, {0x0306, 0x01},
+      {0x301f, 0xd0}, {0x3022, 0x01},
+      {0x3706, 0x4a}, {0x370a, 0x00}, {0x370b, 0xa2},
+      {0x3741, 0x4a}, {0x3743, 0x4a}, {0x3745, 0x4a}, {0x3747, 0x4a},
+      {0x3748, 0x00}, {0x374a, 0x00}, {0x374c, 0x00}, {0x374e, 0x00},
+      {0x3749, 0xa2}, {0x374b, 0xa2}, {0x374d, 0xa2}, {0x374f, 0xa2},
+      {0x378d, 0x30}, {0x3790, 0x4a}, {0x3791, 0xa2},
+    };
+    init_reg_array.insert(init_reg_array.end(), std::begin(raw10_overrides), std::end(raw10_overrides));
+
+    // The 30 fps mode can retain the long, stripe-free row timing. 60 fps
+    // needs the short 1070-pixel line and its corresponding VTS.
+    const int hts = mode_fps == 60 ? 1070 : 2140;
+    const int vts = 1573;
+    init_reg_array.push_back({0x380c, static_cast<uint16_t>(hts >> 8)});
+    init_reg_array.push_back({0x380d, static_cast<uint16_t>(hts & 0xff)});
+    init_reg_array.push_back({0x380e, static_cast<uint16_t>(vts >> 8)});
+    init_reg_array.push_back({0x380f, static_cast<uint16_t>(vts & 0xff)});
+    frame_stride = frame_width * 10 / 8;
+    bits_per_pixel = 10;
+    mipi_format = CAM_FORMAT_MIPI_RAW_10;
+    frame_data_type = CSI_RAW10;
+    exposure_time_max = vts - 43;
+    frame_period_s = 1.0f / mode_fps;
+    externally_synchronized = false;
+  }
   analog_gain_min_idx = 0x0;
   analog_gain_rec_idx = 0x0;  // 1x
   analog_gain_max_idx = 0x28;

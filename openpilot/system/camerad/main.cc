@@ -10,6 +10,8 @@ int main(int argc, char *argv[]) {
   int ret = util::set_core_affinity({6});
   assert(ret == 0 || Params().getBool("IsOffroad")); // failure ok while offroad due to offlining cores
 
-  camerad_thread();
+  std::string wide_sensor_mode = Params().get("CamcorderSensorMode");
+  if (wide_sensor_mode.empty()) wide_sensor_mode = "stock";
+  camerad_thread(wide_sensor_mode);
   return 0;
 }

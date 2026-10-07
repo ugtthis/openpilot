@@ -45,7 +45,8 @@ public:
   float fl_pix = 0;
   std::unique_ptr<PubMaster> pm;
 
-  CameraState(SpectraMaster *master, const CameraConfig &config) : camera(master, config) {};
+  CameraState(SpectraMaster *master, const CameraConfig &config, const std::string &wide_sensor_mode)
+    : camera(master, config, wide_sensor_mode) {};
   ~CameraState();
   void init(VisionIpcServer *v);
   void update_exposure_score(float desired_ev, int exp_t, int exp_g_idx, float exp_gain);
@@ -117,7 +118,7 @@ void CameraState::set_camera_exposure(float grey_frac) {
   if (!camera.enabled) return;
   std::vector<double> target_grey_minimums = {0.1, 0.1, 0.125}; // wide, road, driver
 
-  const float dt = 0.05;
+  const float dt = camera.sensor->frame_period_s;
 
   const float ts_grey = 10.0;
   const float ts_ev = 0.05;
@@ -244,7 +245,7 @@ void CameraState::sendState() {
   pm->send(camera.cc.publish_name, msg);
 }
 
-void camerad_thread() {
+void camerad_thread(const std::string &wide_sensor_mode) {
   // TODO: centralize enabled handling
 
   VisionIpcServer v("camerad");
@@ -256,7 +257,7 @@ void camerad_thread() {
   // *** per-cam init ***
   std::vector<std::unique_ptr<CameraState>> cams;
   for (const auto &config : ALL_CAMERA_CONFIGS) {
-    auto cam = std::make_unique<CameraState>(&m, config);
+    auto cam = std::make_unique<CameraState>(&m, config, wide_sensor_mode);
     cam->init(&v);
     cams.emplace_back(std::move(cam));
   }

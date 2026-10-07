@@ -231,10 +231,11 @@ void SpectraMaster::init() {
 
 // *** SpectraCamera ***
 
-SpectraCamera::SpectraCamera(SpectraMaster *master, const CameraConfig &config)
+SpectraCamera::SpectraCamera(SpectraMaster *master, const CameraConfig &config, const std::string &wide_sensor_mode)
   : m(master),
     enabled(config.enabled),
-    cc(config) {
+    cc(config),
+    wide_sensor_mode(wide_sensor_mode) {
   ife_buf_depth = VIPC_BUFFER_COUNT;
   assert(ife_buf_depth < MAX_IFE_BUFS);
 }
@@ -276,6 +277,9 @@ int SpectraCamera::clear_req_queue() {
 void SpectraCamera::camera_open(VisionIpcServer *v) {
   if (!openSensor()) {
     return;
+  }
+  if (!sensor->externally_synchronized) {
+    free_running_cameras.insert(cc.camera_num);
   }
 
   if (!enabled) return;
@@ -1046,7 +1050,7 @@ bool SpectraCamera::openSensor() {
   };
 
   // Figure out which sensor we have
-  if (!init_sensor_lambda(new OS04C10) &&
+  if (!init_sensor_lambda(new OS04C10(cc.camera_num == WIDE_ROAD_CAMERA_CONFIG.camera_num ? wide_sensor_mode : "stock")) &&
       !init_sensor_lambda(new OX03C10)) {
     LOGE("** sensor %d FAILED bringup, disabling", cc.camera_num);
     enabled = false;
@@ -1513,7 +1517,13 @@ bool SpectraCamera::waitForFrameReady(uint64_t request_id) {
 }
 
 bool SpectraCamera::processFrame(int buf_idx, uint64_t request_id, uint64_t ife_frame_id, uint64_t timestamp) {
-  if (!syncFirstFrame(cc.camera_num, request_id, ife_frame_id, timestamp, cc.staggered_sof)) {
+  if (!sensor->externally_synchronized) {
+    auto [it, inserted] = camera_sync_data.try_emplace(
+      cc.camera_num, SyncData{timestamp, ife_frame_id, cc.staggered_sof});
+    if (inserted) {
+      LOGW("free-running camera %d starts on frame_id_offset %ld", cc.camera_num, it->second.frame_id_offset);
+    }
+  } else if (!syncFirstFrame(cc.camera_num, request_id, ife_frame_id, timestamp, cc.staggered_sof)) {
     return false;
   }
 
@@ -1540,8 +1550,14 @@ bool SpectraCamera::syncFirstFrame(int camera_id, uint64_t request_id, uint64_t 
 
   // Ensure all cameras are up
   int enabled_camera_count = std::count_if(std::begin(ALL_CAMERA_CONFIGS), std::end(ALL_CAMERA_CONFIGS),
-                                           [](const auto &config) { return config.enabled; });
-  bool all_cams_up = camera_sync_data.size() == enabled_camera_count;
+                                           [](const auto &config) {
+                                             return config.enabled && free_running_cameras.find(config.camera_num) == free_running_cameras.end();
+                                           });
+  int synced_camera_count = std::count_if(camera_sync_data.begin(), camera_sync_data.end(),
+                                          [](const auto &item) {
+                                            return free_running_cameras.find(item.first) == free_running_cameras.end();
+                                          });
+  bool all_cams_up = synced_camera_count == enabled_camera_count;
 
   // Check that camera timestamps are properly aligned:
   // - non-staggered cameras should be within 0.2ms of each other
@@ -1550,7 +1566,7 @@ bool SpectraCamera::syncFirstFrame(int camera_id, uint64_t request_id, uint64_t 
   const uint64_t tolerance_ns = 200000ULL;           // 0.2ms
   bool all_cams_synced = true;
   for (const auto &[cam, sync_data] : camera_sync_data) {
-    if (cam == camera_id) continue;
+    if (cam == camera_id || free_running_cameras.find(cam) != free_running_cameras.end()) continue;
     uint64_t diff = std::max(timestamp, sync_data.timestamp) -
                     std::min(timestamp, sync_data.timestamp);
     bool pair_staggered = staggered != sync_data.staggered;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "openpilot/cereal/messaging/messaging.h"
 #include "msgq/visionipc/visionipc_server.h"
@@ -40,7 +41,7 @@ public:
   void sendFrameToVipc();
 };
 
-void camerad_thread();
+void camerad_thread(const std::string &wide_sensor_mode);
 kj::Array<uint8_t> get_raw_frame_image(const CameraBuf *b);
 float calculate_exposure_value(const CameraBuf *b, Rect ae_xywh, int x_skip, int y_skip);
 int open_v4l_by_name_and_index(const char name[], int index = 0, int flags = O_RDWR | O_NONBLOCK);

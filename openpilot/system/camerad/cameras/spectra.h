@@ -5,6 +5,8 @@
 #include <memory>
 #include <queue>
 #include <optional>
+#include <set>
+#include <string>
 #include <utility>
 
 #include "media/cam_req_mgr.h"
@@ -133,7 +135,7 @@ public:
 
 class SpectraCamera {
 public:
-  SpectraCamera(SpectraMaster *master, const CameraConfig &config);
+  SpectraCamera(SpectraMaster *master, const CameraConfig &config, const std::string &wide_sensor_mode);
   ~SpectraCamera();
 
   void camera_open(VisionIpcServer *v);
@@ -213,6 +215,7 @@ public:
 
   CameraBuf buf;
   SpectraMaster *m;
+  std::string wide_sensor_mode;
 
 private:
   void clearAndRequeue(uint64_t from_request_id);
@@ -226,6 +229,7 @@ private:
     bool staggered = false;
   };
   inline static std::map<int, SyncData> camera_sync_data;
+  inline static std::set<int> free_running_cameras;
   inline static bool first_frame_synced = false;
 
   // a mode for stressing edge cases: realignment, sync failures, etc.
