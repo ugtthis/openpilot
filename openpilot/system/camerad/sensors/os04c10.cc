@@ -145,6 +145,30 @@ OS04C10::OS04C10(const std::string &mode) {
     0x00003fff, 0x00003fff, 0x00003fff, 0x00003fff,
   };
   linearization_pts = {0x07ff0bff, 0x17ff1bff, 0x23ff3fff, 0x3fff3fff};
+  if (raw10) {
+    // RAW10 reaches the IFE aligned like 12-bit data (0..0x0ffc), not the 14-bit range
+    // the stock curve and black-level offset assume: highlights topped out at ~25% of
+    // the pipeline and black_level << 4 subtracted 4x too much (crushed, hazy shadows
+    // that also amplified the column pattern). Subtract black here, as the BPS path
+    // does, and stretch black..0x0ffc to the full 0..0x3fff.
+    constexpr uint32_t data_max = 0x0ffc;
+    constexpr uint32_t black = 240;  // measured ~253 at minimum exposure; small pedestal like stock
+    const uint32_t slope_q11 = std::lround(0x3fff * 2048.0 / (data_max - black));
+    linearization_pts = {(black << 16) | data_max, 0x3fff3fff, 0x3fff3fff, 0x3fff3fff};
+    for (int ch = 0; ch < 4; ch++) {
+      linearization_lut[ch] = 0;
+      linearization_lut[4 + ch] = slope_q11 << 14;
+      for (int seg = 2; seg < 9; seg++) linearization_lut[seg * 4 + ch] = 0x3fff;
+    }
+    black_level = 0;
+
+    // The blue output row (-0.70, 1.70, 0) goes negative on bright warm pixels and the
+    // IFE wraps it to full scale instead of clamping: lavender/pink speckles in
+    // highlights. An identity blue row cannot go negative (red and green rows unchanged).
+    color_correct_matrix[3] = 0x000;
+    color_correct_matrix[4] = 0x080;
+    color_correct_matrix[5] = 0x000;
+  }
   vignetting_lut = {
     0x01064832, 0x00da26d1, 0x00bb25d9, 0x00aac556, 0x00a06503, 0x009a64d3, 0x009744ba, 0x009744ba, 0x009a24d1, 0x00a00500, 0x00aa2551, 0x00ba45d2, 0x00d826c1, 0x01040820, 0x013729b9, 0x0171ab8d, 0x01b36d9b,
     0x00eee777, 0x00c2c616, 0x00ae2571, 0x009fe4ff, 0x0096e4b7, 0x0090e487, 0x008d446a, 0x008d2469, 0x0090a485, 0x009684b4, 0x009f64fb, 0x00ad456a, 0x00c1a60d, 0x00eca765, 0x011fc8fe, 0x015a4ad2, 0x019c0ce0,
@@ -166,11 +190,34 @@ std::vector<i2c_random_wr_payload> OS04C10::getExposureRegisters(int exposure_ti
   uint32_t long_time = exposure_time;
   uint32_t real_gain = os04c10_analog_gains_reg[new_exp_g];
 
-  return {
+  std::vector<i2c_random_wr_payload> regs = {
     {0x3501, long_time>>8}, {0x3502, long_time&0xFF},
-    {0x3508, real_gain>>8}, {0x3509, real_gain&0xFF},
-    {0x350c, real_gain>>8}, {0x350d, real_gain&0xFF},
   };
+  if (bits_per_pixel == 10) {
+    // In RAW10 the fine analog stage above ~1.31x of each 2x octave adds a large
+    // black pedestal instead of gain (measured: black floor 18 -> 139 of 255 as fine
+    // gain goes 1.31x -> 1.94x, clean again at every octave). Cap the fine part and
+    // make up the rest with sensor digital gain (0x350a/b, 1024 = 1x), which is clean.
+    const float total = sensor_analog_gains_OS04C10[new_exp_g];
+    const float octave = std::exp2(std::floor(std::log2(total)));
+    const uint32_t analog = std::lround(octave * std::min(total / octave, 1.3125f) * 128);
+    const uint32_t digital = std::lround(total * 128 / analog * 1024);
+    real_gain = analog;
+    regs.push_back({0x350a, digital >> 8});
+    regs.push_back({0x350b, digital & 0xFF});
+  }
+  regs.push_back({0x3508, real_gain >> 8});
+  regs.push_back({0x3509, real_gain & 0xFF});
+  regs.push_back({0x350c, real_gain >> 8});
+  regs.push_back({0x350d, real_gain & 0xFF});
+  if (!externally_synchronized) {
+    // A free-running sensor can latch a frame boundary between the high and low
+    // bytes (e.g. gain 0x0f8 -> 0x100 briefly reads as 0x1f8, ~2x brighter).
+    // Group hold 0 makes the sensor apply the whole update at one frame start.
+    regs.insert(regs.begin(), {0x3208, 0x00});
+    regs.insert(regs.end(), {{0x3208, 0x10}, {0x320d, 0x00}, {0x3208, 0xa0}});
+  }
+  return regs;
 }
 
 int OS04C10::getSlaveAddress(int port) const {

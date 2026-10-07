@@ -34,6 +34,7 @@ public:
   float analog_gain_frac = 0;
 
   float cur_ev[3] = {};
+  uint32_t ae_step = 0;  // AE update count, indexes cur_ev when AE is decimated
   float best_ev_score = 0;
   int new_exp_g = 0;
   int new_exp_t = 0;
@@ -53,6 +54,13 @@ public:
   void set_camera_exposure(float grey_frac);
   void set_exposure_rect();
   void sendState();
+
+  // The AE loop below is tuned for one update per 20 Hz frame and ~3 updates of
+  // latency. Faster modes run it at that same rate; at 60 Hz every frame, more
+  // commands are in flight than it models and it oscillates (visible flashing).
+  int ae_stride() const {
+    return std::max(1, (int)std::lround(0.05f / camera.sensor->frame_period_s));
+  }
 
   float get_gain_factor() const {
     return (1 + dc_gain_weight * (camera.sensor->dc_gain_factor-1) / camera.sensor->dc_gain_max_weight);
@@ -118,7 +126,10 @@ void CameraState::set_camera_exposure(float grey_frac) {
   if (!camera.enabled) return;
   std::vector<double> target_grey_minimums = {0.1, 0.1, 0.125}; // wide, road, driver
 
-  const float dt = camera.sensor->frame_period_s;
+  const int stride = ae_stride();
+  const float dt = camera.sensor->frame_period_s * stride;
+  // Stock (stride 1) keeps indexing by frame id, exactly as before.
+  const uint32_t step = stride == 1 ? camera.buf.cur_frame_data.frame_id : ae_step++;
 
   const float ts_grey = 10.0;
   const float ts_ev = 0.05;
@@ -133,7 +144,7 @@ void CameraState::set_camera_exposure(float grey_frac) {
 
   const auto &sensor = camera.sensor;
   // Offset idx by one to not get stuck in self loop
-  const float cur_ev_ = cur_ev[(camera.buf.cur_frame_data.frame_id - 1) % 3] * sensor->ev_scale;
+  const float cur_ev_ = cur_ev[(step - 1) % 3] * sensor->ev_scale;
 
   // Scale target grey between min and 0.4 depending on lighting conditions
   float new_target_grey = std::clamp(0.4 - 0.3 * log2(1.0 + sensor->target_grey_factor*cur_ev_) / log2(6000.0), target_grey_minimums[camera.cc.camera_num], 0.4);
@@ -204,7 +215,7 @@ void CameraState::set_camera_exposure(float grey_frac) {
   dc_gain_enabled = enable_dc_gain;
 
   float gain = analog_gain_frac * get_gain_factor();
-  cur_ev[camera.buf.cur_frame_data.frame_id % 3] = exposure_time * gain;
+  cur_ev[step % 3] = exposure_time * gain;
 
   // LOGE("ae - camera %d, cur_t %.5f, sof %.5f, dt %.5f", camera.cc.camera_num, 1e-9 * nanos_since_boot(), 1e-9 * camera.buf.cur_frame_data.timestamp_sof, 1e-9 * (nanos_since_boot() - camera.buf.cur_frame_data.timestamp_sof));
 
@@ -229,7 +240,7 @@ void CameraState::sendState() {
   framed.setTargetGreyFraction(target_grey_fraction);
   framed.setProcessingTime(meta.processing_time);
 
-  const float ev = cur_ev[meta.frame_id % 3];
+  const float ev = cur_ev[(ae_stride() == 1 ? meta.frame_id : ae_step + 2) % 3];
   const float perc = util::map_val(ev, camera.sensor->min_ev, camera.sensor->max_ev, 0.0f, 100.0f);
   framed.setExposureValPercent(perc);
   framed.setSensor(camera.sensor->image_sensor);
@@ -239,7 +250,9 @@ void CameraState::sendState() {
     framed.setImage(get_raw_frame_image(&camera.buf));
   }
 
-  set_camera_exposure(calculate_exposure_value(&camera.buf, ae_xywh, 2, camera.cc.stream_type != VISION_STREAM_CABIN ? 2 : 4));
+  if (meta.frame_id % ae_stride() == 0) {
+    set_camera_exposure(calculate_exposure_value(&camera.buf, ae_xywh, 2, camera.cc.stream_type != VISION_STREAM_CABIN ? 2 : 4));
+  }
 
   // Send the message
   pm->send(camera.cc.publish_name, msg);
