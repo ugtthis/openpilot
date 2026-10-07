@@ -8,7 +8,7 @@ from openpilot.system.manager.manager import (
   camcorder_stock_required, desired_camcorder_sensor_mode, drive_start_restarted_processes, ignition_blocked_processes, update_camcorder_sensor_mode,
 )
 from openpilot.system.manager.process import ManagerProcess, ensure_running
-from openpilot.system.manager.process_config import camera_encoding, camcorder_capture, microphone_capture
+from openpilot.system.manager.process_config import camera_encoding, camcorder_capture, managed_processes
 
 
 class FakeProcess(ManagerProcess):
@@ -36,9 +36,17 @@ def test_offroad_leases_request_capture_processes():
     patch("openpilot.system.manager.process_config.camcorder_requested", return_value=True),
   ):
     assert camera_encoding(False, params, CP)
-    assert not microphone_capture(False, params, CP)
     assert camcorder_capture(False, params, CP)
+    assert managed_processes["camerad"].should_run(False, params, CP)
   assert ignition_blocked_processes(started=False, ignition=False) == []
+
+
+def test_camerad_stays_off_offroad_without_a_viewer(tmp_path):
+  CP = car.CarParams.new_message()
+  params = Params(str(tmp_path / "params"))
+  with patch("openpilot.system.manager.process_config.camcorder_requested", return_value=False):
+    assert not managed_processes["camerad"].should_run(False, params, CP)
+    assert managed_processes["camerad"].should_run(True, params, CP)
 
 
 def test_ignition_blocks_lease_started_processes_until_onroad():
@@ -76,7 +84,7 @@ def test_started_uses_normal_onroad_process_predicates_without_leases():
     patch("openpilot.system.manager.process_config.camcorder_requested", return_value=False),
   ):
     assert camera_encoding(True, params, CP)
-    assert microphone_capture(True, params, CP)
+    assert managed_processes["camerad"].should_run(True, params, CP)
     assert not camcorder_capture(True, params, CP)
 
 

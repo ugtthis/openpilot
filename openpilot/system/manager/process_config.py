@@ -60,11 +60,11 @@ def only_onroad(started: bool, params: Params, CP: car.CarParams) -> bool:
 def camera_encoding(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started or encoder_requested()
 
-def microphone_capture(started: bool, params: Params, CP: car.CarParams) -> bool:
-  return iscar(started, params, CP)
-
 def camcorder_capture(started: bool, params: Params, CP: car.CarParams) -> bool:
   return camcorder_requested()
+
+def camera_capture(started: bool, params: Params, CP: car.CarParams) -> bool:
+  return driverview(started, params, CP) or livestream(started, params, CP) or camcorder_requested()
 
 def only_offroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return not started
@@ -86,12 +86,11 @@ procs = [
   NativeProcess("stream_encoderd", "openpilot/system/loggerd", ["./encoderd", "--stream"], or_(livestream, notcar)),
   PythonProcess("logmessaged", "openpilot.system.logmessaged", always_run),
 
-  # Viewfinder is used offroad, so camerad cannot wait for ignition.
-  NativeProcess("camerad", "openpilot/system/camerad", ["./camerad"], always_run, enabled=not WEBCAM),
+  NativeProcess("camerad", "openpilot/system/camerad", ["./camerad"], camera_capture, enabled=not WEBCAM),
   PythonProcess("webcamerad", "openpilot.system.camerad.webcam.camerad", driverview, enabled=WEBCAM),
   PythonProcess("proclogd", "openpilot.system.proclogd", only_onroad, enabled=platform.system() != "Darwin"),
   PythonProcess("journald", "openpilot.system.journald", only_onroad, platform.system() != "Darwin"),
-  PythonProcess("micd", "openpilot.system.micd", microphone_capture),
+  PythonProcess("micd", "openpilot.system.micd", iscar),
   PythonProcess("camcorderd", "openpilot.system.camcorder.camcorderd", camcorder_capture, restart=True),
   PythonProcess("timed", "openpilot.system.timed", always_run, enabled=not PC),
 
