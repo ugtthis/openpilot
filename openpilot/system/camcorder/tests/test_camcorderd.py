@@ -251,28 +251,54 @@ def test_a_stalled_encoder_does_not_cut_audio_before_the_press():
   assert ends == {"video": 1_120_000_000, "audio": 1_120_000_000, "preview": 1_120_000_000}
 
 
-def test_finalization_salvages_other_tracks_when_one_writer_fails():
+def test_failed_video_finalization_discards_the_take_instead_of_saving_a_preview():
   class BrokenHevc:
     def finalize(self, end_ns):
       raise OSError("video write failed")
 
   class Preview:
-    def finalize(self, master, audio, end_ns):
-      assert master is None
-      assert audio == "audio"
-      assert end_ns == 123
-      return "clip"
+    aborted = False
 
-  mic = SimpleNamespace(finish=lambda end_ns: "audio")
+    def finalize(self, master, audio, end_ns):
+      raise AssertionError("a take without video must not be published")
+
+    def abort(self):
+      self.aborted = True
+
+  mic = SimpleNamespace(aborted=False)
+  mic.abort = lambda: setattr(mic, "aborted", True)
   recorder = ClipRecorder(mic=mic)
   recorder._warm = True
   recorder._state = RecorderState.RECORDING
-  recorder._preview = Preview()
+  preview = Preview()
+  recorder._preview = preview
   recorder._hevc = BrokenHevc()
 
-  assert recorder.stop(123) == "clip"
+  with patch("openpilot.system.camcorder.recorder.cloudlog.exception"):
+    assert recorder.stop(123) is None
   assert recorder.capture_error == "encoded video finalization failed: video write failed"
+  assert preview.aborted and mic.aborted
   assert not recorder.recording
+
+
+def test_take_whose_video_never_started_is_discarded():
+  class Preview:
+    aborted = False
+
+    def abort(self):
+      self.aborted = True
+
+  mic = SimpleNamespace(aborted=False)
+  mic.abort = lambda: setattr(mic, "aborted", True)
+  recorder = ClipRecorder(mic=mic)
+  recorder._warm = True
+  recorder._state = RecorderState.RECORDING
+  preview = Preview()
+  recorder._preview = preview
+
+  assert recorder.stop(123) is None
+  assert recorder.capture_error == "no encoded video was recorded"
+  assert preview.aborted and mic.aborted
 
 
 def test_take_asks_its_encoder_for_a_keyframe_until_video_starts(tmp_path):

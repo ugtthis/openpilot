@@ -35,6 +35,10 @@ def _recover_interrupted_clip(path: Path, meta: dict) -> Clip | None:
   if fps <= 0:
     return None
   master = recover_hevc(path)
+  if master is None:
+    # A preview with no video behind it is not a clip.
+    shutil.rmtree(path, ignore_errors=True)
+    return None
   audio = recover_audio(path)
   meta.update({
     "frame_count": frame_count,
@@ -42,9 +46,7 @@ def _recover_interrupted_clip(path: Path, meta: dict) -> Clip | None:
     "recovered": True,
     "recovery_error": "recording was interrupted",
   })
-  clip = clip_from_metadata(path, meta)
-  if master is not None:
-    clip = clip_with_master(clip, master)
+  clip = clip_with_master(clip_from_metadata(path, meta), master)
   if audio is not None:
     clip = clip_with_audio(clip, audio)
   write_clip_metadata(clip, "ready")

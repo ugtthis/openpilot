@@ -12,6 +12,7 @@ from openpilot.selfdrive.ui.mici.layouts.camcorder_style import PressTracker
 from openpilot.selfdrive.ui.mici.layouts.camcorder_view import CamcorderView, format_remaining
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout, SwipeLeftPage, camcorder_available
 from openpilot.selfdrive.ui.ui_state import device, ui_state
+from openpilot.system.camcorder.hevc_writer import MasterInfo
 from openpilot.system.camcorder.recorder import ClipRecorder, RecorderState
 from openpilot.system.ui.widgets import Widget
 
@@ -241,9 +242,10 @@ def test_ignition_stop_still_saves_the_take():
       self.finalized_with = args
       return self.result
 
+  master = MasterInfo("video.hevc", 1344, 760, 1)
   recorder = ClipRecorder(mic=cast(Any, _FakeMic("audio")))
   recorder._preview = cast(Any, Writer("clip"))
-  recorder._hevc = cast(Any, Writer(None))
+  recorder._hevc = cast(Any, Writer(master))
   preview = recorder._preview
 
   with patch("openpilot.system.camcorder.recorder.release_encoder"):
@@ -253,7 +255,7 @@ def test_ignition_stop_still_saves_the_take():
       time.sleep(0.01)
 
   assert recorder.state == RecorderState.IDLE
-  assert preview.finalized_with == (None, "audio", recorder._stop_mono_ns)
+  assert preview.finalized_with == (master, "audio", recorder._stop_mono_ns)
 
 
 def test_async_stop_thread_failure_remains_fail_safe():
@@ -328,6 +330,7 @@ def test_double_stop_finalizes_writers_once():
   preview = Preview()
   recorder = ClipRecorder(mic=cast(Any, mic))
   recorder._preview = cast(Any, preview)
+  recorder._hevc = cast(Any, SimpleNamespace(finalize=lambda end_ns: MasterInfo("video.hevc", 1344, 760, 1)))
   recorder._state = RecorderState.RECORDING
 
   with patch("openpilot.system.camcorder.recorder.release_encoder"):

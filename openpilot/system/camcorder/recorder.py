@@ -283,9 +283,17 @@ class ClipRecorder:
     except Exception as exc:
       self._set_capture_error(f"encoded video finalization failed: {exc}")
       cloudlog.exception("camcorder encoded video finalization failed")
+    if master is None:
+      # The preview alone plays on the device, but without video there is nothing to export.
+      self._set_capture_error("no encoded video was recorded")
+      self._mic.abort()
+      if preview is not None:
+        preview.abort()
+      self._finish_teardown_state()
+      return True, None
     # Workers keep writing until they notice the stop, so every track is cut to
     # one end: the press, extended to finish the last video frame shown across it.
-    end_ns = max(self._stop_mono_ns, master.end_ns if master is not None else 0)
+    end_ns = max(self._stop_mono_ns, master.end_ns)
     try:
       audio_info = self._mic.finish(end_ns)
     except Exception as exc:
