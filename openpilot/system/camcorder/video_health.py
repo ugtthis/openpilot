@@ -1,4 +1,8 @@
-"""Whether a camera's encoded video is actually arriving, judged by packet arrival times."""
+"""Whether a camera's encoded video is actually arriving, judged by packet arrival times.
+
+Before a take, VideoHealth decides when the shutter may be offered. During a
+take, take_video_error decides when the take must stop because its video did.
+"""
 
 import math
 import time
@@ -8,6 +12,19 @@ import time
 READY_AFTER_S = 0.3
 # Far longer than the gap between frames at any supported frame rate.
 STALE_AFTER_S = 0.5
+# A take whose encoder never produces a keyframe, or goes quiet, ends with an
+# error instead of saving a preview with no video behind it.
+VIDEO_START_TIMEOUT_S = 2.0
+VIDEO_STALL_TIMEOUT_S = 2.0
+
+
+def take_video_error(video_started: bool, take_age_s: float, packet_age_s: float) -> str:
+  """Why a running take must stop because of its video, or "" while the video is healthy."""
+  if not video_started and take_age_s > VIDEO_START_TIMEOUT_S:
+    return "encoded video did not start"
+  if video_started and packet_age_s > VIDEO_STALL_TIMEOUT_S:
+    return "encoded video stopped"
+  return ""
 
 
 class VideoHealth:

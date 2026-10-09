@@ -1,4 +1,6 @@
-from openpilot.system.camcorder.video_health import READY_AFTER_S, STALE_AFTER_S, VideoHealth
+from openpilot.system.camcorder.video_health import (
+  READY_AFTER_S, STALE_AFTER_S, VIDEO_STALL_TIMEOUT_S, VIDEO_START_TIMEOUT_S, VideoHealth, take_video_error,
+)
 
 FULL = (2688, 1520)
 STOCK = (1344, 760)
@@ -50,3 +52,12 @@ def test_packets_from_the_previous_mode_are_not_ready_for_the_new_one():
   last = _steady(health, FULL, last + 0.1, READY_AFTER_S)
   assert health.ready(FULL, now=last)
 
+
+def test_take_stops_when_its_video_never_starts():
+  assert take_video_error(False, take_age_s=VIDEO_START_TIMEOUT_S - 0.1, packet_age_s=99.0) == ""
+  assert take_video_error(False, take_age_s=VIDEO_START_TIMEOUT_S + 0.1, packet_age_s=99.0) == "encoded video did not start"
+
+
+def test_take_stops_when_its_video_goes_quiet():
+  assert take_video_error(True, take_age_s=60.0, packet_age_s=0.05) == ""
+  assert take_video_error(True, take_age_s=60.0, packet_age_s=VIDEO_STALL_TIMEOUT_S + 0.1) == "encoded video stopped"

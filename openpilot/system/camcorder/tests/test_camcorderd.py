@@ -336,6 +336,27 @@ def test_take_whose_video_never_started_is_discarded():
   assert preview.aborted and mic.aborted
 
 
+def _recording(recorder: ClipRecorder, video_started: bool, last_packet_age_s: float, take_age_s: float) -> None:
+  now = 1000.0
+  recorder._state = RecorderState.RECORDING
+  recorder._hevc = SimpleNamespace(started=video_started)
+  recorder._take_started_monotonic = now - take_age_s
+  _, health = recorder._encoder_monitors[recorder._stream_type]
+  health.note_packet(1344, 760, now=now - last_packet_age_s)
+  with patch("openpilot.system.camcorder.recorder.time.monotonic", return_value=now):
+    recorder.poll()
+
+
+def test_recorder_poll_stops_a_take_whose_video_stopped():
+  recorder = ClipRecorder(mic=SimpleNamespace(write_error=""), storage=SimpleNamespace(available=lambda: True))
+  _recording(recorder, video_started=True, last_packet_age_s=0.1, take_age_s=30.0)
+  assert recorder.capture_error == ""
+
+  _recording(recorder, video_started=True, last_packet_age_s=30.0, take_age_s=30.0)
+  assert recorder.capture_error == "encoded video stopped"
+  assert recorder.capture_failure == "recording"
+
+
 def test_take_asks_its_encoder_for_a_keyframe_until_video_starts(tmp_path):
   sent = []
   recorder = ClipRecorder(mic=SimpleNamespace())

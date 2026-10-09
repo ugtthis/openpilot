@@ -1,7 +1,8 @@
 """Record a take: RGB preview for the on-device player, HEVC for export.
 
 A take is only offered once its camera's encoded video is arriving
-(``video_ready``). A preview is never published without its HEVC.
+(``video_ready``), and a take whose video never starts or stops partway ends
+with an error. A preview is never published without its HEVC.
 
 Lifecycle state is guarded by ``_lock``:
 
@@ -37,7 +38,7 @@ from openpilot.system.camcorder.hevc_writer import HevcWriter
 from openpilot.system.camcorder.settings import CamcorderSettings
 from openpilot.system.camcorder.storage import StorageFullError, StorageMonitor
 from openpilot.system.camcorder.timing import boot_time_ns
-from openpilot.system.camcorder.video_health import VideoHealth
+from openpilot.system.camcorder.video_health import VideoHealth, take_video_error
 from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_encoder
 
 if TYPE_CHECKING:
@@ -89,6 +90,7 @@ class ClipRecorder:
     self._encoder_monitors: dict[VisionStreamType, tuple[SubSocket, VideoHealth]] = {
       camera.stream_type: (messaging.sub_sock(camera.encode_service, conflate=True), VideoHealth()) for camera in CAMERAS
     }
+    self._take_started_monotonic = 0.0
 
   @property
   def recording(self) -> bool:
@@ -150,10 +152,16 @@ class ClipRecorder:
     with self._lock:
       if self._state != RecorderState.RECORDING:
         return
+      video_started = self._hevc is not None and self._hevc.started
+    _, health = self._encoder_monitors[self._stream_type]
+    now = time.monotonic()
+    video_error = take_video_error(video_started, now - self._take_started_monotonic, health.packet_age(now))
     if self._mic.write_error:
       self._set_capture_error(self._mic.write_error, CaptureFailure.AUDIO)
     elif not self._storage.available():
       self._set_capture_error("storage full", CaptureFailure.STORAGE)
+    elif video_error:
+      self._set_capture_error(video_error)
 
   def set_warm(self, warm: bool) -> None:
     """Keep encoderd and direct mic capture warm while the camcorder is on screen.
@@ -199,6 +207,7 @@ class ClipRecorder:
     with self._lock:
       self._capture_error = ""
       self._capture_failure = CaptureFailure.NONE
+      self._take_started_monotonic = time.monotonic()
     self._stream_type = stream_type
     self._started_mono = (recording_start_mono_ns or boot_time_ns()) / 1e9
     # The applied mode, not a just-changed setting manager hasn't switched to yet.
