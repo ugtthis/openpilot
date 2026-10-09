@@ -89,17 +89,26 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
   int cur_seg = 0;
   uint32_t segment_start_frame_id = 0;
   bool segment_started = false;
+  size_t encoder_width = 0, encoder_height = 0;
   while (!do_exit) {
     if (!vipc_client.connect(false)) {
       util::sleep_for(5);
       continue;
     }
 
+    const VisionBuf &buf_info = vipc_client.buffers[0];
+    if (!encoders.empty() && (buf_info.width != encoder_width || buf_info.height != encoder_height)) {
+      LOGW("encoder %s camerad changed to %zux%zu, rebuilding", cam_info.thread_name, buf_info.width, buf_info.height);
+      encoders.clear();
+      jpeg_encoder.reset();
+    }
+
     // init encoders
     if (encoders.empty()) {
-      const VisionBuf &buf_info = vipc_client.buffers[0];
       LOGW("encoder %s init %zux%zu", cam_info.thread_name, buf_info.width, buf_info.height);
       assert(buf_info.width > 0 && buf_info.height > 0);
+      encoder_width = buf_info.width;
+      encoder_height = buf_info.height;
 
       for (const auto &encoder_info : cam_info.encoder_infos) {
         auto &e = encoders.emplace_back(new Encoder(encoder_info, buf_info.width, buf_info.height));
@@ -116,7 +125,14 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info) {
     while (!do_exit) {
       VisionIpcBufExtra extra;
       VisionBuf* buf = vipc_client.recv(&extra);
-      if (buf == nullptr) continue;
+      if (buf == nullptr) {
+        // A restarted camerad serves new buffers; without reconnecting, every frame it sends is dropped.
+        if (!vipc_client.connected) {
+          LOGW("encoder %s camerad restarted, reconnecting", cam_info.thread_name);
+          break;
+        }
+        continue;
+      }
 
       // detect loop around and drop the frames
       if (buf->get_frame_id() != extra.frame_id) {
