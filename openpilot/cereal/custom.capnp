@@ -49,7 +49,9 @@ struct CamcorderState @0xaedffd8f31e7b55d {
   remainingS @12 :Float32;
 
   enum Phase {
+    # Ready: the selected camera's encoded video is arriving, so a take will record.
     idle @0;
+    # Not ready yet: services are starting or the camera's video is not arriving.
     warming @1;
     recording @2;
     finalizing @3;
@@ -67,6 +69,7 @@ struct CamcorderState @0xaedffd8f31e7b55d {
     micUnavailable @7;
     recordingRecovered @8;
     timelineGapSaved @9;
+    videoNotReady @10;
   }
 }
 

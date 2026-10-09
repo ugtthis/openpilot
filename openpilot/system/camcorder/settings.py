@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
+from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.params import Params
 
 QUALITY_PARAM = "CamcorderQuality"
@@ -64,9 +65,14 @@ class CamcorderSettings:
     return f"{self.resolution}@{self.frame_rate}"
 
   @property
+  def native_size(self) -> tuple[int, int]:
+    """Size of the encoded frames in this mode."""
+    return (1344, 760) if self.resolution == Resolution.STOCK else (2688, 1520)
+
+  @property
   def bitrate(self) -> int:
     """Match encoderd's pixel-rate scaling, capped at a tested hardware-safe request."""
-    width, height = (1344, 760) if self.resolution == Resolution.STOCK else (2688, 1520)
+    width, height = self.native_size
     stock_pixels_per_second = 1344 * 760 * 20
     bitrate = 5_000_000 * width * height * self.frame_rate // stock_pixels_per_second
     if self.quality == Quality.MAX:
@@ -111,6 +117,11 @@ class CamcorderSettings:
           if candidate.encoder_mode == mode:
             return candidate
     return cls()
+
+  @classmethod
+  def applied_for(cls, stream_type: VisionStreamType, params: Params | None = None) -> "CamcorderSettings":
+    """The mode this camera records in: camcorder modes apply to the wide camera, the cabin always stays stock."""
+    return cls.applied(params) if stream_type == VisionStreamType.VISION_STREAM_WIDE_ROAD else cls()
 
   def save(self, params: Params | None = None) -> None:
     params = params or Params()

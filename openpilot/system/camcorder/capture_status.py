@@ -43,6 +43,10 @@ class CaptureStatus:
     return cls(notice="timelineGapSaved", clip_saved=True)
 
   @classmethod
+  def video_not_ready(cls) -> "CaptureStatus":
+    return cls(notice="videoNotReady", detail="encoded video is not arriving yet")
+
+  @classmethod
   def command_failed(cls, detail: str) -> "CaptureStatus":
     return cls(notice="recordingFailed", detail=detail, failure=CaptureFailure.RECORDING)
 

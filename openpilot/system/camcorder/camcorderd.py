@@ -54,7 +54,11 @@ class CamcorderDaemon:
         self.clip_id = ""
         self.status = CaptureStatus()
         self.recorder.set_warm(True)
-        if self.recorder.start(self.stream_type, int(control.requestMonoTime)):
+        if not self.recorder.video_ready(self.stream_type):
+          # The UI waits for readiness too; this catches a tap that raced it.
+          self.phase = "warming"
+          self.status = CaptureStatus.video_not_ready()
+        elif self.recorder.start(self.stream_type, int(control.requestMonoTime)):
           self.phase = "recording"
           self.audio_gap_count = 0
           self.audio_gap_frame_count = 0
@@ -81,14 +85,15 @@ class CamcorderDaemon:
       cloudlog.exception("camcorder command failed")
 
   def update(self) -> None:
+    self.recorder.update_video_health(self.stream_type)
     if self.phase == "recording":
       self.recorder.poll()
     if self.phase == "recording" and self.recorder.capture_error:
       self._finish_recording()
       return
-    if not self.recorder.recording and self.phase not in ("failed", "finalizing"):
+    if not self.recorder.recording and self.phase != "finalizing":
       self.recorder.set_warm(True)
-      self.phase = "idle"
+      self.phase = "idle" if self.recorder.video_ready(self.stream_type) else "warming"
 
   def _finish_recording(self, stop_mono_ns: int | None = None) -> None:
     self.phase = "finalizing"

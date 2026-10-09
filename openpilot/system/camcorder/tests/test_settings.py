@@ -1,3 +1,4 @@
+from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.params import Params
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.system.camcorder.settings import (
@@ -45,6 +46,14 @@ class TestCamcorderSettings(OpenpilotTestCase):
     for malformed in ("junk@60:max", "2688x1520@60", "2688x1520@90:max", "1344x760@20:stock"):
       params.put(ENCODER_MODE_PARAM, malformed, block=True)
       assert CamcorderSettings.applied(params) == CamcorderSettings(), malformed
+
+  def test_camcorder_modes_apply_to_the_wide_camera_only(self):
+    params = Params()
+    params.put(ENCODER_MODE_PARAM, "2688x1520@60:max", block=True)
+    wide = CamcorderSettings.applied_for(VisionStreamType.VISION_STREAM_WIDE_ROAD, params)
+    cabin = CamcorderSettings.applied_for(VisionStreamType.VISION_STREAM_CABIN, params)
+    assert (wide.native_size, wide.frame_rate) == ((2688, 1520), 60)
+    assert (cabin.native_size, cabin.frame_rate, cabin.bitrate) == ((1344, 760), 20, 5_000_000)
 
   def test_stock_resolution_and_frame_rate_use_the_exact_stock_mode(self):
     assert CamcorderSettings().sensor_mode == "stock"

@@ -1,5 +1,8 @@
 """Record a take: RGB preview for the on-device player, HEVC for export.
 
+A take is only offered once its camera's encoded video is arriving
+(``video_ready``). A preview is never published without its HEVC.
+
 Lifecycle state is guarded by ``_lock``:
 
 * IDLE has no warm capture services and no take.
@@ -20,10 +23,11 @@ import threading
 import time
 from collections.abc import Callable
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.common.swaglog import cloudlog
-from openpilot.system.camcorder.cameras import camera_for_stream
+from openpilot.system.camcorder.cameras import CAMERAS, camera_for_stream
 from openpilot.system.camcorder.capture_status import CaptureFailure
 from openpilot.system.camcorder.mic import CamcorderMic
 from openpilot.system.camcorder.clip_storage import (
@@ -33,7 +37,11 @@ from openpilot.system.camcorder.hevc_writer import HevcWriter
 from openpilot.system.camcorder.settings import CamcorderSettings
 from openpilot.system.camcorder.storage import StorageFullError, StorageMonitor
 from openpilot.system.camcorder.timing import boot_time_ns
+from openpilot.system.camcorder.video_health import VideoHealth
 from openpilot.system.loggerd.encoder_lease import acquire_encoder, release_encoder
+
+if TYPE_CHECKING:
+  from openpilot.cereal.messaging import SubSocket
 
 _VIDEO_TAIL_TIMEOUT_S = 0.5
 _KEYFRAME_RETRY_S = 0.25
@@ -78,6 +86,9 @@ class ClipRecorder:
     self._state = RecorderState.IDLE
     self._capture_error = ""
     self._capture_failure = CaptureFailure.NONE
+    self._encoder_monitors: dict[VisionStreamType, tuple[SubSocket, VideoHealth]] = {
+      camera.stream_type: (messaging.sub_sock(camera.encode_service, conflate=True), VideoHealth()) for camera in CAMERAS
+    }
 
   @property
   def recording(self) -> bool:
@@ -120,6 +131,20 @@ class ClipRecorder:
   @property
   def mic_error(self) -> str:
     return self._mic.error
+
+  def update_video_health(self, stream_type: VisionStreamType) -> None:
+    """Note the latest packet from this camera's encoder; call once per daemon tick."""
+    from openpilot.cereal import messaging
+
+    sock, health = self._encoder_monitors[stream_type]
+    if (event := messaging.recv_one_or_none(sock)) is not None:
+      encoded = getattr(event, event.which())
+      health.note_packet(encoded.width, encoded.height)
+
+  def video_ready(self, stream_type: VisionStreamType) -> bool:
+    """encoderd is delivering this camera's video in the applied mode, so a take would record."""
+    _, health = self._encoder_monitors[stream_type]
+    return health.ready(CamcorderSettings.applied_for(stream_type).native_size)
 
   def poll(self) -> None:
     with self._lock:
@@ -177,10 +202,9 @@ class ClipRecorder:
     self._stream_type = stream_type
     self._started_mono = (recording_start_mono_ns or boot_time_ns()) / 1e9
     # The applied mode, not a just-changed setting manager hasn't switched to yet.
-    settings = CamcorderSettings.applied()
-    wide = stream_type == VisionStreamType.VISION_STREAM_WIDE_ROAD
-    self._fps = settings.frame_rate if wide else 20
-    self._bitrate = settings.bitrate if wide else 5_000_000
+    settings = CamcorderSettings.applied_for(stream_type)
+    self._fps = settings.frame_rate
+    self._bitrate = settings.bitrate
     try:
       self._storage.start()
       acquire_encoder()

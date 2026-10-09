@@ -20,11 +20,14 @@ _NOTICE_TEXT = {
   "micUnavailable": "Mic unavailable — reconnect it",
   "recordingRecovered": "Recorder restarted — clip recovered",
   "timelineGapSaved": "Recording gap detected — clip saved",
+  "videoNotReady": "Camera getting ready — try again",
 }
 _UNKNOWN_NOTICE_TEXT = "Recording error — try again"
 # A restarted camcorderd announces a new session well before this. The timeout
 # only unlatches the UI when the recorder never comes back.
 _STATE_TIMEOUT_S = 10.0
+# camcorderd reports at 10 Hz; readiness older than this no longer describes the pipeline.
+_READY_STATE_TIMEOUT_S = 1.0
 _TAKE_PHASES = ("recording", "finalizing")
 
 
@@ -63,6 +66,12 @@ class CamcorderClient:
     return self._requested_recording or self._phase in _TAKE_PHASES
 
   @property
+  def ready(self) -> bool:
+    """camcorderd confirms the selected camera's video is arriving, so a take will record."""
+    return (not self.recording and self._phase == "idle" and
+            time.monotonic() - self._last_state_update < _READY_STATE_TIMEOUT_S)
+
+  @property
   def elapsed_s(self) -> float:
     return self._elapsed_s
 
@@ -99,10 +108,12 @@ class CamcorderClient:
       self._release_lease()
 
   def start(self, stream_type: VisionStreamType, press_mono_ns: int | None = None) -> bool:
-    """Request a take; the command repeats until camcorderd, which may still be launching, acknowledges it."""
+    """Request a take once the recorder is ready; the command repeats until camcorderd acknowledges it."""
     if self.recording:
       return False
     self.set_warm(True, stream_type)
+    if not self.ready:
+      return False
     self._requested_recording = True
     self._completed_clip = None
     self._dismissed_notice = self._notice_code

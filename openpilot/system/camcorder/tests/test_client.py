@@ -52,11 +52,12 @@ def recording_client(stream=WIDE):
   """A client whose take was acknowledged by recorder session 1."""
   pm, sm = PubMaster(), SubMaster()
   client = CamcorderClient(pm, sm)
-  sm.publish(phase="idle")
   with patch("openpilot.system.camcorder.client.acquire_camcorder"):
+    client.set_warm(True, stream)
+    sm.publish(sequence=client._sequence, phase="idle")
     client.update()
     assert client.start(stream, 100)
-  sm.publish(sequence=1, phase="recording", elapsedS=2.0)
+  sm.publish(sequence=client._sequence, phase="recording", elapsedS=2.0)
   client.update()
   assert client.recording
   return client, pm, sm
@@ -121,13 +122,21 @@ def test_mic_label_follows_the_recorder_and_clears_when_the_mic_stops_working():
   assert client.mic_label == ""
 
 
-def test_first_tap_while_warming_starts_the_take():
+def test_tap_while_warming_is_refused_until_video_is_ready():
   pm, sm = PubMaster(), SubMaster()
   client = CamcorderClient(pm, sm)
   sm.publish(phase="warming", clipId="previous")
   with patch("openpilot.system.camcorder.client.acquire_camcorder"):
     client.update()
-    assert client.start(WIDE, 123)
+    assert not client.ready
+    assert not client.start(WIDE, 123)
+    assert not client.recording
+    assert all(message.camcorderControl.action != "start" for _, message in pm.messages)
+
+    sm.publish(phase="idle", clipId="previous")
+    client.update()
+    assert client.ready
+    assert client.start(WIDE, 124)
   assert pm.last_command.action == "start"
 
   # State published before camcorderd saw the tap still names the previous take.
@@ -139,6 +148,18 @@ def test_first_tap_while_warming_starts_the_take():
   assert client.recording
 
 
+def test_readiness_expires_when_the_recorder_stops_reporting():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  sm.publish(phase="idle")
+  client.update()
+  assert client.ready
+
+  sm.updated["camcorderState"] = False
+  with patch("openpilot.system.camcorder.client.time.monotonic", return_value=client._last_state_update + 2.0):
+    assert not client.ready
+
+
 def test_take_that_ends_without_a_clip_unlatches_the_shutter():
   client, pm, sm = recording_client()
   client.stop(200)
@@ -148,7 +169,7 @@ def test_take_that_ends_without_a_clip_unlatches_the_shutter():
   assert not client.recording
 
 
-def test_tap_right_after_returning_to_the_page_survives_the_cold_start():
+def test_tap_right_after_returning_to_the_page_waits_for_the_restarted_recorder():
   pm, sm = PubMaster(), SubMaster()
   client = CamcorderClient(pm, sm)
   sm.publish(sessionId=1, phase="idle")
@@ -162,11 +183,14 @@ def test_tap_right_after_returning_to_the_page_survives_the_cold_start():
     sm.updated["camcorderState"] = False
 
     with patch("openpilot.system.camcorder.client.time.monotonic", return_value=client._last_state_update + 60.0):
-      assert client.start(WIDE, 300)
-      client.update()
-      assert client.recording
+      # The last readiness report is a minute old and came from a recorder that has since stopped.
+      assert not client.start(WIDE, 300)
+      assert not client.recording
 
-      sm.publish(sessionId=2, sequence=1, phase="recording")
+      sm.publish(sessionId=2, phase="idle")
+      client.update()
+      assert client.start(WIDE, 301)
+      sm.publish(sessionId=2, sequence=int(pm.last_command.sequence), phase="recording")
       client.update()
   assert client.recording
   assert client.error == ""

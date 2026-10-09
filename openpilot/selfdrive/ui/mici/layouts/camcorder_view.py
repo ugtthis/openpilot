@@ -25,6 +25,7 @@ FOLDER_ICON_SIZE = 40
 RECORD_TIMEOUT_S = 3600
 LOW_REMAINING_S = 5 * 60
 LOW_REMAINING_BACKGROUND = rl.Color(120, 20, 20, 230)
+RECORD_DISABLED_COLOR = rl.Color(RECORD_COLOR.r, RECORD_COLOR.g, RECORD_COLOR.b, 80)
 SNAPSHOT_FLASH_S = 0.12
 SNAPSHOT_COUNTDOWN_S = 3.0
 SNAPSHOT_COUNTDOWN_POP_S = 0.18
@@ -276,9 +277,9 @@ def _icon_center(rec: rl.Rectangle) -> tuple[float, float, float]:
   return rec.x + rec.width / 2, rec.y + rec.height / 2, min(rec.width, rec.height) * 0.18
 
 
-def _draw_record_icon(rec: rl.Rectangle):
+def _draw_record_icon(rec: rl.Rectangle, enabled: bool):
   cx, cy, r = _icon_center(rec)
-  rl.draw_circle(int(cx), int(cy), r, RECORD_COLOR)
+  rl.draw_circle(int(cx), int(cy), r, RECORD_COLOR if enabled else RECORD_DISABLED_COLOR)
 
 
 def _draw_stop_icon(rec: rl.Rectangle):
@@ -345,6 +346,10 @@ class CamcorderView(CameraView):
                                  text_color=OSD_COLOR,
                                  alignment=TextAlignment.LEFT,
                                  alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._getting_ready_osd = UnifiedLabel("getting ready", 22, FontWeight.DISPLAY,
+                                           text_color=OSD_COLOR,
+                                           alignment=TextAlignment.LEFT,
+                                           alignment_vertical=TextAlignmentVertical.MIDDLE)
     self._remaining_osd = UnifiedLabel("", 22, FontWeight.DISPLAY,
                                        text_color=OSD_COLOR,
                                        alignment=TextAlignment.CENTER,
@@ -537,14 +542,20 @@ class CamcorderView(CameraView):
     self._enhance_driver_val[0] = int(camera_for_stream(self.stream_type).enhance)
     super()._update_texture_color_filtering()
 
+  def _draw_status_chip(self, label: UnifiedLabel, width: float, dot_color: rl.Color):
+    chip = rl.Rectangle(self._feed.x + 8, self._feed.y + 8, width, 28)
+    rl.draw_rectangle_rounded(chip, 0.3, 6, OSD_BACKGROUND)
+    rl.draw_circle(int(chip.x + 12), int(chip.y + chip.height / 2), 5, dot_color)
+    label.render(rl.Rectangle(chip.x + 22, chip.y, chip.width - 26, chip.height))
+
   def _draw_rec_osd(self):
     elapsed = self._recorder.elapsed_s
-    chip = rl.Rectangle(self._feed.x + 8, self._feed.y + 8, 108, 28)
-    rl.draw_rectangle_rounded(chip, 0.3, 6, OSD_BACKGROUND)
-    if int(elapsed * 2) % 2 == 0:
-      rl.draw_circle(int(chip.x + 12), int(chip.y + chip.height / 2), 5, RECORD_COLOR)
     self._rec_osd.set_text(format_timecode(elapsed))
-    self._rec_osd.render(rl.Rectangle(chip.x + 22, chip.y, chip.width - 26, chip.height))
+    self._draw_status_chip(self._rec_osd, 108, RECORD_COLOR if int(elapsed * 2) % 2 == 0 else rl.BLANK)
+
+  def _draw_getting_ready_osd(self, now: float):
+    pulse = 0.5 + 0.5 * math.sin(now * 2 * math.pi)
+    self._draw_status_chip(self._getting_ready_osd, 158, rl.Color(OSD_COLOR.r, OSD_COLOR.g, OSD_COLOR.b, round(110 + 110 * pulse)))
 
   def _draw_remaining_osd(self):
     remaining = self._recorder.remaining_s
@@ -649,9 +660,10 @@ class CamcorderView(CameraView):
     super()._render(self._feed)
     draw_rail(self._rail, [self._playback_slot, self._record_slot])
 
+    shutter_enabled = self._photo_mode or recording or self._recorder.ready
     playback_face = draw_physical_button(self._playback_slot, self.is_pressed and self._press.is_down("playback"))
     record_face = draw_physical_button(self._record_slot, recording or counting_down or
-                                      (self.is_pressed and self._press.is_down("record")))
+                                      (shutter_enabled and self.is_pressed and self._press.is_down("record")))
     folder_color = rl.Color(255, 255, 255, 70) if recording else rl.WHITE
     draw_centered_texture(playback_face, self._folder_icon, folder_color)
     if recording:
@@ -660,7 +672,9 @@ class CamcorderView(CameraView):
     elif self._photo_mode:
       _draw_snapshot_shutter(record_face)
     else:
-      _draw_record_icon(record_face)
+      _draw_record_icon(record_face, shutter_enabled)
+      if not shutter_enabled and self._capture_allowed():
+        self._draw_getting_ready_osd(now)
     if not self._photo_mode:
       self._draw_remaining_osd()
       self._draw_mic_osd()

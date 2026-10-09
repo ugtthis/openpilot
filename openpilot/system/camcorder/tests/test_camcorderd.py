@@ -25,9 +25,16 @@ class FakeRecorder:
     self.starts = []
     self.stops = 0
     self.timeline_gap = False
+    self.video_is_ready = True
 
   def set_warm(self, warm):
     pass
+
+  def update_video_health(self, stream_type):
+    pass
+
+  def video_ready(self, stream_type):
+    return self.video_is_ready
 
   def poll(self):
     pass
@@ -123,6 +130,34 @@ def test_start_and_stop_commands_publish_the_saved_clip():
   assert state.sequence == 2
   assert state.phase == "idle"
   assert state.clipId == "saved-clip"
+
+
+def test_recorder_reports_warming_until_the_camera_video_is_arriving():
+  recorder = FakeRecorder()
+  recorder.video_is_ready = False
+  daemon = CamcorderDaemon(recorder)
+
+  daemon.update()
+  assert str(daemon.state_message().camcorderState.phase) == "warming"
+
+  recorder.video_is_ready = True
+  daemon.update()
+  assert str(daemon.state_message().camcorderState.phase) == "idle"
+
+
+def test_start_without_video_is_refused_instead_of_recording_a_preview_only_take():
+  recorder = FakeRecorder()
+  recorder.video_is_ready = False
+  daemon = CamcorderDaemon(recorder)
+
+  daemon.apply_control(control(1, "start"))
+  daemon.update()
+
+  assert recorder.starts == []
+  state = daemon.state_message().camcorderState
+  assert state.sequence == 1
+  assert str(state.phase) == "warming"
+  assert str(state.notice) == "videoNotReady"
 
 
 def test_photo_command_publishes_the_clip_without_entering_recording():
