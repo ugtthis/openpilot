@@ -76,6 +76,31 @@ def test_offroad_processes_are_replaced_when_a_drive_starts():
     assert p.generation == 2, p.name
 
 
+def test_replacements_start_only_after_every_old_instance_has_exited():
+  # A new encoderd must not attach to a camerad that is still exiting.
+  events = []
+
+  class Exiting(FakeProcess):
+    def __init__(self, name):
+      super().__init__(name)
+      self.running = True
+      self.shutting_down = True
+
+    def start(self):
+      events.append(f"start {self.name}")
+      super().start()
+
+    def stop(self, retry=True, block=True, sig=None):
+      events.append(f"exited {self.name}")
+      self.shutting_down = False
+      super().stop()
+
+  procs = [Exiting("encoderd"), Exiting("camerad")]
+  ensure_running(procs, False, params=Params(), CP=car.CarParams.new_message())
+
+  assert events == ["exited encoderd", "exited camerad", "start encoderd", "start camerad"]
+
+
 def test_started_uses_normal_onroad_process_predicates_without_leases():
   CP = car.CarParams.new_message()
   params = Params()

@@ -243,6 +243,12 @@ def ensure_running(procs: ValuesView[ManagerProcess], started: bool, params: Par
     else:
       p.stop(block=False)
 
+  # Old instances must be gone before any replacement starts: an encoderd started
+  # while the old camerad is still exiting attaches to the dying camerad.
+  for p in running:
+    if p.shutting_down:
+      p.stop()
+
   for p in running:
     p.start()
 
