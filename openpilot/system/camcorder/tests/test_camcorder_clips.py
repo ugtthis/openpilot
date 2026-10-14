@@ -459,16 +459,27 @@ class TestCamcorderClips(OpenpilotTestCase):
     writer.add_frame(np.zeros((CLIP_HEIGHT, CLIP_WIDTH, 3), dtype=np.uint8), 0)
     audio_writer = AudioWriter(writer.path)
     packet = np.ones(50, dtype=np.int16).tobytes()
-    # A "1000 Hz" mic that really delivers 1001 samples per boot-clock second.
+    # A "1000 Hz" mic that really delivers 1000.2 samples per boot-clock second (+200 ppm).
     for i in range(100):
-      audio_writer.add_packet(packet, sample_rate=1000, log_mono_ns=round(i * 50e9 / 1001))
+      audio_writer.add_packet(packet, sample_rate=1000, log_mono_ns=round(i * 50e9 / 1000.2))
     audio = audio_writer.finalize()
     assert audio is not None
-    assert abs(audio.measured_sample_rate - 1001) < 0.1
+    assert abs(audio.measured_sample_rate - 1000.2) < 0.01
 
     clip = writer.finalize(audio=audio)
     assert clip is not None
     assert load_clip(clip.path).audio_measured_sample_rate == audio.measured_sample_rate
+
+  def test_audio_writer_ignores_an_implausible_mic_clock(self):
+    with TemporaryDirectory() as directory:
+      audio_writer = AudioWriter(Path(directory))
+      packet = np.ones(50, dtype=np.int16).tobytes()
+      # 24 s of blocks whose timestamps imply +6,300 ppm, like a short take with late first delivery.
+      for i in range(480):
+        audio_writer.add_packet(packet, sample_rate=1000, log_mono_ns=round(i * 50e9 / 1006.3))
+      audio = audio_writer.finalize()
+    assert audio is not None
+    assert audio.measured_sample_rate == 1000
 
   def test_audio_playback_sync_and_mute(self):
     writer = ClipWriter(WIDE_ROAD_CAMERA, recording_start_mono_ns=1_000_000_000)
@@ -679,7 +690,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     audio_writer = AudioWriter(writer.path)
     audio_writer.add_packet(np.arange(10, dtype=np.int16).tobytes(), 100, 1_000_000_000)
     audio_writer._sync._last_sync = 0.0
-    audio_writer.add_packet(np.arange(10, dtype=np.int16).tobytes(), 100, 1_099_000_000)
+    audio_writer.add_packet(np.arange(10, dtype=np.int16).tobytes(), 100, 1_099_990_000)
 
     # Emulate a killed process and torn writes after the last journaled units.
     writer._close_files()

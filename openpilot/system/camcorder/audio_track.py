@@ -12,8 +12,10 @@ _AUDIO_INFO = "audio.info"
 # ADC-start timestamps do not include process scheduling jitter. Allow small
 # hardware-clock noise, but detect even one missing 50 ms capture block.
 _AUDIO_GAP_TOLERANCE_NS = 10_000_000
-# Real mic clocks are within a few hundred ppm; anything further is a bad timestamp.
-_AUDIO_MAX_CLOCK_ERROR = 0.01
+# Real mic clocks measure within about 200 ppm. A larger estimate comes from
+# delivery jitter on the first and last blocks, so trusting it would add, not
+# remove, error; this caps the added error at 15 ms over 30 s.
+_AUDIO_MAX_CLOCK_ERROR = 0.0005
 
 
 def _audio_track(clip_path: Path) -> JournaledTrack:
