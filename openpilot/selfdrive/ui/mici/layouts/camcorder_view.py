@@ -354,6 +354,10 @@ class CamcorderView(CameraView):
                                        text_color=OSD_COLOR,
                                        alignment=TextAlignment.CENTER,
                                        alignment_vertical=TextAlignmentVertical.MIDDLE)
+    self._dropped_osd = UnifiedLabel("", 22, FontWeight.DISPLAY,
+                                     text_color=rl.WHITE,
+                                     alignment=TextAlignment.CENTER,
+                                     alignment_vertical=TextAlignmentVertical.MIDDLE)
     self._mic_osd = UnifiedLabel("", 22, FontWeight.DISPLAY,
                                  text_color=OSD_COLOR,
                                  alignment=TextAlignment.CENTER,
@@ -553,6 +557,15 @@ class CamcorderView(CameraView):
     self._rec_osd.set_text(format_timecode(elapsed))
     self._draw_status_chip(self._rec_osd, 108, RECORD_COLOR if int(elapsed * 2) % 2 == 0 else rl.BLANK)
 
+  def _draw_dropped_osd(self):
+    dropped = self._recorder.dropped_frames
+    if not dropped:
+      return
+    chip = rl.Rectangle(self._feed.x + 8, self._feed.y + 42, 210, 28)
+    rl.draw_rectangle_rounded(chip, 0.3, 6, LOW_REMAINING_BACKGROUND)
+    self._dropped_osd.set_text(f"{dropped} frame{'s' if dropped != 1 else ''} dropped")
+    self._dropped_osd.render(chip)
+
   def _draw_getting_ready_osd(self, now: float):
     pulse = 0.5 + 0.5 * math.sin(now * 2 * math.pi)
     self._draw_status_chip(self._getting_ready_osd, 158, rl.Color(OSD_COLOR.r, OSD_COLOR.g, OSD_COLOR.b, round(110 + 110 * pulse)))
@@ -669,6 +682,7 @@ class CamcorderView(CameraView):
     if recording:
       _draw_stop_icon(record_face)
       self._draw_rec_osd()
+      self._draw_dropped_osd()
     elif self._photo_mode:
       _draw_snapshot_shutter(record_face)
     else:

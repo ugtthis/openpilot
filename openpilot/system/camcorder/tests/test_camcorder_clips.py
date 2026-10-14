@@ -742,6 +742,7 @@ class TestCamcorderClips(OpenpilotTestCase):
       writer = HevcWriter(Path(directory))
       for timestamp_ms in (0, 50, 101, 250, 300, 450):
         writer.add_packet(b"header", b"frame", timestamp_ms == 0, 1344, 760, timestamp_ns=1_000_000_000 + timestamp_ms * 1_000_000)
+      assert writer.dropped_frame_count == 4
       master = writer.finalize()
       assert master is not None
       assert (master.gap_count, master.dropped_frame_count) == (2, 4)

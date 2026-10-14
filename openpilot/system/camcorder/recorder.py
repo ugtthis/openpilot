@@ -119,6 +119,11 @@ class ClipRecorder:
     return max(0.0, boot_time_ns() / 1e9 - self._started_mono)
 
   @property
+  def dropped_frame_count(self) -> int:
+    hevc = self._hevc
+    return hevc.dropped_frame_count if self.recording and hevc is not None else 0
+
+  @property
   def mic_name(self) -> str:
     return self._mic.device_name
 

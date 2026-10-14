@@ -47,6 +47,8 @@ struct CamcorderState @0xaedffd8f31e7b55d {
   sessionId @11 :UInt64;
   # Estimated time a new or running take can continue before storage stops it.
   remainingS @12 :Float32;
+  # Video frames lost so far in the running take; the export keeps their time as a gap.
+  droppedFrameCount @13 :UInt32;
 
   enum Phase {
     # Ready: the selected camera's encoded video is arriving, so a take will record.

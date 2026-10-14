@@ -123,6 +123,7 @@ class CamcorderDaemon:
     state.phase = self.phase
     state.clipId = self.clip_id
     state.elapsedS = self.recorder.elapsed_s
+    state.droppedFrameCount = self.recorder.dropped_frame_count
     state.remainingS = self.storage.remaining_s()
     state.audioSampleRate = self.recorder.mic_sample_rate
     state.audioChannels = self.recorder.mic_channels

@@ -46,6 +46,7 @@ class CamcorderClient:
     self._phase = "warming"
     self._elapsed_s = 0.0
     self._remaining_s: float | None = None
+    self._dropped_frames = 0
     self._mic_name = ""
     self._warm = False
     self._lease_held = False
@@ -79,6 +80,11 @@ class CamcorderClient:
   def remaining_s(self) -> float | None:
     """Recording time left before storage stops a take, once camcorderd has reported it."""
     return self._remaining_s
+
+  @property
+  def dropped_frames(self) -> int:
+    """Video frames the running take has lost so far."""
+    return self._dropped_frames if self.recording else 0
 
   @property
   def mic_label(self) -> str:
@@ -158,6 +164,7 @@ class CamcorderClient:
       self._phase = str(state.phase)
       self._elapsed_s = float(state.elapsedS)
       self._remaining_s = float(state.remainingS)
+      self._dropped_frames = int(state.droppedFrameCount)
       self._mic_name = str(state.micName)
       self._update_notice(str(state.notice))
       if self._pending is not None and int(state.sequence) >= self._sequence:

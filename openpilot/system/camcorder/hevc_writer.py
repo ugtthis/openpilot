@@ -64,11 +64,18 @@ class HevcWriter:
     self._index = open(self._index_path, "wb", buffering=0)
     self._sync = self._track.periodic_sync(self._file, self._index)
     self._started = False
+    self._last_timestamp_ns = 0
+    self._dropped_frame_count = 0
 
   @property
   def started(self) -> bool:
     """True once the first keyframe, where the track can begin, has been written."""
     return self._started
+
+  @property
+  def dropped_frame_count(self) -> int:
+    """Frames lost so far, counted the same way the published master counts them."""
+    return self._dropped_frame_count
 
   def add_encoded(self, encoded):
     self.add_packet(bytes(encoded.header), bytes(encoded.data),
@@ -87,6 +94,9 @@ class HevcWriter:
       self._file.write(header)
     self._file.write(data)
     self._index.write(_INDEX.pack(self._file.tell(), timestamp_ns))
+    if self._last_timestamp_ns:
+      self._dropped_frame_count += max(0, _dropped_between(self._last_timestamp_ns, timestamp_ns, self._fps))
+    self._last_timestamp_ns = timestamp_ns
     self._sync.maybe_sync()
 
   def finalize(self, end_ns: int | None = None) -> MasterInfo | None:
@@ -122,6 +132,10 @@ def _journaled_frames(index: bytes, data_size: int) -> list[tuple[int, int]]:
   return frames
 
 
+def _dropped_between(previous_ns: int, current_ns: int, fps: int) -> int:
+  return round((current_ns - previous_ns) / round(1e9 / fps)) - 1
+
+
 def _publish(clip_path: Path, end_ns: int | None = None) -> MasterInfo | None:
   track = _hevc_track(clip_path)
   source = track.source_path()
@@ -137,8 +151,7 @@ def _publish(clip_path: Path, end_ns: int | None = None) -> MasterInfo | None:
   output, = track.publish([frames[-1][0]])
   timestamps = [timestamp for _, timestamp in frames]
   fps = int(info.get("fps", _DEFAULT_FPS))
-  frame_ns = round(1e9 / fps)
-  drops = [round((current - previous) / frame_ns) - 1 for previous, current in pairwise(timestamps)]
+  drops = [_dropped_between(previous, current, fps) for previous, current in pairwise(timestamps)]
   gaps = tuple((index, dropped) for index, dropped in enumerate(drops, start=1) if dropped > 0)
   return MasterInfo(output.name, int(info["width"]), int(info["height"]), len(frames),
                     first_timestamp_ns=timestamps[0], last_timestamp_ns=timestamps[-1], fps=fps, gaps=gaps)

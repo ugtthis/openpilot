@@ -108,6 +108,18 @@ def test_remaining_time_is_unknown_until_the_recorder_reports_it():
   assert client.remaining_s == 125.0
 
 
+def test_dropped_frames_show_only_while_a_take_is_running():
+  pm, sm = PubMaster(), SubMaster()
+  client = CamcorderClient(pm, sm)
+  sm.publish(phase="recording", droppedFrameCount=7)
+  client.update()
+  assert client.dropped_frames == 7
+
+  sm.publish(phase="idle", droppedFrameCount=0)
+  client.update()
+  assert client.dropped_frames == 0
+
+
 def test_mic_label_follows_the_recorder_and_clears_when_the_mic_stops_working():
   pm, sm = PubMaster(), SubMaster()
   client = CamcorderClient(pm, sm)
