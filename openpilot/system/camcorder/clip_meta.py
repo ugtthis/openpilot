@@ -40,6 +40,14 @@ def _write_datetime(value: datetime) -> str:
   return value.isoformat(timespec="seconds")
 
 
+def _read_gaps(value) -> tuple[tuple[int, int], ...]:
+  return tuple((int(index), int(dropped)) for index, dropped in value)
+
+
+def _write_gaps(value: tuple[tuple[int, int], ...]) -> list[list[int]]:
+  return [list(gap) for gap in value]
+
+
 def format_timecode(seconds: float) -> str:
   total = max(0, int(seconds))
   hours, rem = divmod(total, 3600)
@@ -81,6 +89,9 @@ class Clip:
   video_start_mono_ns: int = field(default=0, metadata={_META_GROUP: "master"})
   video_gap_count: int = field(default=0, metadata={_META_GROUP: "master"})
   video_dropped_frame_count: int = field(default=0, metadata={_META_GROUP: "master"})
+  # Real timing for exporters; older clips have neither and only know the nominal fps.
+  video_last_frame_mono_ns: int = 0
+  video_gaps: tuple[tuple[int, int], ...] = field(default=(), metadata={_META_READ: _read_gaps, _META_WRITE: _write_gaps})
   audio: str | None = field(default=None, metadata={_META_GROUP: "audio"})
   audio_sample_rate: int = field(default=0, metadata={_META_GROUP: "audio"})
   audio_measured_sample_rate: float = field(
@@ -146,7 +157,10 @@ class Clip:
             self.audio_start_mono_ns and self.audio_frame_count and self.audio_sample_rate):
       return False
 
-    video_end_s = self.video_start_mono_ns / 1e9 + (self.native_frame_count + self.video_dropped_frame_count) / self.fps
+    if self.video_last_frame_mono_ns:
+      video_end_s = self.video_last_frame_mono_ns / 1e9 + frame_duration_s
+    else:
+      video_end_s = self.video_start_mono_ns / 1e9 + (self.native_frame_count + self.video_dropped_frame_count) / self.fps
     audio_rate = self.audio_measured_sample_rate or self.audio_sample_rate
     audio_end_s = self.audio_start_mono_ns / 1e9 + self.audio_frame_count / audio_rate
     return abs(audio_end_s - video_end_s) > frame_duration_s
@@ -248,6 +262,8 @@ def clip_with_master(clip: Clip, master: MasterInfo) -> Clip:
     video_start_mono_ns=master.first_timestamp_ns,
     video_gap_count=master.gap_count,
     video_dropped_frame_count=master.dropped_frame_count,
+    video_last_frame_mono_ns=master.last_timestamp_ns,
+    video_gaps=master.gaps,
   )
 
 

@@ -33,10 +33,18 @@ class MasterInfo:
   height: int
   frame_count: int
   first_timestamp_ns: int = 0
-  gap_count: int = 0
-  dropped_frame_count: int = 0
   last_timestamp_ns: int = 0
   fps: int = _DEFAULT_FPS
+  # (index of the first frame after the gap, frames lost), in frame order.
+  gaps: tuple[tuple[int, int], ...] = ()
+
+  @property
+  def gap_count(self) -> int:
+    return len(self.gaps)
+
+  @property
+  def dropped_frame_count(self) -> int:
+    return sum(dropped for _, dropped in self.gaps)
 
   @property
   def end_ns(self) -> int:
@@ -131,9 +139,9 @@ def _publish(clip_path: Path, end_ns: int | None = None) -> MasterInfo | None:
   fps = int(info.get("fps", _DEFAULT_FPS))
   frame_ns = round(1e9 / fps)
   drops = [round((current - previous) / frame_ns) - 1 for previous, current in pairwise(timestamps)]
-  drops = [dropped for dropped in drops if dropped > 0]
+  gaps = tuple((index, dropped) for index, dropped in enumerate(drops, start=1) if dropped > 0)
   return MasterInfo(output.name, int(info["width"]), int(info["height"]), len(frames),
-                    timestamps[0], len(drops), sum(drops), timestamps[-1], fps)
+                    first_timestamp_ns=timestamps[0], last_timestamp_ns=timestamps[-1], fps=fps, gaps=gaps)
 
 
 def recover_hevc(clip_path: Path) -> MasterInfo | None:

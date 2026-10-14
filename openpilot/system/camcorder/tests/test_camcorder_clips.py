@@ -13,6 +13,7 @@ from PIL import Image
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.selfdrive.ui.mici.layouts.audio_playback import ClipAudioPlayer
 from openpilot.system.camcorder.audio_track import recover_audio
+from openpilot.system.camcorder.clip_meta import clip_with_master
 from openpilot.system.camcorder.cameras import CABIN_CAMERA, CAMERAS, WIDE_ROAD_CAMERA
 from openpilot.system.camcorder.clip_storage import (
   CLIP_ASPECT, CLIP_HEIGHT, CLIP_WIDTH, AudioWriter, Clip, ClipReader, ClipWriter, center_crop, delete_all_clips, delete_clip,
@@ -101,6 +102,7 @@ class TestCamcorderClips(OpenpilotTestCase):
       native_width=1344, native_height=760, native_frame_count=1935,
       recording_start_mono_ns=8618946790280, video_start_mono_ns=8618533497539,
       video_gap_count=1, video_dropped_frame_count=2,
+      video_last_frame_mono_ns=8715216830872, video_gaps=((900, 2),),
       audio="audio.s16le", audio_sample_rate=48000, audio_measured_sample_rate=48001.25,
       audio_channels=2, audio_frame_count=4644810, audio_start_mono_ns=8618517964050,
       audio_timestamp="adc_start_boottime", audio_gap_count=3, audio_gap_frame_count=2400,
@@ -696,6 +698,7 @@ class TestCamcorderClips(OpenpilotTestCase):
     clip = recovered[0]
     assert clip.frame_count == 1
     assert clip.native_frame_count == 2
+    assert clip.video_last_frame_mono_ns == 1_050_000_000
     assert clip.audio_frame_count == 20
     assert clip.audio_measured_sample_rate > clip.audio_sample_rate
     assert clip.audio_error == "recording was interrupted"
@@ -731,3 +734,19 @@ class TestCamcorderClips(OpenpilotTestCase):
       master = writer.finalize()
       assert master is not None
       assert (master.gap_count, master.dropped_frame_count) == (2, 4)
+      assert master.gaps == ((3, 2), (5, 2))
+
+  def test_a_fast_camera_clock_is_not_a_timeline_gap(self):
+    # The sensor runs at ~60.09 fps; a minute of it is 5 more frames than 60 fps.
+    with TemporaryDirectory() as directory:
+      writer = HevcWriter(Path(directory), fps=60)
+      for i in range(3606):
+        writer.add_packet(b"H", b"frame", i == 0, 2688, 1520, timestamp_ns=1_000_000_000 + round(i * 1e9 / 60.09))
+      master = writer.finalize()
+    assert master is not None and master.gaps == ()
+
+    clip = clip_with_master(Clip("clip", Path("."), "wide", datetime(2026, 1, 1), 636, 360, 60, 3606, 60.0), master)
+    audio_frames = (master.end_ns - master.first_timestamp_ns) * 48_000 // 1_000_000_000
+    clip = replace(clip, audio_sample_rate=48_000, audio_frame_count=audio_frames, audio_start_mono_ns=master.first_timestamp_ns)
+    assert not clip.has_timeline_gap
+    assert replace(clip, video_last_frame_mono_ns=0).has_timeline_gap
