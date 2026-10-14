@@ -98,6 +98,10 @@ class CamcorderDaemon:
   def _finish_recording(self, stop_mono_ns: int | None = None) -> None:
     self.phase = "finalizing"
     clip = self.recorder.stop(stop_mono_ns)
+    if clip is not None:
+      cloudlog.event("camcorder take saved", error=clip.has_timeline_gap, clip_id=clip.clip_id, fps=clip.fps,
+                     frames=clip.native_frame_count, video_gaps=clip.video_gaps, audio_gap_count=clip.audio_gap_count,
+                     audio_gap_frames=clip.audio_gap_frame_count, audio_overflows=clip.audio_overflow_count)
     self.clip_id = clip.clip_id if clip is not None else ""
     self.audio_gap_count = clip.audio_gap_count if clip is not None else 0
     self.audio_gap_frame_count = clip.audio_gap_frame_count if clip is not None else 0

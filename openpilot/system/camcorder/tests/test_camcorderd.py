@@ -47,7 +47,8 @@ class FakeRecorder:
   def stop(self, request_mono_ns=None):
     self.stops += 1
     self.recording = False
-    return SimpleNamespace(clip_id="saved-clip", audio_gap_count=0, audio_gap_frame_count=0,
+    return SimpleNamespace(clip_id="saved-clip", fps=60, native_frame_count=600, video_gaps=(),
+                           audio_gap_count=0, audio_gap_frame_count=0, audio_overflow_count=0,
                            has_timeline_gap=self.timeline_gap)
 
 
