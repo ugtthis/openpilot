@@ -30,6 +30,7 @@ from openpilot.system.hardware.chestnut.monitoring import chestnut_state_thread
 from openpilot.system.hardware.chestnut.status import ChestnutStatus
 from openpilot.common.version import terms_version, training_version
 from openpilot.system.athena.registration import UNREGISTERED_DONGLE_ID
+from openpilot.system.camcorder_lease import camcorder_requested
 
 ThermalStatus = log.DeviceState.ThermalStatus
 NetworkType = log.DeviceState.NetworkType
@@ -398,7 +399,10 @@ def hardware_thread(end_event, hw_queue) -> None:
       except Exception:
         pass
 
-    should_pwrsave = not onroad_conditions["ignition"] and msg.deviceState.screenBrightnessPercent < 1e-3
+    # Power save offlines cores 4-7. camerad loses its isolated core 6 for the rest of its
+    # life when that happens, and each switch drops frames, so not while the camcorder runs.
+    should_pwrsave = (not onroad_conditions["ignition"] and msg.deviceState.screenBrightnessPercent < 1e-3 and
+                      not camcorder_requested())
     if should_pwrsave != pwrsave or (count == 0):
       HARDWARE.set_power_save(should_pwrsave)
     pwrsave = should_pwrsave
