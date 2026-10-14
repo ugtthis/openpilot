@@ -947,6 +947,7 @@ void SpectraCamera::config_ife(int idx, int request_id, bool init) {
 }
 
 void SpectraCamera::enqueue_frame(uint64_t request_id) {
+  last_queued_request_id = std::max(last_queued_request_id, request_id);
   int i = request_id % ife_buf_depth;
   assert(sync_objs_ife[i] == 0);
 
@@ -1474,6 +1475,12 @@ bool SpectraCamera::validateEvent(uint64_t request_id, uint64_t ife_frame_id) {
 }
 
 void SpectraCamera::clearAndRequeue(uint64_t from_request_id) {
+  // The kernel reports only requests newer than any it has reported, and a flush doesn't
+  // reset that, so requeuing old IDs can stall the camera for good. Drives keep stock behavior.
+  if (wide_sensor_mode != "stock") {
+    from_request_id = std::max(from_request_id, last_queued_request_id + 1);
+  }
+
   // clear everything, then queue up a fresh set of frames
   LOGW("clearing and requeuing camera %d from %lu", cc.camera_num, from_request_id);
   clear_req_queue();
