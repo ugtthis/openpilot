@@ -133,7 +133,6 @@ class ClipRow(Widget):
     self._thumb = _FrameTexture()
     self._thumb_loaded = False
     self._thumb_w = 0
-    self._thumb_h = 0
     self._trash_icon = gui_app.texture(TRASH_ICON, 32, 38)
     self._title = UnifiedLabel(clip.time_label(zone), ROW_TEXT_SIZE, FontWeight.DISPLAY,
                                text_color=TEXT_COLOR,
@@ -156,8 +155,8 @@ class ClipRow(Widget):
     self._thumb.unload()
     self._thumb_loaded = False
 
-  def set_thumb_size(self, width: int, height: int) -> None:
-    self._thumb_w, self._thumb_h = width, height
+  def set_thumb_width(self, width: int) -> None:
+    self._thumb_w = width
 
   def _ensure_thumb(self):
     if self._thumb_loaded or self._parent_rect is None or not rl.check_collision_recs(self.rect, self._parent_rect):
@@ -600,9 +599,9 @@ class PlaybackView(Widget):
     self._list_rect = rl.Rectangle(self.rect.x, self.rect.y + HEADER_H,
                                    self.rect.width, max(0, self.rect.height - HEADER_H))
     self._row_h = row_height_for_peek(self._list_rect.height, ROW_GAP, SECOND_ROW_VISIBLE_FRACTION)
-    thumb_w, thumb_h = thumb_size_for_row(self._row_h)
+    thumb_w, _ = thumb_size_for_row(self._row_h)
     for row in self._rows:
-      row.set_thumb_size(thumb_w, thumb_h)
+      row.set_thumb_width(thumb_w)
 
   def _handle_mouse_press(self, mouse_pos: MousePos):
     self._press.press(mouse_pos, self._header_controls())

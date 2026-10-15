@@ -1,7 +1,7 @@
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.system.camcorder.cameras import (
   CABIN_CAMERA, CAMERAS, WIDE_ROAD_CAMERA,
-  camera_for_clip_name, camera_for_control_name, camera_for_stream,
+  camera_for_control_name, camera_for_stream,
 )
 
 
@@ -16,7 +16,6 @@ def test_registry_covers_every_camcorder_stream_and_round_trips_names():
   for camera in CAMERAS:
     assert camera_for_stream(camera.stream_type) is camera
     assert camera_for_control_name(camera.control_name) is camera
-    assert camera_for_clip_name(camera.clip_name) is camera
 
 
 def test_camera_capture_behavior_matches_existing_outputs():

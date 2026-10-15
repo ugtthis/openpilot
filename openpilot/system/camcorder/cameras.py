@@ -35,8 +35,6 @@ CAMERAS = (WIDE_ROAD_CAMERA, CABIN_CAMERA)
 
 _BY_STREAM = {camera.stream_type: camera for camera in CAMERAS}
 _BY_CONTROL_NAME = {camera.control_name: camera for camera in CAMERAS}
-_BY_CLIP_NAME = {camera.clip_name: camera for camera in CAMERAS}
-
 
 def camera_for_stream(stream_type: VisionStreamType) -> Camera:
   return _BY_STREAM[stream_type]
@@ -44,7 +42,3 @@ def camera_for_stream(stream_type: VisionStreamType) -> Camera:
 
 def camera_for_control_name(name: str) -> Camera | None:
   return _BY_CONTROL_NAME.get(name)
-
-
-def camera_for_clip_name(name: str) -> Camera:
-  return _BY_CLIP_NAME[name]

@@ -266,7 +266,6 @@ class TestCamcorderClips(OpenpilotTestCase):
     assert [item.clip_id for item in listed] == [clip.clip_id]
 
     with ClipReader(clip) as reader:
-      assert reader.timestamps_ms() == [0, 50, 100]
       assert reader.frame_index_at_ms(0) == 0
       assert reader.frame_index_at_ms(49) == 0
       assert reader.frame_index_at_ms(50) == 1

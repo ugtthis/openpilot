@@ -6,12 +6,13 @@ import pytest
 from openpilot.system.camcorder import storage as storage_module
 from openpilot.system.camcorder.library import CAMCORDER_QUOTA_BYTES, CAMCORDER_RESERVE_BYTES, library_bytes, unused_reserve_bytes
 from openpilot.system.camcorder.storage import (
-  STOP_MARGIN_BYTES, STOP_MARGIN_PERCENT, TAKE_BYTES_PER_S, StorageMonitor, measure_recordable_bytes, recordable_bytes,
+  STOP_MARGIN_BYTES, STOP_MARGIN_PERCENT, StorageMonitor, measure_recordable_bytes, recordable_bytes,
 )
 from openpilot.system.loggerd.config import MIN_STORAGE_BYTES, MIN_STORAGE_PERCENT
 
 GIB = 1024**3
 BLOCK_SIZE = 4096
+TAKE_BYTES_PER_S = 1_000_000
 
 
 def stat(total_bytes: int, available_bytes: int):

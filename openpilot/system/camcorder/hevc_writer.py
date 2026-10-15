@@ -138,10 +138,6 @@ class HevcWriter:
     if not self._index.closed:
       self._index.close()
 
-  def _cleanup(self) -> None:
-    self._track.discard_live()
-    self._track.cleanup_journal()
-
 
 def _journaled_frames(index: bytes, data_size: int) -> list[tuple[int, int]]:
   """(end offset, timestamp) of each frame written completely before its index entry."""

@@ -220,7 +220,6 @@ def test_photo_command_does_not_latch_recording_or_open_review():
 
   sm.publish(sequence=int(pm.last_command.sequence), phase="idle", clipId="photo")
   assert client.update() is None
-  assert not client._requested_photo
 
 
 def test_photo_is_rejected_during_a_video_take():

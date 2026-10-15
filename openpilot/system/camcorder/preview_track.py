@@ -221,9 +221,6 @@ class ClipReader:
       self._frames.close()
       self._frames = None
 
-  def timestamps_ms(self) -> list[int]:
-    return self._timestamps
-
   def frame_index_at_ms(self, t_ms: int) -> int:
     i = bisect.bisect_right(self._timestamps, t_ms) - 1
     return min(max(i, 0), len(self._timestamps) - 1)

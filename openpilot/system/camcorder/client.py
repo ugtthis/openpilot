@@ -53,7 +53,6 @@ class CamcorderClient:
     self._stream_type = VisionStreamType.VISION_STREAM_WIDE_ROAD
     self._requested_recording = False
     self._take_sequence = 0
-    self._requested_photo = False
     self._completed_clip: Clip | None = None
     self._error = ""
     self._notice_code = "none"
@@ -139,7 +138,6 @@ class CamcorderClient:
     if self.recording:
       return False
     self.set_warm(True, stream_type)
-    self._requested_photo = True
     self._dismissed_notice = self._notice_code
     self._local_error = ""
     self._error = ""
@@ -151,7 +149,6 @@ class CamcorderClient:
     if self._lease_held:
       self._release_lease()
     self._warm = False
-    self._requested_photo = False
 
   def update(self) -> Clip | None:
     self._sm.update(0)
@@ -169,7 +166,6 @@ class CamcorderClient:
       self._update_notice(str(state.notice))
       if self._pending is not None and int(state.sequence) >= self._sequence:
         self._pending = None
-        self._requested_photo = False
       # Until camcorderd acknowledges the start, its phase and clipId describe the previous take.
       take_acknowledged = int(state.sequence) >= self._take_sequence
       if self._requested_recording and take_acknowledged and self._phase not in _TAKE_PHASES:
@@ -187,7 +183,6 @@ class CamcorderClient:
   def _reconnect(self, recovered: bool) -> None:
     """camcorderd restarted: the old take and any command sent to it are gone."""
     self._pending = None
-    self._requested_photo = False
     # The new session restarts its sequence, and its first state is the take's outcome.
     self._take_sequence = 0
     if self._requested_recording and not recovered:
