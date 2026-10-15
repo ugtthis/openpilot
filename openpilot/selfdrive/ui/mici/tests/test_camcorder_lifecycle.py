@@ -543,8 +543,10 @@ def test_ignition_transition_cancels_and_stops_capture():
     _snapshot_countdown=Countdown(),
     _recorder=Recorder(),
     _press=press,
+    _unavailable_stop_sent=False,
     stream_type=WIDE,
   )
+  view._end_capture = lambda: CamcorderView._end_capture(cast(Any, view))
 
   with (
     patch.object(ui_state, "ignition", True),
@@ -556,3 +558,102 @@ def test_ignition_transition_cancels_and_stops_capture():
   assert view._recorder.stopped
   assert not view._press.is_down("record")
   clear_timeout.assert_called_once_with(None)
+
+
+class _TickRecorder:
+  def __init__(self, recording: bool):
+    self.recording = recording
+    self.stops = 0
+    self.warm: list[bool] = []
+
+  def stop(self):
+    self.stops += 1
+
+  def set_warm(self, warm, stream_type):
+    self.warm.append(warm)
+
+  def update(self):
+    return None
+
+
+def _tick_view(recorder: _TickRecorder):
+  view = SimpleNamespace(
+    _snapshot_countdown=SimpleNamespace(cancel=lambda: None),
+    _recorder=recorder,
+    _press=PressTracker(),
+    _unavailable_stop_sent=False,
+    _capture_allowed=CamcorderView._capture_allowed,
+    stream_type=WIDE,
+  )
+  view._end_capture = lambda: CamcorderView._end_capture(cast(Any, view))
+  return view
+
+
+@contextmanager
+def _parked(panda_type=log.PandaState.PandaType.tres, is_body=False):
+  with (
+    patch.object(ui_state, "ignition", False),
+    patch.object(ui_state, "is_body", is_body),
+    patch.object(ui_state, "panda_type", panda_type),
+    patch.object(device, "set_override_interactive_timeout"),
+  ):
+    yield
+
+
+def test_take_stops_once_when_panda_state_drops_out_while_parked():
+  recorder = _TickRecorder(recording=True)
+  view = _tick_view(recorder)
+
+  with _parked():
+    CamcorderView._update_recorder(cast(Any, view))
+  assert recorder.stops == 0
+
+  # No ignition edge: only the page's availability changes.
+  with _parked(panda_type=log.PandaState.PandaType.unknown):
+    for _ in range(5):
+      CamcorderView._update_recorder(cast(Any, view))
+  assert recorder.stops == 1
+  assert recorder.warm == [False]
+
+
+def test_take_stops_when_body_mode_hides_the_camcorder():
+  recorder = _TickRecorder(recording=True)
+  view = _tick_view(recorder)
+
+  with _parked(is_body=True):
+    CamcorderView._update_recorder(cast(Any, view))
+  assert recorder.stops == 1
+
+
+def test_available_camcorder_keeps_recording_and_next_take_can_be_stopped_again():
+  recorder = _TickRecorder(recording=True)
+  view = _tick_view(recorder)
+  with _parked(panda_type=log.PandaState.PandaType.unknown):
+    CamcorderView._update_recorder(cast(Any, view))
+  assert recorder.stops == 1
+
+  # That take ends; a later take that loses the page again is stopped again.
+  recorder.recording = False
+  with _parked():
+    CamcorderView._update_recorder(cast(Any, view))
+  recorder.recording = True
+  with _parked():
+    CamcorderView._update_recorder(cast(Any, view))
+  assert recorder.stops == 1
+  with _parked(panda_type=log.PandaState.PandaType.unknown):
+    CamcorderView._update_recorder(cast(Any, view))
+  assert recorder.stops == 2
+
+
+def test_ignition_stop_is_not_repeated_by_the_tick():
+  recorder = _TickRecorder(recording=True)
+  view = _tick_view(recorder)
+  with (
+    patch.object(ui_state, "ignition", True),
+    patch.object(ui_state, "is_body", False),
+    patch.object(ui_state, "panda_type", log.PandaState.PandaType.tres),
+    patch.object(device, "set_override_interactive_timeout"),
+  ):
+    CamcorderView.on_ignition_transition(cast(Any, view))
+    CamcorderView._update_recorder(cast(Any, view))
+  assert recorder.stops == 1

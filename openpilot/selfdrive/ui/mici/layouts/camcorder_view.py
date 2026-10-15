@@ -320,6 +320,7 @@ class CamcorderView(CameraView):
     super().__init__("camerad", WIDE)
     self._set_placeholder_color(rl.BLACK)
     self._recorder = CamcorderClient()
+    self._unavailable_stop_sent = False
     gui_app.add_nav_stack_tick(self._update_recorder)
     self._photo_mode = False
     self._mode_pull = ModePullGesture()
@@ -400,18 +401,28 @@ class CamcorderView(CameraView):
       self._settings.close()
 
   def _update_recorder(self) -> None:
+    # Ticks run whether or not this page is showing. A take must not outlive the page that
+    # shows and stops it, e.g. when panda state drops out while parked and no ignition edge comes.
+    if not self._recorder.recording:
+      self._unavailable_stop_sent = False
+    elif not self._unavailable_stop_sent and not self._capture_allowed():
+      self._end_capture()
     clip = self._recorder.update()
     if clip is not None:
       device.set_override_interactive_timeout(None)
       self._playback.review(clip)
 
   def on_ignition_transition(self) -> None:
-    if not ui_state.ignition:
-      return
+    if ui_state.ignition:
+      self._end_capture()
+
+  def _end_capture(self) -> None:
+    """Save any take and release the recorder."""
     self._snapshot_countdown.cancel()
     self._press.clear()
     if self._recorder.recording:
       self._recorder.stop()
+      self._unavailable_stop_sent = True
     self._recorder.set_warm(False, self.stream_type)
     device.set_override_interactive_timeout(None)
 
