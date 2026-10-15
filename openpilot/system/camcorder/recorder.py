@@ -472,8 +472,13 @@ class ClipRecorder:
       if self._hevc is None:
         self._hevc = HevcWriter(self._preview.path, self._fps)
       hevc = self._hevc
+    lost_before = hevc.lost_packet_count
     for encoded in encoded_frames:
       hevc.add_encoded(encoded)
+    if hevc.lost_packet_count > lost_before:
+      # Gaps without this event are camera skips.
+      cloudlog.event("camcorder encoded video lost", error=True, packets=hevc.lost_packet_count - lost_before,
+                     total_packets=hevc.lost_packet_count)
     return int(encoded_frames[-1].idx.timestampEof) if encoded_frames else 0
 
   def _set_capture_error(self, error: str, failure: CaptureFailure = CaptureFailure.RECORDING) -> None:

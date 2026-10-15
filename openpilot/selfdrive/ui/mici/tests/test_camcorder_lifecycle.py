@@ -481,6 +481,19 @@ def test_stop_drains_encoded_video_until_a_frame_after_the_press():
     assert master is not None and master.frame_count == 2
 
 
+def test_lost_encoded_packets_are_logged_apart_from_camera_skips():
+  with TemporaryDirectory() as directory:
+    recorder = ClipRecorder(mic=cast(Any, _FakeMic()))
+    recorder._preview = cast(Any, SimpleNamespace(path=Path(directory)))
+    with patch("openpilot.system.camcorder.recorder.cloudlog.event") as event:
+      recorder._write_hevc([_encoded(1000, keyframe=True), _encoded(1050)])
+      event.assert_not_called()
+      recorder._write_hevc([_encoded(1200)])
+    event.assert_called_once_with("camcorder encoded video lost", error=True, packets=2, total_packets=2)
+    assert recorder._hevc is not None
+    recorder._hevc.abort()
+
+
 def test_camcorder_is_on_screen_only_while_settled_on_screen():
   warm = []
   layout = cast(Any, object.__new__(MiciMainLayout))
