@@ -1,4 +1,3 @@
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -181,32 +180,6 @@ def test_recorder_refuses_onroad_start_before_acquiring_leases():
   assert not mic.started
 
 
-def test_recorder_ignition_stop_releases_leases_before_waiting_for_threads():
-  events = []
-
-  class CaptureThread:
-    def join(self, timeout=None):
-      events.append("join")
-
-    def is_alive(self):
-      return False
-
-  recorder = ClipRecorder()
-  recorder._preview_thread = cast(Any, CaptureThread())
-
-  with (
-    patch("openpilot.system.camcorder.recorder.release_encoder",
-          side_effect=lambda: events.append("encoder")),
-  ):
-    recorder.stop_async()
-    deadline = time.monotonic() + 2.0
-    while recorder.state == RecorderState.FINALIZING and time.monotonic() < deadline:
-      time.sleep(0.01)
-
-  assert recorder.state == RecorderState.IDLE
-  assert events == ["encoder", "join"]
-
-
 def test_recorder_normal_stop_releases_leases_after_waiting_for_threads():
   joined = False
 
@@ -230,48 +203,6 @@ def test_recorder_normal_stop_releases_leases_after_waiting_for_threads():
       assert joined
 
     assert recorder.stop() is None
-
-
-def test_ignition_stop_still_saves_the_take():
-  class Writer:
-    def __init__(self, result):
-      self.result = result
-      self.finalized_with = None
-
-    def finalize(self, *args):
-      self.finalized_with = args
-      return self.result
-
-  master = MasterInfo("video.hevc", 1344, 760, 1)
-  recorder = ClipRecorder(mic=cast(Any, _FakeMic("audio")))
-  recorder._preview = cast(Any, Writer("clip"))
-  recorder._hevc = cast(Any, Writer(master))
-  preview = recorder._preview
-
-  with patch("openpilot.system.camcorder.recorder.release_encoder"):
-    recorder.stop_async()
-    deadline = time.monotonic() + 2.0
-    while recorder.state == RecorderState.FINALIZING and time.monotonic() < deadline:
-      time.sleep(0.01)
-
-  assert recorder.state == RecorderState.IDLE
-  assert preview.finalized_with == (master, "audio", recorder._stop_mono_ns)
-
-
-def test_async_stop_thread_failure_remains_fail_safe():
-  recorder = ClipRecorder()
-  with (
-    patch("openpilot.system.camcorder.recorder.release_encoder") as release_encoder,
-    patch("openpilot.system.camcorder.recorder.threading.Thread.start",
-          side_effect=RuntimeError("thread unavailable")),
-    patch("openpilot.system.camcorder.recorder.cloudlog.exception") as log_exception,
-  ):
-    recorder.stop_async()
-
-  assert recorder._stop.is_set()
-  assert recorder.state == RecorderState.IDLE
-  release_encoder.assert_called_once()
-  log_exception.assert_called_once()
 
 
 class _TakeThread:
@@ -383,20 +314,6 @@ def test_stale_teardown_aborts_instead_of_publishing_tracks():
   release.assert_not_called()
 
 
-def test_double_async_stop_is_single_flight():
-  recorder = ClipRecorder()
-  with (
-    patch("openpilot.system.camcorder.recorder.release_encoder"),
-    patch("openpilot.system.camcorder.recorder.threading.Thread") as thread,
-  ):
-    recorder.stop_async()
-    recorder.stop_async()
-
-  thread.assert_called_once()
-  thread.return_value.start.assert_called_once()
-  assert recorder.state == RecorderState.FINALIZING
-
-
 def test_warm_camcorder_holds_leases_across_a_take():
   recorder = _warmable_recorder()
   with _recorded_leases() as events:
@@ -429,17 +346,6 @@ def test_camcorder_does_not_warm_up_with_ignition_on():
   with _recorded_leases(ignition=True) as events:
     recorder.set_warm(True)
   assert events == []
-
-
-def test_ignition_stop_releases_warm_leases():
-  recorder = _warmable_recorder()
-  with _recorded_leases() as events:
-    recorder.set_warm(True)
-    recorder.stop_async()
-    deadline = time.monotonic() + 2.0
-    while recorder.state == RecorderState.FINALIZING and time.monotonic() < deadline:
-      time.sleep(0.01)
-  assert events == ["acquire", "release"]
 
 
 def _encoded(timestamp_ms: int, keyframe: bool = False):

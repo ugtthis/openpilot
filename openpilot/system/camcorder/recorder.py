@@ -57,7 +57,6 @@ class RecorderState(StrEnum):
 
 class TeardownReason(StrEnum):
   SHUTTER = "shutter"
-  IGNITION = "ignition"
   STALE = "stale"
 
 
@@ -261,36 +260,12 @@ class ClipRecorder:
     _stopped, clip = self._teardown(TeardownReason.SHUTTER)
     return clip
 
-  def stop_async(self) -> None:
-    """Save a take during ignition teardown without blocking the caller."""
-    with self._lock:
-      if self._state == RecorderState.FINALIZING:
-        return
-      self._stop_mono_ns = boot_time_ns()
-      self._warm = False
-      self._state = RecorderState.FINALIZING
-    self._stop.set()
-    self._release_leases()
-    try:
-      threading.Thread(target=self._finish_stop_async, name="camcorder-stop", daemon=True).start()
-    except RuntimeError:
-      # Resources are already released and capture workers have been asked to
-      # stop. Leave stale-file cleanup to the next offroad start.
-      with self._lock:
-        self._state = RecorderState.IDLE
-      cloudlog.exception("camcorder stop finalizer could not start")
-
-  def _finish_stop_async(self) -> None:
-    self._teardown(TeardownReason.IGNITION)
-
   def _teardown(self, reason: TeardownReason) -> tuple[bool, Clip | None]:
     """Join workers, then either abort stale tracks or publish a completed take."""
     timeout = 1.0 if reason == TeardownReason.STALE else 2.0
     stopped = self._join_threads(timeout)
-    if reason in (TeardownReason.SHUTTER, TeardownReason.STALE):
-      # Shutter capture drains before leases go away. Ignition has already
-      # released them so process shutdown cannot wait on capture threads.
-      self._release_leases()
+    # Capture drains before leases go away.
+    self._release_leases()
     if not stopped:
       if reason != TeardownReason.STALE:
         self._set_capture_error("capture workers did not stop")
