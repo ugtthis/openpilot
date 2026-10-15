@@ -444,7 +444,8 @@ def test_ignition_stop_releases_warm_leases():
 
 def _encoded(timestamp_ms: int, keyframe: bool = False):
   return SimpleNamespace(header=b"H" if keyframe else b"", data=b"%d" % timestamp_ms, width=1344, height=760,
-                         idx=SimpleNamespace(flags=8 if keyframe else 0, timestampEof=timestamp_ms * 1_000_000))
+                         idx=SimpleNamespace(encodeId=timestamp_ms // 50, flags=8 if keyframe else 0,
+                                             timestampEof=timestamp_ms * 1_000_000))
 
 
 def test_take_video_starts_at_its_first_keyframe():

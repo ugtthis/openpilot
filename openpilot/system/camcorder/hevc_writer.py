@@ -64,8 +64,11 @@ class HevcWriter:
     self._index = open(self._index_path, "wb", buffering=0)
     self._sync = self._track.periodic_sync(self._file, self._index)
     self._started = False
+    self._needs_keyframe = True
     self._last_timestamp_ns = 0
     self._dropped_frame_count = 0
+    self._last_encode_id: int | None = None
+    self._lost_packet_count = 0
 
   @property
   def started(self) -> bool:
@@ -73,11 +76,27 @@ class HevcWriter:
     return self._started
 
   @property
+  def needs_keyframe(self) -> bool:
+    """True until the track starts, and again after lost packets until it resyncs."""
+    return self._needs_keyframe
+
+  @property
   def dropped_frame_count(self) -> int:
     """Frames lost so far, counted the same way the published master counts them."""
     return self._dropped_frame_count
 
+  @property
+  def lost_packet_count(self) -> int:
+    """Encoded packets that never reached this writer; the camera skipping a frame isn't one."""
+    return self._lost_packet_count
+
   def add_encoded(self, encoded):
+    encode_id = int(encoded.idx.encodeId)
+    if self._last_encode_id is not None and encode_id != self._last_encode_id + 1:
+      # P-frames after a lost packet reference a picture we don't have and would decode as garbage.
+      self._lost_packet_count += max(0, encode_id - self._last_encode_id - 1)
+      self._needs_keyframe = True
+    self._last_encode_id = encode_id
     self.add_packet(bytes(encoded.header), bytes(encoded.data),
                     bool(encoded.idx.flags & V4L2_BUF_FLAG_KEYFRAME),
                     int(encoded.width), int(encoded.height),
@@ -85,11 +104,13 @@ class HevcWriter:
 
   def add_packet(self, header: bytes, data: bytes, keyframe: bool, width: int, height: int,
                  timestamp_ns: int = 0):
-    if not self._started:
+    if self._needs_keyframe:
       if not keyframe or not header:
         return
-      write_json_atomic(self._info_path, {"width": width, "height": height, "fps": self._fps})
-      self._started = True
+      if not self._started:
+        write_json_atomic(self._info_path, {"width": width, "height": height, "fps": self._fps})
+        self._started = True
+      self._needs_keyframe = False
     if keyframe and header:
       self._file.write(header)
     self._file.write(data)

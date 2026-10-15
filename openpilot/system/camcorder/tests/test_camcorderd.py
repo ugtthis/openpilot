@@ -367,12 +367,31 @@ def test_take_asks_its_encoder_for_a_keyframe_until_video_starts(tmp_path):
   recorder._request_keyframe("cabinEncodeData")
   assert messaging.log_from_bytes(sent[0]).encoderKeyframeRequest.encodeService == "cabinEncodeData"
 
-  assert not recorder._video_started()
+  assert recorder._video_needs_keyframe()
   recorder._hevc = HevcWriter(tmp_path)
-  assert not recorder._video_started()
+  assert recorder._video_needs_keyframe()
   recorder._hevc.add_packet(b"header", b"frame", keyframe=True, width=8, height=8)
-  assert recorder._video_started()
+  assert not recorder._video_needs_keyframe()
   recorder._hevc.abort()
+
+
+def test_take_asks_for_a_keyframe_again_after_lost_packets(tmp_path):
+  recorder = ClipRecorder(mic=SimpleNamespace())
+  recorder._hevc = HevcWriter(tmp_path)
+  recorder._hevc.add_encoded(_encoded(0, keyframe=True))
+  recorder._hevc.add_encoded(_encoded(1))
+  assert not recorder._video_needs_keyframe()
+  recorder._hevc.add_encoded(_encoded(5))
+  assert recorder._video_needs_keyframe()
+  recorder._hevc.abort()
+
+
+def _encoded(encode_id: int, keyframe: bool = False, fps: int = 20):
+  return SimpleNamespace(
+    header=b"header" if keyframe else b"", data=b"frame", width=8, height=8,
+    idx=SimpleNamespace(encodeId=encode_id, flags=8 if keyframe else 0,
+                        timestampEof=1_000_000_000 + encode_id * round(1e9 / fps)),
+  )
 
 
 def test_recorder_poll_promotes_audio_write_failures_without_a_cross_thread_callback():

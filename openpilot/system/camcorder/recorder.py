@@ -437,8 +437,8 @@ class ClipRecorder:
     try:
       while not self._stop.is_set():
         # Ask only once subscribed, so the keyframe cannot arrive unheard. Repeat until the
-        # video track starts: a request is lost if encoderd is still starting.
-        if not self._video_started() and time.monotonic() - last_keyframe_request >= _KEYFRAME_RETRY_S:
+        # video track starts or resyncs: a request is lost if encoderd is still starting.
+        if self._video_needs_keyframe() and time.monotonic() - last_keyframe_request >= _KEYFRAME_RETRY_S:
           self._request_keyframe(service)
           last_keyframe_request = time.monotonic()
         if not self._preview_ready.wait(0.05):
@@ -454,9 +454,9 @@ class ClipRecorder:
       self._set_capture_error(f"encoded video capture failed: {exc}")
       cloudlog.exception("camcorder encoded video capture failed")
 
-  def _video_started(self) -> bool:
+  def _video_needs_keyframe(self) -> bool:
     with self._lock:
-      return self._hevc is not None and self._hevc.started
+      return self._hevc is None or self._hevc.needs_keyframe
 
   def _request_keyframe(self, encode_service: str) -> None:
     from openpilot.cereal import messaging

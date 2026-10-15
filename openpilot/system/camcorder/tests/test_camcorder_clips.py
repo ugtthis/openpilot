@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -747,6 +748,42 @@ class TestCamcorderClips(OpenpilotTestCase):
       assert master is not None
       assert (master.gap_count, master.dropped_frame_count) == (2, 4)
       assert master.gaps == ((3, 2), (5, 2))
+
+  def test_hevc_writer_tells_lost_packets_from_camera_skips(self):
+    def encoded(encode_id, frame, keyframe=False):
+      return SimpleNamespace(header=b"H" if keyframe else b"", data=b"f%d" % frame, width=8, height=8,
+                             idx=SimpleNamespace(encodeId=encode_id, flags=8 if keyframe else 0,
+                                                 timestampEof=1_000_000_000 + frame * 50_000_000))
+
+    with TemporaryDirectory() as directory:
+      writer = HevcWriter(Path(directory))
+      writer.add_encoded(encoded(0, 0, keyframe=True))
+      # The camera skipped frames 2-3, but every packet arrived.
+      writer.add_encoded(encoded(1, 1))
+      writer.add_encoded(encoded(2, 4))
+      assert (writer.lost_packet_count, writer.dropped_frame_count) == (0, 2)
+      # Packets 3-4 were lost, so P-frames wait for the next keyframe.
+      writer.add_encoded(encoded(5, 7))
+      assert writer.needs_keyframe
+      writer.add_encoded(encoded(6, 8, keyframe=True))
+      assert not writer.needs_keyframe
+      writer.add_encoded(encoded(7, 9))
+      assert writer.lost_packet_count == 2
+      master = writer.finalize()
+      assert master is not None
+      assert Path(directory, master.filename).read_bytes() == b"Hf0f1f4Hf8f9"
+      assert master.gaps == ((2, 2), (3, 3))
+
+  def test_hevc_writer_resyncs_after_an_encoder_restart(self):
+    with TemporaryDirectory() as directory:
+      writer = HevcWriter(Path(directory))
+      for encode_id, keyframe in ((40, True), (41, False), (0, False), (1, True)):
+        writer.add_encoded(SimpleNamespace(header=b"H" if keyframe else b"", data=b"f", width=8, height=8,
+                                           idx=SimpleNamespace(encodeId=encode_id, flags=8 if keyframe else 0,
+                                                               timestampEof=1_000_000_000 + encode_id)))
+      assert writer.lost_packet_count == 0
+      assert not writer.needs_keyframe
+      writer.abort()
 
   def test_a_fast_camera_clock_is_not_a_timeline_gap(self):
     # The sensor runs at ~60.09 fps; a minute of it is 5 more frames than 60 fps.
